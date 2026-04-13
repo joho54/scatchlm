@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,8 +8,11 @@ from sqlalchemy import select
 from app.core.auth import get_current_user_id
 from app.core.database import get_db
 from app.models.textbook import TextbookSource
+from app.models.usage import LLMUsage
 from app.services.feedback_service import get_feedback
 from app.services.pdf_service import extract_text as extract_pdf_text
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["feedback"])
 
@@ -35,6 +40,7 @@ async def request_feedback(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty image")
 
+    # 교재 컨텍스트 조회
     textbook_context = None
     if textbook_id and page_start and page_end:
         result = await db.execute(
@@ -47,6 +53,7 @@ async def request_feedback(
         if source:
             textbook_context = extract_pdf_text(source.server_path, page_start, page_end)
 
+    error_msg = None
     try:
         result = await get_feedback(
             image_bytes=image_bytes,
@@ -56,6 +63,38 @@ async def request_feedback(
             task_type=task_type,
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LLM API error: {e}")
+        error_msg = str(e)
+        log.exception("Feedback API failed: user=%s note=%s", user_id, note_id)
+        # usage 기록 (실패 케이스)
+        db.add(LLMUsage(
+            user_id=user_id,
+            model="unknown",
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
+            cost_usd=0,
+            latency_ms=0,
+            task_type=task_type,
+            language=language,
+            has_textbook_context=textbook_context is not None,
+            error=error_msg,
+        ))
+        await db.commit()
+        raise HTTPException(status_code=502, detail=f"LLM API error: {error_msg}")
 
-    return FeedbackResponse(**result)
+    # usage 기록 (성공)
+    db.add(LLMUsage(
+        user_id=user_id,
+        model=result.model,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        total_tokens=result.total_tokens,
+        cost_usd=result.cost_usd,
+        latency_ms=result.latency_ms,
+        task_type=task_type,
+        language=language,
+        has_textbook_context=textbook_context is not None,
+    ))
+    await db.commit()
+
+    return FeedbackResponse(**result.data)

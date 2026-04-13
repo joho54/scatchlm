@@ -1,6 +1,6 @@
-import React from "react";
+import React, { forwardRef, useImperativeHandle, useRef } from "react";
 import { StyleSheet, View } from "react-native";
-import { Canvas, Path, SkPath } from "@shopify/react-native-skia";
+import { Canvas, Path, SkPath, makeImageFromView } from "@shopify/react-native-skia";
 import {
   Gesture,
   GestureDetector,
@@ -13,6 +13,10 @@ export interface StrokeData {
   width: number;
 }
 
+export interface DrawingCanvasHandle {
+  capture: () => Promise<Uint8Array | null>;
+}
+
 interface DrawingCanvasProps {
   strokes: StrokeData[];
   currentStroke: StrokeData | null;
@@ -21,52 +25,74 @@ interface DrawingCanvasProps {
   onStrokeEnd: () => void;
 }
 
-export default function DrawingCanvas({
-  strokes,
-  currentStroke,
-  onStrokeStart,
-  onStrokeMove,
-  onStrokeEnd,
-}: DrawingCanvasProps) {
-  const pan = Gesture.Pan()
-    .minDistance(0)
-    .onBegin((e) => onStrokeStart(e.x, e.y))
-    .onUpdate((e) => onStrokeMove(e.x, e.y))
-    .onEnd(() => onStrokeEnd())
-    .onFinalize(() => onStrokeEnd());
+const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
+  ({ strokes, currentStroke, onStrokeStart, onStrokeMove, onStrokeEnd }, ref) => {
+    const viewRef = useRef<View>(null);
 
-  return (
-    <GestureHandlerRootView style={styles.container}>
-      <GestureDetector gesture={pan}>
-        <View style={styles.canvas}>
-          <Canvas style={StyleSheet.absoluteFill}>
-            {strokes.map((stroke, index) => (
-              <Path
-                key={index}
-                path={stroke.path}
-                color={stroke.color}
-                style="stroke"
-                strokeWidth={stroke.width}
-                strokeCap="round"
-                strokeJoin="round"
-              />
-            ))}
-            {currentStroke && (
-              <Path
-                path={currentStroke.path}
-                color={currentStroke.color}
-                style="stroke"
-                strokeWidth={currentStroke.width}
-                strokeCap="round"
-                strokeJoin="round"
-              />
-            )}
-          </Canvas>
-        </View>
-      </GestureDetector>
-    </GestureHandlerRootView>
-  );
-}
+    useImperativeHandle(ref, () => ({
+      capture: async () => {
+        if (!viewRef.current) return null;
+        try {
+          const image = await makeImageFromView(viewRef);
+          if (!image) return null;
+          const encoded = image.encodeToBase64();
+          // base64 → Uint8Array
+          const binary = atob(encoded);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          return bytes;
+        } catch {
+          return null;
+        }
+      },
+    }));
+
+    const pan = Gesture.Pan()
+      .minDistance(0)
+      .onBegin((e) => onStrokeStart(e.x, e.y))
+      .onUpdate((e) => onStrokeMove(e.x, e.y))
+      .onEnd(() => onStrokeEnd())
+      .onFinalize(() => onStrokeEnd());
+
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <GestureDetector gesture={pan}>
+          <View ref={viewRef} style={styles.canvas} collapsable={false}>
+            <Canvas style={StyleSheet.absoluteFill}>
+              {strokes.map((stroke, index) => (
+                <Path
+                  key={index}
+                  path={stroke.path}
+                  color={stroke.color}
+                  style="stroke"
+                  strokeWidth={stroke.width}
+                  strokeCap="round"
+                  strokeJoin="round"
+                />
+              ))}
+              {currentStroke && (
+                <Path
+                  path={currentStroke.path}
+                  color={currentStroke.color}
+                  style="stroke"
+                  strokeWidth={currentStroke.width}
+                  strokeCap="round"
+                  strokeJoin="round"
+                />
+              )}
+            </Canvas>
+          </View>
+        </GestureDetector>
+      </GestureHandlerRootView>
+    );
+  }
+);
+
+DrawingCanvas.displayName = "DrawingCanvas";
+
+export default DrawingCanvas;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },

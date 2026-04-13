@@ -1,3 +1,5 @@
+import logging
+
 import jwt
 from jwt import PyJWKClient
 from fastapi import Depends, HTTPException
@@ -5,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
 
+log = logging.getLogger(__name__)
 security = HTTPBearer()
 
 _jwks_client: PyJWKClient | None = None
@@ -33,9 +36,12 @@ def get_current_user_id(
         )
         user_id: str = payload.get("sub")
         if user_id is None:
+            log.warning("JWT missing sub claim")
             raise HTTPException(status_code=401, detail="Invalid token: no sub claim")
         return user_id
     except jwt.ExpiredSignatureError:
+        log.info("JWT expired")
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
+        log.warning("JWT invalid: %s", e)
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")

@@ -10,6 +10,7 @@ import FeedbackOverlay from "../../src/components/FeedbackOverlay";
 import { useDrawing } from "../../src/hooks/useDrawing";
 import { requestFeedback } from "../../src/services/feedback";
 import { saveFeedback } from "../../src/services/database";
+import { buildPreviousContext } from "../../src/services/contextBuilder";
 import type { FeedbackResponse } from "../../src/types";
 
 export default function NoteScreen() {
@@ -61,10 +62,12 @@ export default function NoteScreen() {
     setFeedback(null);
 
     try {
+      const previousContext = await buildPreviousContext(id!);
       const result = await requestFeedback({
         imageBytes,
         noteId: id!,
         language: "en",
+        previousContext,
       });
       setFeedback(result);
 

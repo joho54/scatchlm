@@ -76,7 +76,7 @@ async def get_usage_dashboard(
         func.coalesce(func.sum(LLMUsage.output_tokens), 0).label("total_output_tokens"),
         func.coalesce(func.sum(LLMUsage.cost_usd), 0).label("total_cost_usd"),
         func.coalesce(func.avg(LLMUsage.latency_ms), 0).label("avg_latency_ms"),
-        func.sum(func.cast(LLMUsage.error.isnot(None), type_=None)).label("error_count"),
+        func.count().filter(LLMUsage.error.isnot(None)).label("error_count"),
     ).where(base_filter)
 
     result = await db.execute(summary_q)

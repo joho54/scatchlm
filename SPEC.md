@@ -437,10 +437,41 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 |------|------|--------|------|
 | M1 | 프로젝트 세팅 (RN + FastAPI) + 드로잉 캔버스 구현 | 펜 입력이 가능한 캔버스 화면, FastAPI 기본 구조 | ✅ 코드 완료, iOS 빌드 대기 |
 | M2 | 백엔드 피드백 API + Claude Vision 연동 | POST /api/feedback → JSON 응답 | ✅ 완료 |
-| M3 | 피드백 렌더링 | JSON 응답을 캔버스 위에 표시 | 미착수 |
+| M3 | 무한 스크롤 캔버스 + 피드백 인라인 렌더링 | 캔버스 세로 무한 스크롤, 피드백을 캔버스 위에 직접 렌더링 | 스펙 작성 완료, 구현 미착수 |
 | M4 | PDF 업로드 + 교재 컨텍스트 연동 | POST /api/pdf/upload, 페이지 범위 지정, 컨텍스트 전송 | ✅ 완료 |
 | M5 | 노트 관리 | 노트 CRUD, 로컬 저장 (SQLite) | ✅ 완료 |
 | M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면 | 미착수 |
+
+### 10.2 M3 상세 스펙: 무한 스크롤 캔버스 + 피드백 인라인 렌더링
+
+#### 목표
+- 현재 화면 고정 캔버스 → 세로 무한 스크롤로 확장
+- 별도 패널(FeedbackOverlay) → 캔버스 위에 손글씨 아래 인라인 렌더링
+
+#### 설계
+
+**스크롤**: Skia `<Group transform={[{ translateY: -scrollOffset }]}>` 로 가상 스크롤. 캔버스 크기는 화면 유지, 컨텐츠만 이동. 뷰포트 밖 스트로크는 렌더링 스킵 (컬링).
+
+**제스처 분리**: Apple Pencil(Stylus) → 드로잉, 손가락(Touch) → 스크롤. `Gesture.Simultaneous(drawPan, scrollPan)` + `manualActivation` + `pointerType` 판별. 시뮬레이터에서는 `__DEV__` 폴백으로 모든 터치를 드로잉 처리.
+
+**피드백 렌더링**: Skia `RoundedRect` (배경 카드) + `Paragraph` (텍스트). 피드백 위치 = 스트로크 바운딩 박스의 maxY + 24px 아래. 시스템 폰트 사용 (`matchFont`).
+
+**좌표계**: 스트로크를 캔버스 가상 좌표로 저장 (`canvasY = screenY + scrollOffset`). 기존 스트로크는 scrollOffset=0 기준이므로 자동 호환.
+
+#### 구현 순서
+
+| 단계 | 파일 | 내용 |
+|------|------|------|
+| 1 | `src/types/index.ts` | `FeedbackRenderItem` 타입 추가 |
+| 2 | `src/hooks/useDrawing.ts` | scrollOffset, 좌표 변환, onScroll 콜백 |
+| 3 | `src/components/DrawingCanvas.tsx` | 제스처 분리, Group transform, 뷰포트 컬링, 피드백 Skia 렌더링 |
+| 4 | `app/note/[id].tsx` | FeedbackOverlay 제거, feedbackItems 상태, 위치 계산, 자동 스크롤 |
+| 5 | `src/components/FeedbackOverlay.tsx` | 삭제 |
+
+#### 주의 사항
+- 시뮬레이터에서 Apple Pencil 미지원 → `__DEV__` 폴백 필수
+- `makeImageFromView`는 현재 뷰포트만 캡처 → MVP 허용, 향후 Skia Surface로 개선
+- 피드백 위치를 SQLite에 실제 좌표로 저장 (현재 0으로 하드코딩된 부분 교체)
 
 ### 10.1 인프라 (마일스톤 외)
 

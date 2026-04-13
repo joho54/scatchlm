@@ -1,18 +1,26 @@
 import io
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
+from app.services.feedback_service import FeedbackResult
 
-MOCK_FEEDBACK = {
-    "recognized_text": "こんにちは",
-    "corrections": [
-        {"position": 1, "original": "こんにちわ", "corrected": "こんにちは", "reason": "助詞の誤り"}
-    ],
-    "summary": "1/1 오답. 인사말 표기를 복습하세요.",
-}
+MOCK_RESULT = FeedbackResult(
+    data={
+        "recognized_text": "こんにちは",
+        "corrections": [
+            {"position": 1, "original": "こんにちわ", "corrected": "こんにちは", "reason": "助詞の誤り"}
+        ],
+        "summary": "1/1 오답. 인사말 표기를 복습하세요.",
+    },
+    model="claude-sonnet-4-6-20250514",
+    input_tokens=800,
+    output_tokens=150,
+    total_tokens=950,
+    cost_usd=0.00465,
+    latency_ms=2340,
+)
 
 
 @pytest.mark.asyncio
@@ -20,7 +28,7 @@ async def test_feedback_success(client: AsyncClient, auth_header: dict):
     with patch(
         "app.routers.feedback.get_feedback",
         new_callable=AsyncMock,
-        return_value=MOCK_FEEDBACK,
+        return_value=MOCK_RESULT,
     ):
         res = await client.post(
             "/api/feedback",
@@ -61,7 +69,6 @@ async def test_feedback_with_textbook_context(client: AsyncClient, auth_header: 
     """교재 컨텍스트와 함께 피드백 요청."""
     import fitz
 
-    # PDF 업로드
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((72, 72), "Lesson 24 vocabulary")
@@ -79,7 +86,7 @@ async def test_feedback_with_textbook_context(client: AsyncClient, auth_header: 
     with patch(
         "app.routers.feedback.get_feedback",
         new_callable=AsyncMock,
-        return_value=MOCK_FEEDBACK,
+        return_value=MOCK_RESULT,
     ) as mock_fn:
         res = await client.post(
             "/api/feedback",
@@ -94,7 +101,29 @@ async def test_feedback_with_textbook_context(client: AsyncClient, auth_header: 
             },
         )
     assert res.status_code == 200
-    # 교재 컨텍스트가 전달되었는지 확인
     call_kwargs = mock_fn.call_args.kwargs
     assert call_kwargs["textbook_context"] is not None
     assert "Lesson 24" in call_kwargs["textbook_context"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_records_usage(client: AsyncClient, auth_header: dict):
+    """피드백 성공 시 llm_usage 테이블에 기록되는지 확인."""
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=MOCK_RESULT,
+    ):
+        await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={"note_id": "note-1", "language": "ja"},
+        )
+
+    # admin 엔드포인트로 usage 확인
+    res = await client.get("/api/admin/usage?days=1")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["summary"]["total_requests"] >= 1
+    assert data["summary"]["total_tokens"] >= 950

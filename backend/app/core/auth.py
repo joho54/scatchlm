@@ -1,34 +1,41 @@
-from fastapi import Depends, HTTPException, status
+import jwt
+from jwt import PyJWKClient
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import get_db
-from app.models.user import User
 
 security = HTTPBearer()
 
+_jwks_client: PyJWKClient | None = None
 
-async def get_current_user(
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        jwks_url = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+    return _jwks_client
+
+
+def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db),
-) -> User:
+) -> str:
+    """Supabase JWT를 JWKS로 검증하고 user_id(sub)를 반환한다."""
+    token = credentials.credentials
     try:
+        signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
         payload = jwt.decode(
-            credentials.credentials,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            options={"verify_aud": False},
         )
         user_id: str = payload.get("sub")
         if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
+            raise HTTPException(status_code=401, detail="Invalid token: no sub claim")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")

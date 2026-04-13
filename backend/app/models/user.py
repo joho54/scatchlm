@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import String, DateTime
@@ -12,7 +11,8 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # Supabase user UUID
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )

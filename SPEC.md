@@ -118,11 +118,10 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 │                                      │
 │  ┌───────────────────────────────┐   │
 │  │  API 엔드포인트               │   │
-│  │  - POST /api/auth/signup      │   │
-│  │  - POST /api/auth/login       │   │
 │  │  - POST /api/feedback         │   │
 │  │  - POST /api/pdf/upload       │   │
 │  │  - GET  /api/pdf/extract      │   │
+│  │  - GET  /health               │   │
 │  └─────────────┬─────────────────┘   │
 │                │                     │
 │  ┌─────────────▼─────────────────┐   │
@@ -137,8 +136,14 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 │  ┌───────────────────────────────┐   │
 │  │  PostgreSQL                    │   │
 │  │  - 교재 메타데이터              │   │
-│  │  - 사용자 인증                  │   │
 │  └───────────────────────────────┘   │
+└──────────────────────────────────────┘
+                 │
+┌────────────────▼─────────────────────┐
+│        Supabase Auth (외부)           │
+│  - 회원가입/로그인                     │
+│  - JWT 발급 (ES256, JWKS)            │
+│  - 세션 관리                          │
 └──────────────────────────────────────┘
 ```
 
@@ -163,7 +168,7 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 | 통신 방식 | HTTP (JSON) | 요청 → 대기 (스피너) → 구조화된 JSON 반환 |
 | PDF 파싱 | PyMuPDF (fitz) | 페이지별 텍스트 추출, 경량 |
 | LLM 연동 | anthropic (Python SDK, async) | Claude Vision API 비동기 호출 |
-| 인증 | JWT (python-jose) | 토큰 기반 사용자 인증 |
+| 인증 | Supabase Auth (JWKS/ES256) | 외부 인증 서비스, PyJWT로 토큰 검증 |
 | DB | PostgreSQL + SQLAlchemy (async) | 비동기 ORM, 사용자/교재 메타데이터 관리 |
 
 ### 4.3 API 호출 흐름
@@ -196,11 +201,12 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 
 ### 5.1 화면 목록
 
-| 화면 | 설명 |
-|------|------|
-| 홈 (노트 목록) | 저장된 노트 리스트, 새 노트 생성 |
-| 드로잉 노트 | 메인 캔버스 + 도구 모음 + 피드백 버튼 |
-| 설정 | 학습 언어 선택, 서버 연결 설정 |
+| 화면 | 설명 | 상태 |
+|------|------|------|
+| 로그인 | Supabase 이메일/비밀번호 인증 | ✅ 완료 |
+| 홈 (노트 목록) | 저장된 노트 리스트, 새 노트 생성/삭제 | ✅ 완료 |
+| 드로잉 노트 | 메인 캔버스 + 도구 모음 + 피드백 버튼 | ✅ 코드 완료 |
+| 설정 | 학습 언어 선택, 서버 연결 설정 | 미착수 |
 
 ### 5.2 드로잉 노트 화면 레이아웃
 
@@ -233,12 +239,13 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 > **서버 (PostgreSQL)**: User, TextbookSource — FastAPI 백엔드에서 관리
 
 ### 6.1 사용자 (User) — 서버
+> 인증은 Supabase Auth에서 관리. 서버 DB에는 Supabase user ID를 참조키로 저장.
+
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| id | String (UUID) | 고유 식별자 |
-| email | String | 이메일 (로그인 ID) |
-| passwordHash | String | 해시된 비밀번호 |
-| createdAt | DateTime | 가입일 |
+| id | String (UUID) | Supabase Auth user ID |
+| email | String | 이메일 |
+| createdAt | DateTime | 최초 접속일 |
 
 ### 6.2 노트 (Note) — 로컬
 | 필드 | 타입 | 설명 |
@@ -253,11 +260,11 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | id | String (UUID) | 고유 식별자 |
-| noteId | String | 소속 노트 ID |
-| points | List\<{x: number, y: number}\> | 좌표 리스트 |
+| note_id | String | 소속 노트 ID |
+| svg_path | String | Skia Path의 SVG 문자열 표현 |
 | color | String (hex) | 펜 색상 (예: "#000000") |
 | width | number | 펜 굵기 |
-| timestamp | DateTime | 작성 시각 |
+| created_at | DateTime | 작성 시각 |
 
 ### 6.4 교재 소스 (TextbookSource) — 서버
 | 필드 | 타입 | 설명 |
@@ -395,7 +402,7 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 
 ### 8.2 비용
 - 토큰 최적화 전략(7장)을 적용하여 비용 최소화
-- MVP 단계에서는 서버에서 API 키 관리 (환경변수), 사용자 인증으로 접근 제어
+- MVP 단계에서는 서버에서 API 키 관리 (환경변수), Supabase Auth로 접근 제어
 
 ### 8.3 개인정보
 - 손글씨 이미지가 외부 API로 전송됨을 사용자에게 명시
@@ -426,11 +433,24 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 
 ## 10. 개발 마일스톤
 
-| 단계 | 내용 | 산출물 |
-|------|------|--------|
-| M1 | 프로젝트 세팅 (RN + FastAPI) + 드로잉 캔버스 구현 | 펜 입력이 가능한 캔버스 화면, FastAPI 기본 구조 |
-| M2 | 백엔드 피드백 API + Claude Vision 연동 | POST /api/feedback → JSON 응답 |
-| M3 | 피드백 렌더링 | JSON 응답을 캔버스 위에 표시 |
-| M4 | PDF 업로드 + 교재 컨텍스트 연동 | POST /api/pdf/upload, 페이지 범위 지정, 컨텍스트 전송 |
-| M5 | 노트 관리 | 노트 CRUD, 로컬 저장 (SQLite) |
-| M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면, 사용자 인증 |
+| 단계 | 내용 | 산출물 | 상태 |
+|------|------|--------|------|
+| M1 | 프로젝트 세팅 (RN + FastAPI) + 드로잉 캔버스 구현 | 펜 입력이 가능한 캔버스 화면, FastAPI 기본 구조 | ✅ 코드 완료, iOS 빌드 대기 |
+| M2 | 백엔드 피드백 API + Claude Vision 연동 | POST /api/feedback → JSON 응답 | ✅ 완료 |
+| M3 | 피드백 렌더링 | JSON 응답을 캔버스 위에 표시 | 미착수 |
+| M4 | PDF 업로드 + 교재 컨텍스트 연동 | POST /api/pdf/upload, 페이지 범위 지정, 컨텍스트 전송 | ✅ 완료 |
+| M5 | 노트 관리 | 노트 CRUD, 로컬 저장 (SQLite) | ✅ 완료 |
+| M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면 | 미착수 |
+
+### 10.1 인프라 (마일스톤 외)
+
+| 항목 | 상태 |
+|------|------|
+| Supabase Auth 연동 (BE JWKS/ES256 검증 + Mobile 클라이언트) | ✅ 완료 |
+| 백엔드 테스트 (14건: auth 5, feedback 4, pdf 5) | ✅ 전체 통과 |
+| Xcode 26.4 + iOS 빌드 환경 | ✅ 설치 완료, iOS 26.4 시뮬레이터 다운로드 중 |
+| SQLite 로컬 DB (notes, strokes, feedbacks 테이블) | ✅ 완료 |
+| 드로잉 캔버스 (react-native-skia + GestureHandler) | ✅ 코드 완료, 빌드 대기 |
+| 노트 목록 UI (생성/삭제/탐색) | ✅ 완료 |
+| 로그인 UI (Supabase Auth) | ✅ 완료 |
+| 스트로크 자동 저장/로드 (SVG path ↔ SQLite) | ✅ 완료 |

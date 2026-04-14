@@ -2,7 +2,7 @@ import api from "./api";
 import type { FeedbackResponse } from "../types";
 
 export async function requestFeedback(params: {
-  imageBytes: Uint8Array;
+  imageBase64: string;
   noteId: string;
   language?: string;
   taskType?: string;
@@ -11,11 +11,13 @@ export async function requestFeedback(params: {
   pageEnd?: number;
   previousContext?: string;
 }): Promise<FeedbackResponse> {
+  // RN에서는 base64 data URI를 FormData에 직접 첨부
   const formData = new FormData();
-
-  // Uint8Array → Blob → FormData
-  const blob = new Blob([params.imageBytes.buffer as ArrayBuffer], { type: "image/png" });
-  formData.append("image", blob, "canvas.png");
+  formData.append("image", {
+    uri: `data:image/png;base64,${params.imageBase64}`,
+    name: "canvas.png",
+    type: "image/png",
+  } as any);
   formData.append("note_id", params.noteId);
   formData.append("language", params.language ?? "en");
   formData.append("task_type", params.taskType ?? "complex");

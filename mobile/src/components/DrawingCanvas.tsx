@@ -16,6 +16,7 @@ export interface StrokeData {
 
 export interface DrawingCanvasHandle {
   capture: () => Promise<Uint8Array | null>;
+  captureBase64: () => Promise<string | null>;
 }
 
 interface DrawingCanvasProps {
@@ -37,13 +38,22 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
           const image = await makeImageFromView(viewRef);
           if (!image) return null;
           const encoded = image.encodeToBase64();
-          // base64 → Uint8Array
           const binary = atob(encoded);
           const bytes = new Uint8Array(binary.length);
           for (let i = 0; i < binary.length; i++) {
             bytes[i] = binary.charCodeAt(i);
           }
           return bytes;
+        } catch {
+          return null;
+        }
+      },
+      captureBase64: async () => {
+        if (!viewRef.current) return null;
+        try {
+          const image = await makeImageFromView(viewRef);
+          if (!image) return null;
+          return image.encodeToBase64();
         } catch {
           return null;
         }

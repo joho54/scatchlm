@@ -58,9 +58,9 @@ export default function NoteScreen() {
     }
 
     logger.info("feedback", "capturing canvas");
-    const imageBytes = await canvasRef.current?.capture();
-    logger.info("feedback", "capture result", { hasBytes: !!imageBytes, size: imageBytes?.length });
-    if (!imageBytes) {
+    const imageBase64 = await canvasRef.current?.captureBase64();
+    logger.info("feedback", "capture result", { hasBase64: !!imageBase64, length: imageBase64?.length });
+    if (!imageBase64) {
       Alert.alert("오류", "캔버스 캡처에 실패했습니다.");
       return;
     }
@@ -73,7 +73,7 @@ export default function NoteScreen() {
       const previousContext = await buildPreviousContext(id!);
       logger.info("feedback", "requesting feedback", { hasContext: !!previousContext });
       const result = await requestFeedback({
-        imageBytes,
+        imageBase64,
         noteId: id!,
         language: "en",
         previousContext,

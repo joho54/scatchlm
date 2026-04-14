@@ -24,14 +24,14 @@ SYSTEM_PROMPT = (
 # 모델별 토큰 단가 (USD per 1M tokens)
 MODEL_PRICING = {
     "claude-haiku-4-5-20251001": {"input": 0.25, "output": 1.25},
-    "claude-sonnet-4-6-20250514": {"input": 3.0, "output": 15.0},
+    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
 }
 
 
 def _select_model(task_type: str) -> str:
     if task_type == "simple":
         return "claude-haiku-4-5-20251001"
-    return "claude-sonnet-4-6-20250514"
+    return "claude-sonnet-4-6"
 
 
 def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:

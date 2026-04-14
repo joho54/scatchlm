@@ -6,6 +6,7 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 
 export interface StrokeData {
   path: SkPath;
@@ -51,10 +52,22 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
 
     const pan = Gesture.Pan()
       .minDistance(0)
-      .onBegin((e) => onStrokeStart(e.x, e.y))
-      .onUpdate((e) => onStrokeMove(e.x, e.y))
-      .onEnd(() => onStrokeEnd())
-      .onFinalize(() => onStrokeEnd());
+      .onBegin((e) => {
+        "worklet";
+        runOnJS(onStrokeStart)(e.x, e.y);
+      })
+      .onUpdate((e) => {
+        "worklet";
+        runOnJS(onStrokeMove)(e.x, e.y);
+      })
+      .onEnd(() => {
+        "worklet";
+        runOnJS(onStrokeEnd)();
+      })
+      .onFinalize(() => {
+        "worklet";
+        runOnJS(onStrokeEnd)();
+      });
 
     return (
       <GestureHandlerRootView style={styles.container}>

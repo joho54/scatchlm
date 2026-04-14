@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     SUPABASE_SECRET_KEY: str = ""
     PDF_UPLOAD_DIR: str = "uploads/pdf"
     MAX_PDF_SIZE_MB: int = 50
+    DEBUG: bool = False
 
     model_config = {"env_file": ".env"}
 

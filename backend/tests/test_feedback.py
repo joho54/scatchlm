@@ -121,8 +121,8 @@ async def test_feedback_records_usage(client: AsyncClient, auth_header: dict):
             data={"note_id": "note-1", "language": "ja"},
         )
 
-    # admin 엔드포인트로 usage 확인
-    res = await client.get("/api/admin/usage?days=1")
+    # admin 엔드포인트로 usage 확인 (인증 필요)
+    res = await client.get("/api/admin/usage?days=1", headers=auth_header)
     assert res.status_code == 200
     data = res.json()
     assert data["summary"]["total_requests"] >= 1

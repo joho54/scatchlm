@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import get_current_user_id
 from app.core.database import get_db
 from app.models.usage import LLMUsage
 
@@ -56,6 +57,7 @@ class UsageDashboard(BaseModel):
 async def get_usage_dashboard(
     days: int = Query(7, ge=1, le=90),
     user_id: str | None = Query(None),
+    _current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """개발용 LLM 사용량 대시보드."""

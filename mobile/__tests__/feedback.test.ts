@@ -33,9 +33,9 @@ describe("requestFeedback", () => {
     };
     mockAxios.post.mockResolvedValue(mockResponse);
 
-    const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const imageBase64 = "iVBORw0KGgo=";
     const result = await requestFeedback({
-      imageBytes,
+      imageBase64,
       noteId: "note-1",
       language: "ja",
     });
@@ -56,9 +56,9 @@ describe("requestFeedback", () => {
       data: { recognized_text: "", corrections: [], summary: "" },
     });
 
-    const imageBytes = new Uint8Array([1, 2, 3]);
+    const imageBase64 = "AQID";
     await requestFeedback({
-      imageBytes,
+      imageBase64,
       noteId: "note-1",
       textbookId: "tb-1",
       pageStart: 1,
@@ -77,7 +77,7 @@ describe("requestFeedback", () => {
 
     await expect(
       requestFeedback({
-        imageBytes: new Uint8Array([1]),
+        imageBase64: "AQ==",
         noteId: "note-1",
       })
     ).rejects.toThrow("Network error");

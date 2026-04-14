@@ -14,6 +14,7 @@ export function useDrawing(noteId?: string) {
   const [penWidth, setPenWidth] = useState(4);
   const [isEraser, setIsEraser] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const redoStack = useRef<StrokeData[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -51,10 +52,12 @@ export function useDrawing(noteId?: string) {
     [noteId, loaded]
   );
 
+  // 스트로크 → 캔버스 가상 좌표 (screenY + scrollOffset)
   const onStrokeStart = useCallback(
     (x: number, y: number) => {
+      const canvasY = y + scrollOffset;
       const path = Skia.Path.Make();
-      path.moveTo(x, y);
+      path.moveTo(x, canvasY);
       setCurrentStroke({
         path,
         color: isEraser ? ERASER_COLOR : penColor,
@@ -62,16 +65,20 @@ export function useDrawing(noteId?: string) {
       });
       redoStack.current = [];
     },
-    [penColor, penWidth, isEraser]
+    [penColor, penWidth, isEraser, scrollOffset]
   );
 
-  const onStrokeMove = useCallback((x: number, y: number) => {
-    setCurrentStroke((prev) => {
-      if (!prev) return null;
-      prev.path.lineTo(x, y);
-      return { ...prev };
-    });
-  }, []);
+  const onStrokeMove = useCallback(
+    (x: number, y: number) => {
+      const canvasY = y + scrollOffset;
+      setCurrentStroke((prev) => {
+        if (!prev) return null;
+        prev.path.lineTo(x, canvasY);
+        return { ...prev };
+      });
+    },
+    [scrollOffset]
+  );
 
   const onStrokeEnd = useCallback(() => {
     setCurrentStroke((prev) => {
@@ -85,6 +92,10 @@ export function useDrawing(noteId?: string) {
       return null;
     });
   }, [scheduleSave]);
+
+  const onScroll = useCallback((deltaY: number) => {
+    setScrollOffset((prev) => Math.max(0, prev + deltaY));
+  }, []);
 
   const undo = useCallback(() => {
     setStrokes((prev) => {
@@ -112,6 +123,18 @@ export function useDrawing(noteId?: string) {
     setIsEraser((prev) => !prev);
   }, []);
 
+  // 전체 스트로크의 바운딩 박스 maxY 반환
+  const getStrokesMaxY = useCallback((): number => {
+    let maxY = 0;
+    for (const stroke of strokes) {
+      const bounds = stroke.path.getBounds();
+      if (bounds.height > 0 && bounds.y + bounds.height > maxY) {
+        maxY = bounds.y + bounds.height;
+      }
+    }
+    return maxY;
+  }, [strokes]);
+
   // 즉시 저장 (화면 나갈 때 호출용)
   const saveNow = useCallback(async () => {
     if (!noteId) return;
@@ -131,6 +154,7 @@ export function useDrawing(noteId?: string) {
     penWidth,
     isEraser,
     loaded,
+    scrollOffset,
     canUndo: strokes.length > 0,
     canRedo: redoStack.current.length > 0,
     setPenColor,
@@ -139,8 +163,10 @@ export function useDrawing(noteId?: string) {
     onStrokeStart,
     onStrokeMove,
     onStrokeEnd,
+    onScroll,
     undo,
     redo,
     saveNow,
+    getStrokesMaxY,
   };
 }

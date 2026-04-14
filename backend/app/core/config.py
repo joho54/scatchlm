@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_PUBLISHABLE_KEY: str = ""
     SUPABASE_SECRET_KEY: str = ""
+    VOYAGE_API_KEY: str = ""
     PDF_UPLOAD_DIR: str = "uploads/pdf"
     MAX_PDF_SIZE_MB: int = 50
     DEBUG: bool = False

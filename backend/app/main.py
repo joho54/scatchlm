@@ -8,6 +8,7 @@ from app.core.logging import setup_logging
 from app.models.user import Base
 import app.models.textbook  # noqa: F401
 import app.models.usage  # noqa: F401
+import app.models.document  # noqa: F401
 from app.routers import admin, devlog, feedback, pdf
 
 setup_logging()

@@ -440,6 +440,7 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 | M3 | 무한 스크롤 캔버스 + 피드백 인라인 렌더링 | 캔버스 세로 무한 스크롤, 피드백을 캔버스 위에 직접 렌더링 | 스펙 작성 완료, 구현 미착수 |
 | M4 | PDF 업로드 + 교재 컨텍스트 연동 | POST /api/pdf/upload, 페이지 범위 지정, 컨텍스트 전송 | ✅ 완료 |
 | M5 | 노트 관리 | 노트 CRUD, 로컬 저장 (SQLite) | ✅ 완료 |
+| M7 | RAG 기반 교재 컨텍스트 자동 검색 | 임베딩 파이프라인, 벡터 검색, 자동 컨텍스트 주입 | 미착수 |
 | M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면 | 미착수 |
 
 ### 10.2 M3 상세 스펙: 무한 스크롤 캔버스 + 피드백 인라인 렌더링
@@ -472,6 +473,113 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 - 시뮬레이터에서 Apple Pencil 미지원 → `__DEV__` 폴백 필수
 - `makeImageFromView`는 현재 뷰포트만 캡처 → MVP 허용, 향후 Skia Surface로 개선
 - 피드백 위치를 SQLite에 실제 좌표로 저장 (현재 0으로 하드코딩된 부분 교체)
+
+### 10.3 M7 상세 스펙: RAG 기반 교재 컨텍스트 자동 검색
+
+#### 목표
+현재: 사용자가 PDF 페이지 범위를 수동 지정 (예: "p.52-55")
+목표: 손글씨 인식 결과를 기반으로 교재에서 관련 내용을 자동 검색하여 LLM 컨텍스트에 주입
+
+#### 현재 시스템과의 관계
+- M4에서 구현된 수동 페이지 범위 지정은 유지 (사용자 오버라이드용)
+- RAG는 페이지 범위 미지정 시 자동으로 관련 청크를 검색하는 fallback
+- `textbook_context` 파라미터는 동일하게 사용, 소스만 변경
+
+#### 아키텍처
+
+```
+[PDF 업로드 시 — 인덱싱 파이프라인]
+PDF → PyMuPDF 텍스트 추출 → 청킹 (300-500 토큰) → 임베딩 → pgvector 저장
+
+[피드백 요청 시 — 검색 파이프라인]
+손글씨 이미지
+  → Claude Vision (텍스트 인식)
+  → recognized_text를 임베딩
+  → pgvector 유사도 검색 (top-k=3)
+  → 검색된 청크를 textbook_context로 주입
+  → Claude (피드백 생성)
+```
+
+#### 기술 선택
+
+| 구성요소 | 선택 | 근거 |
+|----------|------|------|
+| 벡터 DB | pgvector (PostgreSQL 확장) | 별도 인프라 불필요, 기존 DB에 추가 |
+| 임베딩 모델 | Voyage AI `voyage-3-lite` | Anthropic 파트너, 비용 저렴 ($0.02/1M 토큰) |
+| 청킹 | 단락 기반 (300-500 토큰) | 교재 구조를 존중하는 자연 단위 |
+| 유사도 | 코사인 유사도 | 임베딩 모델 권장 |
+
+#### 데이터 모델
+
+**DocumentChunk — 서버 (PostgreSQL + pgvector)**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | UUID | PK |
+| textbook_id | UUID | FK → TextbookSource |
+| user_id | UUID | 소유자 |
+| chunk_index | int | 청크 순서 |
+| page_start | int | 시작 페이지 |
+| page_end | int | 끝 페이지 |
+| content | text | 청크 텍스트 |
+| embedding | vector(1024) | 임베딩 벡터 |
+| created_at | timestamp | 생성일 |
+
+#### API 변경
+
+**기존 API 수정:**
+- `POST /api/pdf/upload` — 업로드 후 비동기로 청킹+임베딩 실행. 응답에 `indexing_status` 추가.
+- `POST /api/feedback` — `textbook_id`만 있고 `page_start/page_end` 없으면 RAG 자동 검색.
+
+**신규 API:**
+- `GET /api/pdf/{id}/indexing-status` — 인덱싱 진행 상태 조회
+- `GET /api/pdf/{id}/chunks` — 청크 목록 조회 (디버깅용)
+
+#### 피드백 흐름 변경
+
+```
+[현재: 수동]
+사용자: 페이지 52-55 지정 → 해당 텍스트 추출 → LLM 컨텍스트
+
+[RAG: 자동]
+사용자: 교재만 연결, 페이지 미지정
+  → 1단계: Claude Vision으로 손글씨 인식 (lightweight, Haiku)
+  → 2단계: recognized_text를 임베딩
+  → 3단계: pgvector에서 top-3 유사 청크 검색
+  → 4단계: 검색된 청크 + 이미지로 최종 피드백 (Sonnet)
+```
+
+주의: 2단계 인식은 저비용 모델(Haiku)로 수행. 최종 피드백만 Sonnet 사용.
+
+#### 구현 순서
+
+| 단계 | 파일 | 내용 |
+|------|------|------|
+| 1 | DB migration | pgvector 확장 활성화, DocumentChunk 테이블 생성 |
+| 2 | `models/document.py` | DocumentChunk SQLAlchemy 모델 (pgvector 컬럼) |
+| 3 | `services/embedding_service.py` | Voyage AI 임베딩 호출, 청킹 로직 |
+| 4 | `services/retrieval_service.py` | 쿼리 임베딩 → pgvector 코사인 유사도 검색 |
+| 5 | `routers/pdf.py` 수정 | 업로드 시 백그라운드 인덱싱 트리거 |
+| 6 | `routers/feedback.py` 수정 | 페이지 미지정 시 RAG 자동 검색 분기 |
+| 7 | `services/feedback_service.py` 수정 | 2단계 파이프라인 (인식 → 검색 → 피드백) |
+| 8 | 테스트 | 인덱싱, 검색, 피드백 통합 테스트 |
+
+#### 비용 추정
+
+| 항목 | 비용 | 빈도 |
+|------|------|------|
+| 임베딩 (인덱싱) | ~$0.001/페이지 | PDF 업로드 시 1회 |
+| 임베딩 (쿼리) | ~$0.00001/건 | 피드백 요청마다 |
+| pgvector | 무료 | PostgreSQL 확장 |
+| Haiku 인식 (1단계) | ~$0.0002/건 | 자동 검색 시 |
+
+기존 피드백 비용($0.008/건) 대비 RAG 추가 비용은 ~$0.001로 무시할 수준.
+
+#### 주의 사항
+- 인덱싱은 비동기 (BackgroundTasks). 대용량 PDF는 수 초 소요.
+- 벡터 차원은 임베딩 모델에 종속 (Voyage AI voyage-3-lite = 1024차원)
+- pgvector 인덱스 (ivfflat 또는 hnsw)는 데이터량이 적은 초기에는 불필요, 추후 추가
+- 수동 페이지 범위 지정이 항상 RAG보다 우선 (사용자 의도 존중)
 
 ### 10.1 인프라 (마일스톤 외)
 

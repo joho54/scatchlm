@@ -9,8 +9,9 @@ from app.core.auth import get_current_user_id
 from app.core.database import get_db
 from app.models.textbook import TextbookSource
 from app.models.usage import LLMUsage
-from app.services.feedback_service import get_feedback
+from app.services.feedback_service import get_feedback, get_recognition
 from app.services.pdf_service import extract_text as extract_pdf_text
+from app.services.retrieval_service import search_relevant_chunks, format_chunks_as_context
 
 log = logging.getLogger(__name__)
 
@@ -40,9 +41,11 @@ async def request_feedback(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty image")
 
-    # 교재 컨텍스트 조회
+    # 교재 컨텍스트 결정
     textbook_context = None
+
     if textbook_id and page_start and page_end:
+        # 수동 페이지 범위 지정 (우선)
         result = await db.execute(
             select(TextbookSource).where(
                 TextbookSource.id == textbook_id,
@@ -52,6 +55,19 @@ async def request_feedback(
         source = result.scalar_one_or_none()
         if source:
             textbook_context = extract_pdf_text(source.server_path, page_start, page_end)
+            log.info("Context: manual page range p.%d-%d", page_start, page_end)
+
+    elif textbook_id:
+        # RAG 자동 검색: 손글씨 인식 → 임베딩 → 유사도 검색
+        try:
+            recognized = await get_recognition(image_bytes, language)
+            if recognized:
+                chunks = await search_relevant_chunks(db, textbook_id, recognized)
+                if chunks:
+                    textbook_context = format_chunks_as_context(chunks)
+                    log.info("Context: RAG auto-search, %d chunks found", len(chunks))
+        except Exception:
+            log.exception("RAG search failed, proceeding without context")
 
     error_msg = None
     try:
@@ -65,7 +81,6 @@ async def request_feedback(
     except Exception as e:
         error_msg = str(e)
         log.exception("Feedback API failed: user=%s note=%s", user_id, note_id)
-        # usage 기록 (실패 케이스)
         db.add(LLMUsage(
             user_id=user_id,
             model="unknown",
@@ -82,7 +97,7 @@ async def request_feedback(
         await db.commit()
         raise HTTPException(status_code=502, detail=f"LLM API error: {error_msg}")
 
-    # usage 기록 (성공)
+    # usage 기록
     db.add(LLMUsage(
         user_id=user_id,
         model=result.model,

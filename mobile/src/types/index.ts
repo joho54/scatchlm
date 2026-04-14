@@ -26,3 +26,11 @@ export interface FeedbackResponse {
   }[];
   summary: string;
 }
+
+export interface FeedbackRenderItem {
+  id: string;
+  y: number; // 캔버스 가상 좌표 (스트로크 바운딩 박스 maxY + 24px)
+  text: string; // 렌더링할 텍스트
+  width: number; // 카드 너비
+  height: number; // 카드 높이 (렌더링 후 계산)
+}

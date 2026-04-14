@@ -50,6 +50,35 @@ class FeedbackResult:
     latency_ms: int
 
 
+async def get_recognition(image_bytes: bytes, language: str = "en") -> str | None:
+    """손글씨 이미지에서 텍스트만 인식한다 (RAG 쿼리용, 저비용 Haiku)."""
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
+                    },
+                    {
+                        "type": "text",
+                        "text": f"Language: {language}. Read the handwriting in this image. Return ONLY the recognized text, nothing else.",
+                    },
+                ],
+            }],
+        )
+        text = response.content[0].text.strip()
+        log.info("Recognition (Haiku): '%s'", text[:100])
+        return text
+    except Exception:
+        log.exception("Recognition failed")
+        return None
+
+
 async def get_feedback(
     image_bytes: bytes,
     language: str = "en",

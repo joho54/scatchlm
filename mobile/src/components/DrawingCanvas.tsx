@@ -110,9 +110,9 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       .minDistance(0)
       .manualActivation(true)
       .onTouchesDown((e, stateManager) => {
-        // @ts-ignore - pointerType exists at runtime
+        // @ts-ignore - pointerType: 2 = stylus (Apple Pencil)
         const isStylus = e.allTouches[0]?.pointerType === 2;
-        if (isStylus || __DEV__) {
+        if (isStylus) {
           stateManager.activate();
         } else {
           stateManager.fail();
@@ -142,14 +142,8 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       .onTouchesDown((e, stateManager) => {
         // @ts-ignore
         const isStylus = e.allTouches[0]?.pointerType === 2;
-        if (!isStylus && !__DEV__) {
+        if (!isStylus) {
           stateManager.activate();
-        } else if (__DEV__) {
-          if (e.numberOfTouches >= 2) {
-            stateManager.activate();
-          } else {
-            stateManager.fail();
-          }
         } else {
           stateManager.fail();
         }

@@ -16,8 +16,10 @@ import DrawingCanvas, {
 import Toolbar from "../../src/components/Toolbar";
 import { useDrawing } from "../../src/hooks/useDrawing";
 import { requestFeedback } from "../../src/services/feedback";
-import { saveFeedback } from "../../src/services/database";
+import { saveFeedback, getFeedbacksByNoteId } from "../../src/services/database";
 import { buildPreviousContext } from "../../src/services/contextBuilder";
+import { getNoteById, linkTextbook, unlinkTextbook } from "../../src/services/database";
+import { pickAndUploadPdf } from "../../src/services/textbook";
 import type { FeedbackResponse, FeedbackRenderItem } from "../../src/types";
 import logger from "../../src/services/logger";
 
@@ -31,7 +33,22 @@ export default function NoteScreen() {
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackRenderItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [textbookId, setTextbookId] = useState<string | null>(null);
+  const [textbookName, setTextbookName] = useState<string | null>(null);
   const { width: screenWidth } = useWindowDimensions();
+
+  // 노트에 연결된 교재 로드
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      const note = await getNoteById(id);
+      if (note?.textbook_id) {
+        setTextbookId(note.textbook_id);
+        setTextbookName(note.textbook_name);
+        logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name });
+      }
+    })();
+  }, [id]);
 
   const {
     strokes,
@@ -55,12 +72,67 @@ export default function NoteScreen() {
     getStrokesMaxY,
   } = useDrawing(id);
 
+  // SQLite에서 피드백 로드
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      const rows = await getFeedbacksByNoteId(id);
+      const items: FeedbackRenderItem[] = rows.map((row) => {
+        let text = row.content;
+        try {
+          const parsed: FeedbackResponse = JSON.parse(row.content);
+          text = [
+            parsed.recognized_text,
+            ...parsed.corrections.map(
+              (c) => `${c.original} → ${c.corrected} (${c.reason})`
+            ),
+            parsed.summary,
+          ].join("\n");
+        } catch {}
+        const lines = text.split("\n").length;
+        return {
+          id: row.id,
+          y: row.position_y,
+          text,
+          width: row.bbox_width || screenWidth - 32,
+          height: row.bbox_height || lines * FEEDBACK_CARD_LINE_HEIGHT + FEEDBACK_CARD_PADDING,
+        };
+      });
+      if (items.length > 0) {
+        logger.info("feedback", "loaded from SQLite", { count: items.length });
+        setFeedbackItems(items);
+      }
+    })();
+  }, [id]);
+
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", () => {
       saveNow();
     });
     return unsubscribe;
   }, [navigation, saveNow]);
+
+  const handleAttachTextbook = useCallback(async () => {
+    try {
+      const result = await pickAndUploadPdf(id!);
+      if (result) {
+        await linkTextbook(id!, result.id, result.fileName);
+        setTextbookId(result.id);
+        setTextbookName(result.fileName);
+        Alert.alert("교재 연결", `${result.fileName} (${result.totalPages}p) 연결됨\n인덱싱 중...`);
+      }
+    } catch (e: any) {
+      logger.error("textbook", "attach failed", { error: e?.message });
+      Alert.alert("오류", e?.message ?? "교재 업로드에 실패했습니다.");
+    }
+  }, [id]);
+
+  const handleDetachTextbook = useCallback(async () => {
+    await unlinkTextbook(id!);
+    setTextbookId(null);
+    setTextbookName(null);
+    logger.info("textbook", "detached");
+  }, [id]);
 
   const handleFeedback = useCallback(async () => {
     logger.info("feedback", "handleFeedback called", { strokeCount: strokes.length });
@@ -91,6 +163,7 @@ export default function NoteScreen() {
         noteId: id!,
         language: "en",
         previousContext,
+        textbookId: textbookId ?? undefined,
       });
       logger.info("feedback", "feedback received", {
         text: result.recognized_text?.slice(0, 50),
@@ -147,13 +220,23 @@ export default function NoteScreen() {
     } finally {
       setLoading(false);
     }
-  }, [strokes, id, getStrokesMaxY, screenWidth]);
+  }, [strokes, id, textbookId, getStrokesMaxY, screenWidth]);
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Text style={styles.backText}>← 목록</Text>
-      </TouchableOpacity>
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.backText}>← 목록</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={textbookId ? handleDetachTextbook : handleAttachTextbook}
+          style={[styles.textbookBtn, textbookId && styles.textbookBtnActive]}
+        >
+          <Text style={[styles.textbookBtnText, textbookId && styles.textbookBtnTextActive]}>
+            {textbookId ? `📖 ${textbookName}` : "📎 교재 연결"}
+          </Text>
+        </TouchableOpacity>
+      </View>
       <DrawingCanvas
         ref={canvasRef}
         strokes={strokes}
@@ -165,13 +248,6 @@ export default function NoteScreen() {
         onStrokeEnd={onStrokeEnd}
         onScroll={onScroll}
       />
-
-      {/* 진단용: RN Text로 피드백 데이터 확인 */}
-      {feedbackItems.length > 0 && (
-        <View style={styles.debugFeedback}>
-          <Text style={{ fontSize: 12 }}>{feedbackItems[feedbackItems.length - 1].text.slice(0, 100)}</Text>
-        </View>
-      )}
 
       {loading && (
         <View style={styles.loadingBar}>
@@ -199,9 +275,29 @@ export default function NoteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  backBtn: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: "#f8f8f8" },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#f8f8f8",
+  },
   backText: { fontSize: 16, color: "#007AFF" },
-  debugFeedback: { padding: 8, backgroundColor: "#FFFDE7", borderTopWidth: 1, borderColor: "#ddd" },
+  textbookBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    backgroundColor: "#fff",
+  },
+  textbookBtnActive: {
+    borderColor: "#4F46E5",
+    backgroundColor: "#EEF2FF",
+  },
+  textbookBtnText: { fontSize: 13, color: "#666" },
+  textbookBtnTextActive: { color: "#4F46E5" },
   loadingBar: {
     flexDirection: "row",
     alignItems: "center",

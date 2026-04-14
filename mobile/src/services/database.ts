@@ -11,6 +11,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       language TEXT NOT NULL DEFAULT 'en',
+      textbook_id TEXT,
+      textbook_name TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -46,6 +48,8 @@ export interface NoteRow {
   id: string;
   title: string;
   language: string;
+  textbook_id: string | null;
+  textbook_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -72,7 +76,7 @@ export async function createNote(
     now,
     now
   );
-  return { id, title, language, created_at: now, updated_at: now };
+  return { id, title, language, textbook_id: null, textbook_name: null, created_at: now, updated_at: now };
 }
 
 export async function updateNoteTitle(
@@ -92,6 +96,41 @@ export async function updateNoteTitle(
 export async function deleteNote(id: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync("DELETE FROM notes WHERE id = ?", id);
+}
+
+export async function linkTextbook(
+  noteId: string,
+  textbookId: string,
+  textbookName: string
+): Promise<void> {
+  const db = await getDatabase();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    "UPDATE notes SET textbook_id = ?, textbook_name = ?, updated_at = ? WHERE id = ?",
+    textbookId,
+    textbookName,
+    now,
+    noteId
+  );
+}
+
+export async function unlinkTextbook(noteId: string): Promise<void> {
+  const db = await getDatabase();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    "UPDATE notes SET textbook_id = NULL, textbook_name = NULL, updated_at = ? WHERE id = ?",
+    now,
+    noteId
+  );
+}
+
+export async function getNoteById(noteId: string): Promise<NoteRow | null> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<NoteRow>(
+    "SELECT * FROM notes WHERE id = ?",
+    noteId
+  );
+  return rows[0] ?? null;
 }
 
 // ── Strokes ──

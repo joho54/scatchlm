@@ -15,7 +15,7 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
-import { runOnJS } from "react-native-reanimated";
+import { runOnJS, useSharedValue } from "react-native-reanimated";
 import type { FeedbackRenderItem } from "../types";
 import logger from "../services/logger";
 
@@ -105,60 +105,47 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       return bounds.y + bounds.height >= viewportTop && bounds.y <= viewportBottom;
     });
 
-    // 제스처: Apple Pencil → 드로잉, 손가락 → 스크롤
-    const drawPan = Gesture.Pan()
+    // 제스처: Apple Pencil (pointerType=1) → 드로잉, 손가락 (pointerType=0) → 스크롤
+    const isDrawing = useSharedValue(false);
+    const lastTranslationY = useSharedValue(0);
+
+    const pan = Gesture.Pan()
       .minDistance(0)
-      .manualActivation(true)
-      .onTouchesDown((e, stateManager) => {
-        // @ts-ignore - pointerType: 2 = stylus (Apple Pencil)
-        const isStylus = e.allTouches[0]?.pointerType === 2;
-        if (isStylus) {
-          stateManager.activate();
-        } else {
-          stateManager.fail();
-        }
-      })
       .onBegin((e) => {
         "worklet";
-        runOnJS(onStrokeStart)(e.x, e.y);
+        // @ts-ignore - pointerType: 0=touch, 1=stylus, 2=mouse
+        const pType = e.pointerType;
+        isDrawing.value = pType === 1;
+        lastTranslationY.value = 0;
+        if (isDrawing.value) {
+          runOnJS(onStrokeStart)(e.x, e.y);
+        }
       })
       .onUpdate((e) => {
         "worklet";
-        runOnJS(onStrokeMove)(e.x, e.y);
+        if (isDrawing.value) {
+          runOnJS(onStrokeMove)(e.x, e.y);
+        } else {
+          const delta = e.translationY - lastTranslationY.value;
+          lastTranslationY.value = e.translationY;
+          runOnJS(onScroll)(-delta);
+        }
       })
       .onEnd(() => {
         "worklet";
-        runOnJS(onStrokeEnd)();
+        if (isDrawing.value) {
+          runOnJS(onStrokeEnd)();
+        }
       })
       .onFinalize(() => {
         "worklet";
-        runOnJS(onStrokeEnd)();
-      });
-
-    let lastTranslationY = 0;
-    const scrollPan = Gesture.Pan()
-      .minDistance(5)
-      .manualActivation(true)
-      .onTouchesDown((e, stateManager) => {
-        // @ts-ignore
-        const isStylus = e.allTouches[0]?.pointerType === 2;
-        if (!isStylus) {
-          stateManager.activate();
-        } else {
-          stateManager.fail();
+        if (isDrawing.value) {
+          runOnJS(onStrokeEnd)();
         }
-      })
-      .onBegin(() => {
-        lastTranslationY = 0;
-      })
-      .onUpdate((e) => {
-        "worklet";
-        const delta = e.translationY - lastTranslationY;
-        lastTranslationY = e.translationY;
-        runOnJS(onScroll)(-delta);
+        isDrawing.value = false;
       });
 
-    const gesture = Gesture.Simultaneous(drawPan, scrollPan);
+    const gesture = pan;
 
     // 피드백 Paragraph 빌드
     const feedbackParagraphs = feedbackItems.map((item) => {
@@ -202,24 +189,6 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
                 {/* 피드백 인라인 카드 렌더링 */}
                 {feedbackParagraphs.map(({ item, para }) => (
                   <Group key={item.id}>
-                    <RoundedRect
-                      x={16}
-                      y={item.y}
-                      width={item.width}
-                      height={item.height}
-                      r={8}
-                      color="#F0F4FF"
-                    />
-                    <RoundedRect
-                      x={16}
-                      y={item.y}
-                      width={item.width}
-                      height={item.height}
-                      r={8}
-                      color="#C7D2FE"
-                      style="stroke"
-                      strokeWidth={1}
-                    />
                     <Paragraph
                       paragraph={para}
                       x={24}

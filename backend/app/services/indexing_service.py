@@ -24,7 +24,7 @@ async def index_textbook(
     doc = fitz.open(server_path)
     pages = []
     for i in range(len(doc)):
-        text = doc[i].get_text()
+        text = doc[i].get_text().replace("\x00", "")
         if text.strip():
             pages.append((i + 1, text))
     doc.close()

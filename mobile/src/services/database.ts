@@ -39,6 +39,15 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
     );
   `);
+
+  // 마이그레이션: 기존 notes 테이블에 textbook 컬럼 추가
+  try {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN textbook_id TEXT;`);
+  } catch {}
+  try {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN textbook_name TEXT;`);
+  } catch {}
+
   return db;
 }
 

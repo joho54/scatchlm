@@ -33,6 +33,7 @@ def chunk_text_by_pages(pages: list[tuple[int, str]]) -> list[dict]:
     chunk_index = 0
 
     for page_num, page_text in pages:
+        page_text = page_text.replace("\x00", "")  # PostgreSQL 호환
         paragraphs = re.split(r"\n{2,}", page_text.strip())
 
         for para in paragraphs:

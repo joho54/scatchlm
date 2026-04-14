@@ -318,10 +318,84 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 |------|------|------|
 | id | String (UUID) | 고유 식별자 |
 | noteId | String | 소속 노트 ID |
-| content | String | LLM 응답 텍스트 (JSON) |
+| content | TEXT | AI 응답 JSON 문자열 (스키마 비의존 — 아래 참조) |
 | position | {x: number, y: number} | 렌더링 위치 (캔버스 좌표) |
 | boundingBox | {x, y, width, height} | 피드백 영역 크기 |
+| turn_index | INTEGER | 턴 순번 (0-based) |
+| stroke_count_at_request | INTEGER | 요청 시점의 strokes.length |
 | createdAt | DateTime | 생성일 |
+
+#### 6.5.1 응답 타입 설계 (Discriminated Union)
+
+`content` 컬럼은 TEXT 타입으로, AI 응답 JSON 문자열을 그대로 저장한다. 응답의 내부 구조는 DB 스키마가 관여하지 않는다. 응답 타입이 추가되어도 테이블 마이그레이션은 발생하지 않는다.
+
+**타입 검증 책임은 애플리케이션 레이어에 있다.** 읽을 때 `JSON.parse` → `type` 필드로 discriminated union에 매핑한다.
+
+**공통 base**:
+```typescript
+interface ResponseBase {
+  type: string;
+  recognized_text: string;  // Vision API가 항상 인식한 원문
+  summary: string;          // 항상 포함되는 요약
+}
+```
+
+**타입별 확장**:
+```typescript
+interface FeedbackResponse extends ResponseBase {
+  type: "feedback";
+  corrections: { position: number; original: string; corrected: string; reason: string }[];
+}
+
+interface QuizResponse extends ResponseBase {
+  type: "quiz";
+  questions: { id: number; question: string; hint?: string }[];
+}
+
+interface QuizResultResponse extends ResponseBase {
+  type: "quiz_result";
+  scores: { id: number; correct: boolean; answer?: string; explanation?: string }[];
+  total: string;
+}
+
+interface VocabResultResponse extends ResponseBase {
+  type: "vocab_result";
+  items: { word: string; user_answer: string | null; correct: boolean;
+           correct_answer?: string; reason?: string; context?: string }[];
+  total: string;
+}
+
+type AIResponse = FeedbackResponse | QuizResponse | QuizResultResponse | VocabResultResponse;
+```
+
+**백엔드 대응 (Pydantic)**:
+```python
+class FeedbackResponse(BaseModel):
+    type: Literal["feedback"]
+    recognized_text: str
+    summary: str
+    corrections: list[Correction]
+
+class QuizResponse(BaseModel):
+    type: Literal["quiz"]
+    recognized_text: str
+    summary: str
+    questions: list[QuizQuestion]
+
+# ... 동일 패턴
+
+AIResponse = Union[FeedbackResponse, QuizResponse, QuizResultResponse, VocabResultResponse]
+```
+
+**프롬프트 전략**: 의도 판별(Haiku)이 `task_type`을 결정한 뒤, Sonnet 프롬프트에 해당 타입의 JSON 스키마만 포함한다. 전체 union을 프롬프트에 넣지 않는다.
+
+```python
+RESPONSE_SCHEMAS: dict[str, str] = {
+    "feedback": '{"type":"feedback","recognized_text":"...","corrections":[...],"summary":"..."}',
+    "quiz":     '{"type":"quiz","recognized_text":"...","questions":[...],"summary":"..."}',
+    # ...
+}
+```
 
 ---
 
@@ -635,33 +709,102 @@ PDF → PyMuPDF 텍스트 추출 → 청킹 (300-500 토큰) → 임베딩 → p
 
 **핵심 문제**: 현재는 "스트로크 → 캡처 → 피드백" 단방향. AI 응답 위에 추가 작성한 내용을 다시 요청에 포함하려면 캡처 범위와 컨텍스트 구성이 달라져야 한다.
 
-**캡처 전략**:
-- 현재: `makeImageFromView` → 현재 뷰포트만 캡처
-- 변경: 마지막 피드백 카드 아래 ~ 현재 스트로크 끝까지의 영역을 캡처
-- 피드백 카드 자체는 이미지에 포함 (AI가 자신의 출력과 사용자 답안을 함께 인식)
+##### 턴 상태 관리
 
-**컨텍스트 체인**:
-```
-previous_context 구성:
-  - turn_history: [
-      { role: "user", recognized_text: "24과 어휘 퀴즈" },
-      { role: "assistant", response: <턴1 피드백 JSON> },
-      { role: "user", recognized_text: "답안..." },
-      { role: "assistant", response: <턴2 채점 JSON> }
-    ]
-  - 최근 3턴까지만 유지 (토큰 절감)
+노트 화면(`app/note/[id].tsx`)에서 턴 단위로 요청-응답을 추적한다.
+
+**Turn 타입**:
+```typescript
+interface Turn {
+  id: string;                    // 고유 ID (timestamp 기반)
+  index: number;                 // 0-based 턴 순번
+  feedbackItem: FeedbackRenderItem;  // 캔버스 위 렌더링 정보
+  responseJson: FeedbackResponse;    // AI 응답 원본 JSON
+  strokeCountAtRequest: number;      // 요청 시점의 strokes.length
+}
 ```
 
-**턴 추적**: 각 피드백 카드에 `turn_id`를 부여. 새 스트로크가 어떤 피드백 카드 아래에 작성되었는지 Y좌표로 판별하여 연쇄 관계를 추적.
+**턴 경계 판별**: `strokeCountAtRequest`로 스트로크를 턴별로 분리한다.
+```
+strokes: [s0, s1, s2, s3, s4, s5, s6, s7]
+                      ↑              ↑
+               Turn 0 요청 (len=3)  Turn 1 요청 (len=6)
 
-**프롬프트 분기 (의도 판별)**:
+s0~s2: 초기 입력 (Turn 0의 요청 대상)
+s3~s5: Turn 0 피드백 카드 아래 작성 (Turn 1의 요청 대상)
+s6~s7: Turn 1 피드백 카드 아래 작성 (현재 진행 중)
 ```
-손글씨 인식 결과 → 의도 분류:
-  - "퀴즈", "문제", "quiz" 키워드 → task_type: "quiz_generate"
-  - 이전 턴이 quiz_generate → task_type: "quiz_grade"
-  - 좌/우 분할 레이아웃 감지 → task_type: "vocab_grade"
-  - 기타 → task_type: "feedback" (기존)
+
+**feedbackItems 파생**: `turns` 배열에서 렌더링용 `feedbackItems`를 파생한다. 별도 상태로 관리하지 않는다.
+```typescript
+const feedbackItems = turns.map(t => t.feedbackItem);
 ```
+
+**SQLite 영속화**: 노트 재진입 시 턴 체인을 복원하기 위해 feedbacks 테이블을 확장한다.
+```sql
+ALTER TABLE feedbacks ADD COLUMN turn_index INTEGER DEFAULT 0;
+ALTER TABLE feedbacks ADD COLUMN stroke_count_at_request INTEGER DEFAULT 0;
+```
+
+##### 컨텍스트 체인
+
+기존 `previous_context` (평문 텍스트)를 `turn_history` (구조화된 턴 배열)로 대체한다. 최근 3턴만 전달 (토큰 절감).
+
+```typescript
+// contextBuilder.ts
+function buildTurnHistory(turns: Turn[]): TurnHistoryEntry[] {
+  return turns.slice(-3).map(t => ({
+    user_recognized: t.responseJson.recognized_text,
+    ai_response: t.responseJson,
+  }));
+}
+```
+
+백엔드에서 턴 히스토리를 프롬프트에 구성:
+```
+Previous conversation turns:
+[Turn 0] User wrote: 24과 어휘 퀴즈
+Your response: {"recognized_text":"...","corrections":[...],"summary":"..."}
+[Turn 1] User wrote: 1.사과 2.바나나...
+Your response: {"type":"quiz_result","scores":[...],"total":"3/5"}
+
+The image shows the user's latest handwriting,
+which may be a response to your previous output.
+```
+
+##### 캡처 전략
+
+**1단계 (MVP)**: 뷰포트 캡처 유지 (`makeImageFromView`)
+- 사용자는 작업 중인 영역을 보고 있으므로 뷰포트에 직전 피드백 카드 + 새 스트로크가 포함됨
+- 이전 턴의 피드백 내용은 `turn_history` 텍스트로 전달 — 이미지에 포함될 필요 없음
+- 코드 변경 없이 동작
+
+**2단계 (필요 시)**: Skia Surface 기반 영역 캡처
+- 직전 피드백 카드 상단 ~ 새 스트로크 하단까지만 오프스크린 렌더링
+- `makeImageFromView`가 뷰포트 밖 콘텐츠를 놓치는 경우에 전환
+
+##### 의도 판별
+
+피드백 요청 시 2-pass로 처리 (M7 RAG 파이프라인 확장):
+```
+1단계: Haiku — 손글씨 인식 + 의도 분류
+  → "퀴즈", "문제", "quiz" 키워드 → task_type: "quiz_generate"
+  → 이전 턴이 quiz_generate → task_type: "quiz_grade"
+  → 좌/우 분할 레이아웃 감지 → task_type: "vocab_grade"
+  → 기타 → task_type: "feedback" (기존 동작)
+
+2단계: Sonnet — task_type에 따른 프롬프트로 최종 응답 생성
+```
+
+##### API 변경
+
+`POST /api/feedback` 파라미터 확장:
+```
+기존: image, note_id, language, previous_context
+변경: image, note_id, language, turn_history (JSON array)
+```
+
+`turn_history`가 `previous_context`를 완전히 대체한다. 하위 호환은 유지하지 않는다 (클라이언트/서버 동시 배포).
 
 #### F5 설계: 퀴즈 기능
 

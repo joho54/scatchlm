@@ -9,6 +9,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DrawingCanvas, {
   DrawingCanvasHandle,
@@ -30,6 +31,7 @@ export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackRenderItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -224,7 +226,7 @@ export default function NoteScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.backText}>← 목록</Text>
         </TouchableOpacity>

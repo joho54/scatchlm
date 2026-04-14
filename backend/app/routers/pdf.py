@@ -33,13 +33,19 @@ async def upload_pdf(
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    log.info("PDF upload: user=%s note=%s file=%s", user_id, note_id, file.filename)
+
     if not file.filename.endswith(".pdf"):
+        log.warning("PDF upload rejected: not a PDF file=%s", file.filename)
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     try:
         server_path, file_name, total_pages, file_size = await save_pdf(file, user_id)
     except ValueError as e:
+        log.warning("PDF upload rejected: size limit file=%s error=%s", file.filename, e)
         raise HTTPException(status_code=413, detail=str(e))
+
+    log.info("PDF saved: file=%s pages=%d size=%dKB path=%s", file_name, total_pages, file_size // 1024, server_path)
 
     source = TextbookSource(
         user_id=user_id,
@@ -50,10 +56,14 @@ async def upload_pdf(
         file_size=file_size,
     )
     db.add(source)
-    await db.commit()
-    await db.refresh(source)
+    try:
+        await db.commit()
+        await db.refresh(source)
+        log.info("PDF record created: id=%s user=%s note=%s", source.id, user_id, note_id)
+    except Exception:
+        log.exception("DB commit failed: user=%s note=%s file=%s", user_id, note_id, file_name)
+        raise HTTPException(status_code=500, detail="Database error")
 
-    # 백그라운드 인덱싱 트리거
     background_tasks.add_task(_background_index, source.id, user_id, server_path)
 
     return {
@@ -73,6 +83,8 @@ async def extract_text(
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    log.info("PDF extract: user=%s textbook=%s pages=%d-%d", user_id, textbook_id, page_start, page_end)
+
     result = await db.execute(
         select(TextbookSource).where(
             TextbookSource.id == textbook_id,
@@ -81,10 +93,13 @@ async def extract_text(
     )
     source = result.scalar_one_or_none()
     if not source:
+        log.warning("PDF extract: textbook not found id=%s user=%s", textbook_id, user_id)
         raise HTTPException(status_code=404, detail="Textbook not found")
 
     if page_start < 1 or page_end > source.total_pages or page_start > page_end:
+        log.warning("PDF extract: invalid range pages=%d-%d total=%d", page_start, page_end, source.total_pages)
         raise HTTPException(status_code=400, detail="Invalid page range")
 
     text = extract_pdf_text(source.server_path, page_start, page_end)
+    log.info("PDF extract done: textbook=%s pages=%d-%d chars=%d", textbook_id, page_start, page_end, len(text))
     return {"text": text, "pages": f"{page_start}-{page_end}"}

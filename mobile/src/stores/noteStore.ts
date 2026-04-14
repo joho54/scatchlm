@@ -6,6 +6,7 @@ import {
   updateNoteTitle as dbUpdateTitle,
   deleteNote as dbDeleteNote,
 } from "../services/database";
+import logger from "../services/logger";
 
 interface NoteState {
   notes: NoteRow[];
@@ -22,14 +23,27 @@ export const useNoteStore = create<NoteState>((set) => ({
 
   loadNotes: async () => {
     set({ loading: true });
-    const notes = await getAllNotes();
-    set({ notes, loading: false });
+    try {
+      logger.info("notes", "loadNotes start");
+      const notes = await getAllNotes();
+      logger.info("notes", "loadNotes done", { count: notes.length });
+      set({ notes, loading: false });
+    } catch (e: any) {
+      logger.error("notes", "loadNotes failed", { error: e?.message ?? String(e) });
+      set({ notes: [], loading: false });
+    }
   },
 
   createNote: async (title, language = "en") => {
-    const note = await dbCreateNote(title, language);
-    set((state) => ({ notes: [note, ...state.notes] }));
-    return note;
+    try {
+      logger.info("notes", "createNote", { title, language });
+      const note = await dbCreateNote(title, language);
+      set((state) => ({ notes: [note, ...state.notes] }));
+      return note;
+    } catch (e: any) {
+      logger.error("notes", "createNote failed", { error: e?.message ?? String(e) });
+      throw e;
+    }
   },
 
   updateTitle: async (id, title) => {

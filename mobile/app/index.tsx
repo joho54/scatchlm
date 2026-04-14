@@ -11,6 +11,7 @@ import {
 import { useRouter } from "expo-router";
 import { useNoteStore } from "../src/stores/noteStore";
 import { useAuthStore } from "../src/stores/authStore";
+import logger from "../src/services/logger";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function HomeScreen() {
     const note = await createNote(title);
     setNewTitle("");
     setShowInput(false);
+    logger.info("nav", "push /note", { noteId: note.id });
     router.push(`/note/${note.id}`);
   };
 
@@ -93,7 +95,10 @@ export default function HomeScreen() {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.noteCard}
-              onPress={() => router.push(`/note/${item.id}`)}
+              onPress={() => {
+                logger.info("nav", "push /note", { noteId: item.id });
+                router.push(`/note/${item.id}`);
+              }}
               onLongPress={() => handleDelete(item.id, item.title)}
             >
               <Text style={styles.noteTitle}>{item.title}</Text>

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.user import Base
 
-EMBEDDING_DIM = 1024  # Voyage AI voyage-3-lite
+EMBEDDING_DIM = 512  # Voyage AI voyage-3-lite
 
 
 class DocumentChunk(Base):

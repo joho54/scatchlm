@@ -97,8 +97,9 @@ async def test_feedback_with_rag_auto_search(client: AsyncClient, auth_header: d
 
     mock_result = FeedbackResult(
         data={
+            "type": "feedback",
             "recognized_text": "vocabulary test",
-            "corrections": [],
+            "feedback": "All answers are correct. Well done!",
             "summary": "잘 했습니다.",
         },
         model="claude-sonnet-4-6",

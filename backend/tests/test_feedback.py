@@ -8,13 +8,12 @@ from app.services.feedback_service import FeedbackResult
 
 MOCK_RESULT = FeedbackResult(
     data={
+        "type": "feedback",
         "recognized_text": "こんにちは",
-        "corrections": [
-            {"position": 1, "original": "こんにちわ", "corrected": "こんにちは", "reason": "助詞の誤り"}
-        ],
+        "feedback": "こんにちわ → こんにちは (助詞の誤り). 인사말 표기에 주의하세요.",
         "summary": "1/1 오답. 인사말 표기를 복습하세요.",
     },
-    model="claude-sonnet-4-6-20250514",
+    model="claude-sonnet-4-6",
     input_tokens=800,
     output_tokens=150,
     total_tokens=950,
@@ -38,8 +37,9 @@ async def test_feedback_success(client: AsyncClient, auth_header: dict):
         )
     assert res.status_code == 200
     data = res.json()
+    assert data["type"] == "feedback"
     assert data["recognized_text"] == "こんにちは"
-    assert len(data["corrections"]) == 1
+    assert "こんにちは" in data["feedback"]
     assert "오답" in data["summary"]
 
 

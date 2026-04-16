@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=1194, initial-scale=1.0">
-<title>ScatchLM - Note Screen (iPad)</title>
+<meta name="viewport" content="width=834, initial-scale=1.0">
+<title>ScatchLM - Note Screen Portrait (iPad)</title>
 <style>
   /* ===== Reset & Base ===== */
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -38,8 +38,8 @@
 
   /* ===== Layout ===== */
   .screen {
-    width: 1194px;  /* iPad Pro 12.9" logical width */
-    height: 834px;
+    width: 834px;   /* iPad Pro 12.9" portrait logical width */
+    height: 1194px;
     margin: 20px auto;
     display: flex;
     flex-direction: column;
@@ -48,6 +48,112 @@
     overflow: hidden;
     box-shadow: 0 4px 24px rgba(0,0,0,0.12);
     position: relative;
+  }
+
+  /* ===== Split Container — vertical ===== */
+  .split {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ===== PDF Panel — top ===== */
+  .pdf-panel {
+    height: 45%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-pdf);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .pdf-slider {
+    flex: 1;
+    display: flex;
+    transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    will-change: transform;
+    cursor: grab;
+  }
+  .pdf-slider:active { cursor: grabbing; }
+  .pdf-slider.dragging { transition: none; }
+  .pdf-page-mock {
+    width: 100%;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    padding: 32px 28px;
+    font-size: 14px;
+    line-height: 1.8;
+    color: #333;
+    overflow-y: auto;
+  }
+  .pdf-page-mock h3 { font-size: 18px; margin-bottom: 14px; color: #111; }
+  .pdf-page-mock p { margin-bottom: 8px; }
+  .pdf-highlight { background: #fff3cd; padding: 1px 3px; border-radius: 2px; }
+  .pdf-page-indicator {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 10;
+  }
+  .pdf-page-indicator.visible { opacity: 1; }
+  /* Resize handle */
+  .pdf-resize-handle {
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: row-resize;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .pdf-resize-handle::after {
+    content: "";
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: #d1d1d6;
+  }
+
+  /* ===== Canvas Panel — bottom ===== */
+  .canvas-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    position: relative;
+  }
+  .canvas-area {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  .canvas-lines {
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent,
+      transparent 39px,
+      #e8ecf0 39px,
+      #e8ecf0 40px
+    );
+    opacity: 0.5;
+    pointer-events: none;
   }
 
   /* ===== Floating Back Button ===== */
@@ -71,96 +177,7 @@
   .back-fab:active { transform: scale(0.92); }
   .back-fab svg { width: 20px; height: 20px; color: var(--text-primary); }
 
-  /* ===== Split Container ===== */
-  .split {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-  }
-
-  /* ===== PDF Panel ===== */
-  .pdf-panel {
-    width: 45%;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-pdf);
-    border-right: 1px solid var(--border);
-    flex-shrink: 0;
-    position: relative;
-    overflow: hidden;
-  }
-  .pdf-slider {
-    flex: 1;
-    display: flex;
-    transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
-    will-change: transform;
-    cursor: grab;
-  }
-  .pdf-slider:active { cursor: grabbing; }
-  .pdf-slider.dragging { transition: none; }
-  .pdf-page-mock {
-    width: 100%;
-    flex-shrink: 0;
-    background: var(--bg-primary);
-    display: flex;
-    flex-direction: column;
-    padding: 32px 28px;
-    font-size: 13px;
-    line-height: 1.8;
-    color: #333;
-    overflow-y: auto;
-  }
-  .pdf-page-mock h3 { font-size: 16px; margin-bottom: 12px; color: #111; }
-  .pdf-page-mock p { margin-bottom: 8px; }
-  .pdf-highlight { background: #fff3cd; padding: 1px 3px; border-radius: 2px; }
-  /* Page indicator pill */
-  .pdf-page-indicator {
-    position: absolute;
-    bottom: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 4px 12px;
-    background: rgba(0,0,0,0.55);
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-    border-radius: 12px;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s;
-    z-index: 10;
-  }
-  .pdf-page-indicator.visible { opacity: 1; }
-
-  /* ===== Canvas Panel ===== */
-  .canvas-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-primary);
-    position: relative;
-  }
-  .canvas-area {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-  }
-  /* 노트 줄 배경 */
-  .canvas-lines {
-    position: absolute;
-    inset: 0;
-    background-image: repeating-linear-gradient(
-      to bottom,
-      transparent,
-      transparent 39px,
-      #e8ecf0 39px,
-      #e8ecf0 40px
-    );
-    opacity: 0.5;
-    pointer-events: none;
-  }
-
-  /* 손글씨 목업 */
+  /* Handwriting mock */
   .handwriting {
     position: absolute;
     font-family: "Bradley Hand", "Segoe Script", cursive;
@@ -186,10 +203,7 @@
     box-shadow: 0 2px 12px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.5);
   }
   .feedback-card--1 { top: 240px; }
-  .feedback-card--2 { top: 500px; }
 
-
-  /* recognized_text */
   .feedback-recognized {
     font-size: 13px;
     color: var(--text-secondary);
@@ -200,8 +214,6 @@
     font-family: "SF Mono", "Menlo", monospace;
     line-height: 1.5;
   }
-
-  /* feedback body — markdown rendered */
   .feedback-body {
     font-size: 14px;
     line-height: 1.7;
@@ -216,12 +228,8 @@
     color: var(--success);
     font-weight: 700;
   }
-  .feedback-body p {
-    margin: 0 0 6px 0;
-  }
+  .feedback-body p { margin: 0 0 6px 0; }
   .feedback-body p:last-child { margin-bottom: 0; }
-
-  /* summary */
   .feedback-summary {
     margin-top: 10px;
     padding-top: 10px;
@@ -231,7 +239,7 @@
     line-height: 1.5;
   }
 
-  /* ===== Floating Action Pill — bottom-right, screen-level ===== */
+  /* ===== Floating Action Pill ===== */
   .fab-pill {
     position: absolute;
     bottom: 20px;
@@ -260,20 +268,17 @@
   .fab-pill-btn:hover { background: rgba(255,255,255,0.5); }
   .fab-pill-btn:active { transform: scale(0.9); }
   .fab-pill-btn svg { width: 22px; height: 22px; }
-  /* Textbook */
   .fab-pill-btn.textbook svg { color: var(--text-secondary); }
   .fab-pill-btn.textbook.active { background: var(--accent-purple); }
   .fab-pill-btn.textbook.active svg { color: #fff; }
-  /* Divider inside pill */
   .fab-pill-divider {
     width: 1px;
     height: 24px;
     background: rgba(0,0,0,0.08);
   }
-  /* AI feedback */
   .fab-pill-btn.feedback svg { width: 26px; height: 26px; }
 
-  /* ===== Loading overlay ===== */
+  /* ===== Loading ===== */
   .loading-bar {
     display: flex;
     align-items: center;
@@ -294,18 +299,6 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ===== State variants ===== */
-  .state-label {
-    position: absolute;
-    top: -28px;
-    left: 0;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-
   /* ===== Toggle demo ===== */
   .demo-controls {
     display: flex;
@@ -325,19 +318,17 @@
 </head>
 <body>
 
-<!-- ===== Controls ===== -->
 <div class="demo-controls">
   <label><input type="checkbox" id="toggle-pdf" checked onchange="togglePdf()"> PDF Panel</label>
   <label><input type="checkbox" id="toggle-loading" onchange="toggleLoading()"> Loading</label>
 </div>
 
-<!-- ===== Screen ===== -->
-<div class="screen" id="screen">
+<div class="screen">
 
-  <!-- Split View -->
+  <!-- Split View — vertical -->
   <div class="split">
 
-    <!-- PDF Panel -->
+    <!-- PDF Panel — top -->
     <div class="pdf-panel" id="pdf-panel">
       <div class="pdf-slider" id="pdf-slider">
         <!-- Page 23 -->
@@ -349,7 +340,6 @@
           <p>&bull; Third-person singular forms</p>
           <p>&bull; Common irregular patterns</p>
           <p style="margin-top: 16px;">Understanding these patterns is essential for correct subject-verb agreement in written and spoken English.</p>
-          <p>Before moving on, review the subject pronouns chart on the previous page.</p>
         </div>
         <!-- Page 24 (current) -->
         <div class="pdf-page-mock">
@@ -376,13 +366,13 @@
           <p style="margin-top: 16px;"><strong>Exercise 3.2:</strong> Fill in the blanks with the correct form of the verb.</p>
           <p>1. She _______ (to be) a teacher.</p>
           <p>2. They _______ (to have) two cats.</p>
-          <p>3. He _______ (to do) his homework every day.</p>
         </div>
       </div>
       <div class="pdf-page-indicator" id="pdf-indicator">24 / 215</div>
+      <div class="pdf-resize-handle"></div>
     </div>
 
-    <!-- Canvas Panel -->
+    <!-- Canvas Panel — bottom -->
     <div class="canvas-panel">
       <div class="canvas-area">
         <div class="canvas-lines"></div>
@@ -398,7 +388,7 @@
         <div class="handwriting hw-3">2. The bird flys</div>
         <div class="handwriting hw-4">3. He carrys</div>
 
-        <!-- Feedback Card 1 — Exercise grading -->
+        <!-- Feedback Card -->
         <div class="feedback-card feedback-card--1">
           <div class="feedback-recognized">She runs / The bird flys / He carrys</div>
           <div class="feedback-body">
@@ -411,21 +401,6 @@
           </div>
         </div>
 
-        <!-- Feedback Card 2 — Free writing -->
-        <div class="feedback-card feedback-card--2">
-          <div class="feedback-recognized">Today I go to the library and study english for two hours. The book was very intresting.</div>
-          <div class="feedback-body">
-            <p><del>go</del> &rarr; <strong>went</strong> (past tense needed to match context)</p>
-            <p><del>english</del> &rarr; <strong>English</strong> (always capitalized)</p>
-            <p><del>intresting</del> &rarr; <strong>interesting</strong> (spelling)</p>
-            <p>Good use of time expressions. Sentence structure is clear and natural.</p>
-          </div>
-          <div class="feedback-summary">
-            3개 수정. 시제 일관성과 고유명사 대문자에 주의하세요. 문장 구조는 자연스럽습니다.
-          </div>
-        </div>
-
-
       </div>
 
       <!-- Loading (hidden by default) -->
@@ -436,7 +411,7 @@
     </div>
   </div>
 
-  <!-- Floating action pill — screen-level fixed -->
+  <!-- Floating action pill -->
   <div class="fab-pill">
     <button class="fab-pill-btn textbook active" id="btn-pdf" onclick="document.getElementById('toggle-pdf').click()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -481,11 +456,10 @@ function toggleLoading() {
   const indicator = document.getElementById('pdf-indicator');
   const pages = slider.children;
   const totalPages = 215;
-  let currentIndex = 1; // start on page 24 (middle of 3 mock pages)
+  let currentIndex = 1;
   let startX = 0, currentX = 0, isDragging = false;
   let indicatorTimer = null;
 
-  // Init position to page 24 (index 1)
   slider.style.transform = `translateX(-${currentIndex * 100}%)`;
 
   function showIndicator(pageNum) {
@@ -527,7 +501,7 @@ function toggleLoading() {
     } else if (currentX > threshold && currentIndex > 0) {
       goToPage(currentIndex - 1);
     } else {
-      goToPage(currentIndex); // snap back
+      goToPage(currentIndex);
     }
     currentX = 0;
   }
@@ -535,7 +509,6 @@ function toggleLoading() {
   slider.addEventListener('mouseup', endDrag);
   slider.addEventListener('mouseleave', endDrag);
 
-  // Touch events
   slider.addEventListener('touchstart', (e) => {
     isDragging = true;
     startX = e.touches[0].clientX;
@@ -552,7 +525,6 @@ function toggleLoading() {
 
   slider.addEventListener('touchend', endDrag);
 
-  // Show indicator on load
   showIndicator(24);
 })();
 </script>

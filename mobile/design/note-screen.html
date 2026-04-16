@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1194, initial-scale=1.0">
+<title>ScatchLM - Note Screen (iPad)</title>
+<style>
+  /* ===== Reset & Base ===== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: #f2f2f7; color: #1c1c1e; -webkit-font-smoothing: antialiased; }
+
+  /* ===== Tokens ===== */
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f2f2f7;
+    --bg-toolbar: #f8f8fa;
+    --bg-pdf: #f5f5f7;
+    --border: #e5e5ea;
+    --border-light: #f0f0f2;
+    --text-primary: #1c1c1e;
+    --text-secondary: #8e8e93;
+    --text-tertiary: #aeaeb2;
+    --accent: #007aff;
+    --accent-light: #e8f2ff;
+    --accent-purple: #5856d6;
+    --accent-purple-light: #f0efff;
+    --feedback-bg: #fafbfc;
+    --feedback-border: #e8ecf0;
+    --success: #34c759;
+    --error: #ff3b30;
+    --warning: #ff9500;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+  }
+
+  /* ===== Layout ===== */
+  .screen {
+    width: 1194px;  /* iPad Pro 12.9" logical width */
+    height: 834px;
+    margin: 20px auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+  }
+
+  /* ===== Top Bar ===== */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    height: 52px;
+    padding: 0 16px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 12px;
+  }
+  .back-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 16px;
+    color: var(--accent);
+    cursor: pointer;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .back-btn svg { width: 20px; height: 20px; }
+  .note-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .textbook-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    padding: 4px 10px;
+    background: var(--accent-purple-light);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--accent-purple);
+    font-weight: 500;
+  }
+  .textbook-badge svg { width: 14px; height: 14px; }
+
+  /* ===== Split Container ===== */
+  .split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ===== PDF Panel ===== */
+  .pdf-panel {
+    width: 45%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-pdf);
+    border-right: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .pdf-slider {
+    flex: 1;
+    display: flex;
+    transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    will-change: transform;
+    cursor: grab;
+  }
+  .pdf-slider:active { cursor: grabbing; }
+  .pdf-slider.dragging { transition: none; }
+  .pdf-page-mock {
+    width: 100%;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    padding: 32px 28px;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #333;
+    overflow-y: auto;
+  }
+  .pdf-page-mock h3 { font-size: 16px; margin-bottom: 12px; color: #111; }
+  .pdf-page-mock p { margin-bottom: 8px; }
+  .pdf-highlight { background: #fff3cd; padding: 1px 3px; border-radius: 2px; }
+  /* Page indicator pill */
+  .pdf-page-indicator {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 10;
+  }
+  .pdf-page-indicator.visible { opacity: 1; }
+
+  /* ===== Canvas Panel ===== */
+  .canvas-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    position: relative;
+  }
+  .canvas-area {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  /* 노트 줄 배경 */
+  .canvas-lines {
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent,
+      transparent 39px,
+      #e8ecf0 39px,
+      #e8ecf0 40px
+    );
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* 손글씨 목업 */
+  .handwriting {
+    position: absolute;
+    font-family: "Bradley Hand", "Segoe Script", cursive;
+    color: #1a1a2e;
+    pointer-events: none;
+  }
+  .hw-1 { top: 48px; left: 32px; font-size: 22px; }
+  .hw-2 { top: 92px; left: 32px; font-size: 20px; color: #2c3e50; }
+  .hw-3 { top: 136px; left: 32px; font-size: 20px; color: #2c3e50; }
+  .hw-4 { top: 180px; left: 32px; font-size: 19px; color: #c0392b; }
+
+  /* ===== Feedback Card ===== */
+  .feedback-card {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    background: var(--feedback-bg);
+    border: 1px solid var(--feedback-border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .feedback-card--1 { top: 240px; }
+  .feedback-card--2 { top: 440px; }
+
+  .feedback-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .feedback-icon {
+    width: 18px; height: 18px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .feedback-icon--ai { background: var(--accent); }
+  .feedback-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .feedback-recognized {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-light);
+    font-style: italic;
+  }
+  .feedback-body {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text-primary);
+  }
+  .correction {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 2px 0;
+  }
+  .correction-original {
+    color: var(--error);
+    text-decoration: line-through;
+    font-weight: 500;
+  }
+  .correction-arrow { color: var(--text-tertiary); font-size: 12px; }
+  .correction-fixed {
+    color: var(--success);
+    font-weight: 600;
+  }
+  .correction-reason {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: 4px;
+  }
+  .feedback-summary {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-light);
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ===== Bottom Toolbar ===== */
+  .toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 16px 14px;
+    background: var(--bg-toolbar);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Color dots */
+  .color-btn {
+    width: 26px; height: 26px;
+    border-radius: 13px;
+    border: 2.5px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .color-btn:hover { opacity: 0.85; }
+  .color-btn.active { border-color: var(--accent); }
+
+  /* Width dots */
+  .width-btn {
+    width: 32px; height: 32px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid transparent;
+    cursor: pointer;
+    background: transparent;
+  }
+  .width-btn.active { border-color: var(--accent); }
+  .width-dot {
+    border-radius: 50%;
+    background: #333;
+  }
+
+  /* Divider */
+  .toolbar-divider {
+    width: 1px;
+    height: 22px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+
+  /* Tool buttons */
+  .tool-btn {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: #ececee;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+    transition: background 0.15s;
+  }
+  .tool-btn:hover { background: #e0e0e2; }
+  .tool-btn.active { background: #ffd60a; color: #1c1c1e; }
+  .tool-btn:disabled { opacity: 0.3; cursor: default; }
+  .tool-btn svg { width: 16px; height: 16px; }
+
+  /* Action buttons row */
+  .action-row {
+    display: flex;
+    gap: 8px;
+  }
+  .btn-pdf {
+    height: 38px;
+    padding: 0 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-primary);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: all 0.15s;
+  }
+  .btn-pdf:hover { border-color: var(--accent-purple); color: var(--accent-purple); }
+  .btn-pdf.active {
+    border-color: var(--accent-purple);
+    background: var(--accent-purple-light);
+    color: var(--accent-purple);
+  }
+  .btn-pdf svg { width: 16px; height: 16px; }
+  .btn-feedback {
+    flex: 1;
+    height: 38px;
+    border-radius: var(--radius-md);
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: background 0.15s;
+  }
+  .btn-feedback:hover { background: #0069d9; }
+  .btn-feedback svg { width: 18px; height: 18px; }
+
+  /* ===== Loading overlay ===== */
+  .loading-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--accent-light);
+    font-size: 13px;
+    color: #4a5568;
+    flex-shrink: 0;
+  }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== State variants ===== */
+  .state-label {
+    position: absolute;
+    top: -28px;
+    left: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* ===== Toggle demo ===== */
+  .demo-controls {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin: 16px auto 0;
+    font-size: 13px;
+  }
+  .demo-controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: #666;
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== Controls ===== -->
+<div class="demo-controls">
+  <label><input type="checkbox" id="toggle-pdf" checked onchange="togglePdf()"> PDF Panel</label>
+  <label><input type="checkbox" id="toggle-loading" onchange="toggleLoading()"> Loading</label>
+</div>
+
+<!-- ===== Screen ===== -->
+<div class="screen" id="screen">
+
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <a class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      Notes
+    </a>
+    <span class="note-title">24-3 Grammar Practice</span>
+    <div class="textbook-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+      roberts_grammar.pdf
+    </div>
+  </div>
+
+  <!-- Split View -->
+  <div class="split">
+
+    <!-- PDF Panel -->
+    <div class="pdf-panel" id="pdf-panel">
+      <div class="pdf-slider" id="pdf-slider">
+        <!-- Page 23 -->
+        <div class="pdf-page-mock">
+          <h3>Chapter 3: Introduction</h3>
+          <p>English verb conjugation follows a set of rules that vary depending on the verb type and the subject.</p>
+          <p>In this chapter, we will explore:</p>
+          <p>&bull; Present simple tense</p>
+          <p>&bull; Third-person singular forms</p>
+          <p>&bull; Common irregular patterns</p>
+          <p style="margin-top: 16px;">Understanding these patterns is essential for correct subject-verb agreement in written and spoken English.</p>
+          <p>Before moving on, review the subject pronouns chart on the previous page.</p>
+        </div>
+        <!-- Page 24 (current) -->
+        <div class="pdf-page-mock">
+          <h3>Chapter 3: Verb Conjugation</h3>
+          <p>The present tense in English is used to describe habitual actions, general truths, and states of being.</p>
+          <p><strong>Regular verbs</strong> follow a predictable pattern:</p>
+          <p>I <span class="pdf-highlight">walk</span> &rarr; He <span class="pdf-highlight">walks</span></p>
+          <p>I <span class="pdf-highlight">study</span> &rarr; She <span class="pdf-highlight">studies</span></p>
+          <p style="margin-top: 16px;"><strong>Exercise 3.1:</strong> Conjugate the following verbs in the present tense for the given subjects.</p>
+          <p>1. (to run) She _______</p>
+          <p>2. (to fly) The bird _______</p>
+          <p>3. (to carry) He _______</p>
+          <p>4. (to watch) They _______</p>
+          <p>5. (to go) She _______</p>
+        </div>
+        <!-- Page 25 -->
+        <div class="pdf-page-mock">
+          <h3>Chapter 3: Irregular Verbs</h3>
+          <p>Some verbs do not follow the standard conjugation rules. These are called <strong>irregular verbs</strong>.</p>
+          <p>Common examples:</p>
+          <p>to be &rarr; I <span class="pdf-highlight">am</span>, you <span class="pdf-highlight">are</span>, he <span class="pdf-highlight">is</span></p>
+          <p>to have &rarr; I <span class="pdf-highlight">have</span>, she <span class="pdf-highlight">has</span></p>
+          <p>to do &rarr; I <span class="pdf-highlight">do</span>, it <span class="pdf-highlight">does</span></p>
+          <p style="margin-top: 16px;"><strong>Exercise 3.2:</strong> Fill in the blanks with the correct form of the verb.</p>
+          <p>1. She _______ (to be) a teacher.</p>
+          <p>2. They _______ (to have) two cats.</p>
+          <p>3. He _______ (to do) his homework every day.</p>
+        </div>
+      </div>
+      <div class="pdf-page-indicator" id="pdf-indicator">24 / 215</div>
+    </div>
+
+    <!-- Canvas Panel -->
+    <div class="canvas-panel">
+      <div class="canvas-area">
+        <div class="canvas-lines"></div>
+
+        <!-- Handwriting mockup -->
+        <div class="handwriting hw-1">Exercise 3.1</div>
+        <div class="handwriting hw-2">1. She runs</div>
+        <div class="handwriting hw-3">2. The bird flys</div>
+        <div class="handwriting hw-4">3. He carrys</div>
+
+        <!-- Feedback Card 1 -->
+        <div class="feedback-card feedback-card--1">
+          <div class="feedback-header">
+            <div class="feedback-icon feedback-icon--ai">AI</div>
+            <span class="feedback-label">Feedback</span>
+          </div>
+          <div class="feedback-recognized">"She runs / The bird flys / He carrys"</div>
+          <div class="feedback-body">
+            <div class="correction">
+              <span class="correction-original">flys</span>
+              <span class="correction-arrow">&rarr;</span>
+              <span class="correction-fixed">flies</span>
+              <span class="correction-reason">- y &rarr; ies (consonant + y rule)</span>
+            </div>
+            <br>
+            <div class="correction">
+              <span class="correction-original">carrys</span>
+              <span class="correction-arrow">&rarr;</span>
+              <span class="correction-fixed">carries</span>
+              <span class="correction-reason">- y &rarr; ies (consonant + y rule)</span>
+            </div>
+          </div>
+          <div class="feedback-summary">
+            2/3 correct. Review: when a verb ends in consonant + y, change y to i and add -es for third person singular.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Loading (hidden by default) -->
+      <div class="loading-bar" id="loading-bar" style="display: none;">
+        <div class="spinner"></div>
+        Analyzing handwriting...
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <!-- Colors -->
+      <div class="color-btn active" style="background: #1c1c1e;"></div>
+      <div class="color-btn" style="background: #ff3b30;"></div>
+      <div class="color-btn" style="background: #007aff;"></div>
+      <div class="color-btn" style="background: #34c759;"></div>
+      <div class="color-btn" style="background: #ff9500;"></div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Widths -->
+      <button class="width-btn"><div class="width-dot" style="width:5px;height:5px;"></div></button>
+      <button class="width-btn active"><div class="width-dot" style="width:8px;height:8px;"></div></button>
+      <button class="width-btn"><div class="width-dot" style="width:14px;height:14px;"></div></button>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Tools -->
+      <button class="tool-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 4"/><path d="M5.5 11.5l3.5 3.5L20 4"/></svg>
+        Eraser
+      </button>
+      <button class="tool-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        Undo
+      </button>
+      <button class="tool-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+        Redo
+      </button>
+    </div>
+
+    <div class="action-row">
+      <button class="btn-pdf active" id="btn-pdf" onclick="document.getElementById('toggle-pdf').click()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        Textbook
+      </button>
+      <button class="btn-feedback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Get Feedback
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function togglePdf() {
+  const panel = document.getElementById('pdf-panel');
+  const btn = document.getElementById('btn-pdf');
+  const checked = document.getElementById('toggle-pdf').checked;
+  panel.style.display = checked ? 'flex' : 'none';
+  if (checked) btn.classList.add('active');
+  else btn.classList.remove('active');
+}
+
+function toggleLoading() {
+  const bar = document.getElementById('loading-bar');
+  const checked = document.getElementById('toggle-loading').checked;
+  bar.style.display = checked ? 'flex' : 'none';
+}
+
+// ===== PDF Swipe =====
+(function() {
+  const slider = document.getElementById('pdf-slider');
+  const indicator = document.getElementById('pdf-indicator');
+  const pages = slider.children;
+  const totalPages = 215;
+  let currentIndex = 1; // start on page 24 (middle of 3 mock pages)
+  let startX = 0, currentX = 0, isDragging = false;
+  let indicatorTimer = null;
+
+  // Init position to page 24 (index 1)
+  slider.style.transform = `translateX(-${currentIndex * 100}%)`;
+
+  function showIndicator(pageNum) {
+    indicator.textContent = `${pageNum} / ${totalPages}`;
+    indicator.classList.add('visible');
+    clearTimeout(indicatorTimer);
+    indicatorTimer = setTimeout(() => indicator.classList.remove('visible'), 1200);
+  }
+
+  function goToPage(index) {
+    currentIndex = Math.max(0, Math.min(index, pages.length - 1));
+    slider.classList.remove('dragging');
+    slider.style.transform = `translateX(-${currentIndex * 100}%)`;
+    showIndicator(23 + currentIndex);
+  }
+
+  slider.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    slider.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  slider.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    currentX = e.clientX - startX;
+    const panelWidth = slider.parentElement.clientWidth;
+    const offset = -currentIndex * panelWidth + currentX;
+    slider.style.transform = `translateX(${offset}px)`;
+  });
+
+  function endDrag() {
+    if (!isDragging) return;
+    isDragging = false;
+    const panelWidth = slider.parentElement.clientWidth;
+    const threshold = panelWidth * 0.2;
+    if (currentX < -threshold && currentIndex < pages.length - 1) {
+      goToPage(currentIndex + 1);
+    } else if (currentX > threshold && currentIndex > 0) {
+      goToPage(currentIndex - 1);
+    } else {
+      goToPage(currentIndex); // snap back
+    }
+    currentX = 0;
+  }
+
+  slider.addEventListener('mouseup', endDrag);
+  slider.addEventListener('mouseleave', endDrag);
+
+  // Touch events
+  slider.addEventListener('touchstart', (e) => {
+    isDragging = true;
+    startX = e.touches[0].clientX;
+    slider.classList.add('dragging');
+  }, { passive: true });
+
+  slider.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    currentX = e.touches[0].clientX - startX;
+    const panelWidth = slider.parentElement.clientWidth;
+    const offset = -currentIndex * panelWidth + currentX;
+    slider.style.transform = `translateX(${offset}px)`;
+  }, { passive: true });
+
+  slider.addEventListener('touchend', endDrag);
+
+  // Show indicator on load
+  showIndicator(24);
+})();
+</script>
+
+</body>
+</html>

@@ -47,6 +47,9 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   try {
     await db.execAsync(`ALTER TABLE notes ADD COLUMN textbook_name TEXT;`);
   } catch {}
+  try {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN textbook_pages INTEGER DEFAULT 0;`);
+  } catch {}
 
   return db;
 }
@@ -59,6 +62,7 @@ export interface NoteRow {
   language: string;
   textbook_id: string | null;
   textbook_name: string | null;
+  textbook_pages: number;
   created_at: string;
   updated_at: string;
 }
@@ -110,14 +114,16 @@ export async function deleteNote(id: string): Promise<void> {
 export async function linkTextbook(
   noteId: string,
   textbookId: string,
-  textbookName: string
+  textbookName: string,
+  totalPages: number = 0,
 ): Promise<void> {
   const db = await getDatabase();
   const now = new Date().toISOString();
   await db.runAsync(
-    "UPDATE notes SET textbook_id = ?, textbook_name = ?, updated_at = ? WHERE id = ?",
+    "UPDATE notes SET textbook_id = ?, textbook_name = ?, textbook_pages = ?, updated_at = ? WHERE id = ?",
     textbookId,
     textbookName,
+    totalPages,
     now,
     noteId
   );
@@ -127,7 +133,7 @@ export async function unlinkTextbook(noteId: string): Promise<void> {
   const db = await getDatabase();
   const now = new Date().toISOString();
   await db.runAsync(
-    "UPDATE notes SET textbook_id = NULL, textbook_name = NULL, updated_at = ? WHERE id = ?",
+    "UPDATE notes SET textbook_id = NULL, textbook_name = NULL, textbook_pages = 0, updated_at = ? WHERE id = ?",
     now,
     noteId
   );

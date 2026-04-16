@@ -14,14 +14,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DrawingCanvas, {
   DrawingCanvasHandle,
 } from "../../src/components/DrawingCanvas";
+import PdfViewer from "../../src/components/PdfViewer";
 import Toolbar from "../../src/components/Toolbar";
 import { useDrawing } from "../../src/hooks/useDrawing";
 import { requestFeedback } from "../../src/services/feedback";
 import { saveFeedback, getFeedbacksByNoteId } from "../../src/services/database";
 import { buildPreviousContext } from "../../src/services/contextBuilder";
-import { getNoteById, linkTextbook, unlinkTextbook } from "../../src/services/database";
+import { getNoteById, linkTextbook } from "../../src/services/database";
 import { pickAndUploadPdf } from "../../src/services/textbook";
-import type { FeedbackResponse, FeedbackRenderItem } from "../../src/types";
+import type { AIResponse, FeedbackResponse, FeedbackRenderItem } from "../../src/types";
 import logger from "../../src/services/logger";
 
 const FEEDBACK_CARD_PADDING = 24;
@@ -37,7 +38,12 @@ export default function NoteScreen() {
   const [loading, setLoading] = useState(false);
   const [textbookId, setTextbookId] = useState<string | null>(null);
   const [textbookName, setTextbookName] = useState<string | null>(null);
-  const { width: screenWidth } = useWindowDimensions();
+  const [textbookPages, setTextbookPages] = useState<number>(0);
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number | null>(null);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isLandscape = screenWidth > screenHeight;
+  const [canvasWidth, setCanvasWidth] = useState(screenWidth);
 
   // 노트에 연결된 교재 로드
   useEffect(() => {
@@ -47,7 +53,8 @@ export default function NoteScreen() {
       if (note?.textbook_id) {
         setTextbookId(note.textbook_id);
         setTextbookName(note.textbook_name);
-        logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name });
+        setTextbookPages(note.textbook_pages ?? 0);
+        logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name, pages: note.textbook_pages });
       }
     })();
   }, [id]);
@@ -72,6 +79,9 @@ export default function NoteScreen() {
     redo,
     saveNow,
     getStrokesMaxY,
+    getNewStrokes,
+    getNewStrokesBounds,
+    markFeedbackPoint,
   } = useDrawing(id);
 
   // SQLite에서 피드백 로드
@@ -82,21 +92,27 @@ export default function NoteScreen() {
       const items: FeedbackRenderItem[] = rows.map((row) => {
         let text = row.content;
         try {
-          const parsed: FeedbackResponse = JSON.parse(row.content);
-          text = [
-            parsed.recognized_text,
-            ...parsed.corrections.map(
-              (c) => `${c.original} → ${c.corrected} (${c.reason})`
-            ),
-            parsed.summary,
-          ].join("\n");
+          const parsed = JSON.parse(row.content);
+          if (parsed.feedback) {
+            // 새 포맷 (AIResponse)
+            text = [parsed.recognized_text, "", parsed.feedback, "", parsed.summary].join("\n");
+          } else if (parsed.corrections) {
+            // 이전 포맷 (FeedbackResponse) 호환
+            text = [
+              parsed.recognized_text,
+              ...parsed.corrections.map(
+                (c: any) => `${c.original} → ${c.corrected} (${c.reason})`
+              ),
+              parsed.summary,
+            ].join("\n");
+          }
         } catch {}
         const lines = text.split("\n").length;
         return {
           id: row.id,
           y: row.position_y,
           text,
-          width: row.bbox_width || screenWidth - 32,
+          width: row.bbox_width || canvasWidth - 32,
           height: row.bbox_height || lines * FEEDBACK_CARD_LINE_HEIGHT + FEEDBACK_CARD_PADDING,
         };
       });
@@ -118,9 +134,10 @@ export default function NoteScreen() {
     try {
       const result = await pickAndUploadPdf(id!);
       if (result) {
-        await linkTextbook(id!, result.id, result.fileName);
+        await linkTextbook(id!, result.id, result.fileName, result.totalPages);
         setTextbookId(result.id);
         setTextbookName(result.fileName);
+        setTextbookPages(result.totalPages);
         Alert.alert("교재 연결", `${result.fileName} (${result.totalPages}p) 연결됨\n인덱싱 중...`);
       }
     } catch (e: any) {
@@ -129,22 +146,30 @@ export default function NoteScreen() {
     }
   }, [id]);
 
-  const handleDetachTextbook = useCallback(async () => {
-    await unlinkTextbook(id!);
-    setTextbookId(null);
-    setTextbookName(null);
-    logger.info("textbook", "detached");
-  }, [id]);
-
   const handleFeedback = useCallback(async () => {
-    logger.info("feedback", "handleFeedback called", { strokeCount: strokes.length });
-    if (strokes.length === 0) {
-      Alert.alert("알림", "먼저 캔버스에 내용을 작성해주세요.");
+    const newStrokes = getNewStrokes();
+    logger.info("feedback", "handleFeedback called", {
+      totalStrokes: strokes.length,
+      newStrokes: newStrokes.length,
+    });
+
+    if (newStrokes.length === 0) {
+      Alert.alert("알림", "새로 작성한 내용이 없습니다.");
       return;
     }
 
-    logger.info("feedback", "capturing canvas");
-    const imageBase64 = await canvasRef.current?.captureBase64();
+    const bounds = getNewStrokesBounds();
+    if (!bounds) {
+      Alert.alert("오류", "필기 영역을 계산할 수 없습니다.");
+      return;
+    }
+
+    logger.info("feedback", "capturing new strokes", {
+      bounds,
+      strokeCount: newStrokes.length,
+    });
+
+    const imageBase64 = canvasRef.current?.captureNewStrokesBase64(newStrokes, bounds);
     logger.info("feedback", "capture result", {
       hasBase64: !!imageBase64,
       length: imageBase64?.length,
@@ -166,24 +191,31 @@ export default function NoteScreen() {
         language: "en",
         previousContext,
         textbookId: textbookId ?? undefined,
+        currentPage: currentPage ?? undefined,
       });
       logger.info("feedback", "feedback received", {
         text: result.recognized_text?.slice(0, 50),
       });
 
-      // 피드백 위치 = 스트로크 maxY + 24px 아래
-      const maxY = getStrokesMaxY();
-      const cardWidth = screenWidth - 32;
-      const lines = result.corrections.length + 2; // corrections + recognized + summary
-      const cardHeight = lines * FEEDBACK_CARD_LINE_HEIGHT + FEEDBACK_CARD_PADDING;
+      // 피드백 위치 = (스트로크 + 기존 피드백 카드) maxY + 24px 아래
+      const strokesMaxY = getStrokesMaxY();
+      const cardsMaxY = feedbackItems.reduce(
+        (max, item) => Math.max(max, item.y + item.height),
+        0
+      );
+      const maxY = Math.max(strokesMaxY, cardsMaxY);
+      const cardWidth = canvasWidth - 32;
 
       const feedbackText = [
         result.recognized_text,
-        ...result.corrections.map(
-          (c) => `${c.original} → ${c.corrected} (${c.reason})`
-        ),
+        "",
+        result.feedback,
+        "",
         result.summary,
       ].join("\n");
+
+      const lines = feedbackText.split("\n").length;
+      const cardHeight = lines * FEEDBACK_CARD_LINE_HEIGHT + FEEDBACK_CARD_PADDING;
 
       const newItem: FeedbackRenderItem = {
         id: Date.now().toString(),
@@ -215,6 +247,8 @@ export default function NoteScreen() {
         height: cardHeight,
       });
       logger.info("feedback", "saved to SQLite", { y: newItem.y });
+      markFeedbackPoint();
+      logger.info("feedback", "marked feedback point", { strokeCount: strokes.length });
     } catch (e: any) {
       const msg = e?.response?.data?.detail ?? e?.message ?? "알 수 없는 오류";
       logger.error("feedback", "request failed", { error: msg });
@@ -222,34 +256,59 @@ export default function NoteScreen() {
     } finally {
       setLoading(false);
     }
-  }, [strokes, id, textbookId, getStrokesMaxY, screenWidth]);
+  }, [strokes, id, textbookId, currentPage, getStrokesMaxY, getNewStrokes, getNewStrokesBounds, markFeedbackPoint, canvasWidth]);
+
+  const handleTogglePdf = useCallback(() => {
+    if (!textbookId) {
+      handleAttachTextbook();
+      return;
+    }
+    setPdfOpen((prev) => !prev);
+  }, [textbookId, handleAttachTextbook]);
 
   return (
     <View style={styles.container}>
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backText}>← 목록</Text>
+          <Text style={styles.backText}>{"<-"} 목록</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={textbookId ? handleDetachTextbook : handleAttachTextbook}
-          style={[styles.textbookBtn, textbookId && styles.textbookBtnActive]}
-        >
-          <Text style={[styles.textbookBtnText, textbookId && styles.textbookBtnTextActive]}>
-            {textbookId ? `📖 ${textbookName}` : "📎 교재 연결"}
+        {textbookName && (
+          <Text style={styles.textbookLabel} numberOfLines={1}>
+            {textbookName}
           </Text>
-        </TouchableOpacity>
+        )}
       </View>
-      <DrawingCanvas
-        ref={canvasRef}
-        strokes={strokes}
-        currentStroke={currentStroke}
-        scrollOffset={scrollOffset}
-        feedbackItems={feedbackItems}
-        onStrokeStart={onStrokeStart}
-        onStrokeMove={onStrokeMove}
-        onStrokeEnd={onStrokeEnd}
-        onScroll={onScroll}
-      />
+
+      {/* 스플릿 뷰: landscape=좌우, portrait=상하 */}
+      <View style={[styles.splitContainer, pdfOpen && !isLandscape && styles.splitContainerColumn]}>
+        {pdfOpen && textbookId && (
+          <View style={isLandscape ? styles.pdfPanel : styles.pdfPanelRow}>
+            <PdfViewer
+              textbookId={textbookId}
+              totalPages={textbookPages}
+              onPageChanged={setCurrentPage}
+              onClose={() => setPdfOpen(false)}
+            />
+          </View>
+        )}
+        <View
+          style={pdfOpen ? styles.canvasSplit : styles.canvasFull}
+          onLayout={(e) => setCanvasWidth(e.nativeEvent.layout.width)}
+        >
+          <DrawingCanvas
+            key={`${pdfOpen}-${isLandscape}`}
+            ref={canvasRef}
+            strokes={strokes}
+            currentStroke={currentStroke}
+            scrollOffset={scrollOffset}
+            feedbackItems={feedbackItems}
+            onStrokeStart={onStrokeStart}
+            onStrokeMove={onStrokeMove}
+            onStrokeEnd={onStrokeEnd}
+            onScroll={onScroll}
+          />
+        </View>
+      </View>
 
       {loading && (
         <View style={styles.loadingBar}>
@@ -270,6 +329,9 @@ export default function NoteScreen() {
         onUndo={undo}
         onRedo={redo}
         onFeedback={handleFeedback}
+        onTogglePdf={handleTogglePdf}
+        pdfOpen={pdfOpen}
+        hasTextbook={!!textbookId}
       />
     </View>
   );
@@ -277,6 +339,12 @@ export default function NoteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  splitContainer: { flex: 1, flexDirection: "row" },
+  splitContainerColumn: { flexDirection: "column" },
+  canvasFull: { flex: 1 },
+  canvasSplit: { flex: 1, flexBasis: 0 },
+  pdfPanel: { flex: 1, flexBasis: 0, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "#ddd" },
+  pdfPanelRow: { flex: 1, flexBasis: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#ddd" },
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -286,20 +354,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8f8f8",
   },
   backText: { fontSize: 16, color: "#007AFF" },
-  textbookBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    backgroundColor: "#fff",
+  textbookLabel: {
+    fontSize: 13,
+    color: "#4F46E5",
+    maxWidth: "60%",
   },
-  textbookBtnActive: {
-    borderColor: "#4F46E5",
-    backgroundColor: "#EEF2FF",
-  },
-  textbookBtnText: { fontSize: 13, color: "#666" },
-  textbookBtnTextActive: { color: "#4F46E5" },
   loadingBar: {
     flexDirection: "row",
     alignItems: "center",

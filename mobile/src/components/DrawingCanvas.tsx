@@ -1,10 +1,11 @@
-import React, { forwardRef, useImperativeHandle, useRef } from "react";
+import React, { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import {
   Canvas,
   Group,
   Path,
   Paragraph,
+  Rect,
   RoundedRect,
   Skia,
   SkPath,
@@ -17,7 +18,7 @@ import {
 } from "react-native-gesture-handler";
 import { runOnJS, useSharedValue } from "react-native-reanimated";
 import type { FeedbackRenderItem } from "../types";
-import logger from "../services/logger";
+
 
 export interface StrokeData {
   path: SkPath;
@@ -28,6 +29,10 @@ export interface StrokeData {
 export interface DrawingCanvasHandle {
   capture: () => Promise<Uint8Array | null>;
   captureBase64: () => Promise<string | null>;
+  captureNewStrokesBase64: (
+    newStrokes: StrokeData[],
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => string | null;
 }
 
 interface DrawingCanvasProps {
@@ -58,14 +63,8 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     ref
   ) => {
     const viewRef = useRef<View>(null);
-    const { height: screenHeight } = useWindowDimensions();
-
-    if (feedbackItems.length > 0) {
-      logger.info("canvas", "rendering feedbackItems", {
-        count: feedbackItems.length,
-        items: feedbackItems.map((i) => ({ id: i.id, y: i.y, textLen: i.text.length })),
-      });
-    }
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const [measuredWidth, setMeasuredWidth] = useState(screenWidth);
 
     useImperativeHandle(ref, () => ({
       capture: async () => {
@@ -94,6 +93,36 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
           return null;
         }
       },
+      captureNewStrokesBase64: (newStrokes, bounds) => {
+        try {
+          const w = Math.ceil(bounds.width);
+          const h = Math.ceil(bounds.height);
+          if (w <= 0 || h <= 0) return null;
+
+          const surface = Skia.Surface.Make(w, h);
+          if (!surface) return null;
+
+          const canvas = surface.getCanvas();
+          canvas.clear(Skia.Color("#FFFFFF"));
+          canvas.translate(-bounds.x, -bounds.y);
+
+          for (const stroke of newStrokes) {
+            const paint = Skia.Paint();
+            paint.setStyle(1); // stroke
+            paint.setColor(Skia.Color(stroke.color));
+            paint.setStrokeWidth(stroke.width);
+            paint.setStrokeCap(1); // round
+            paint.setStrokeJoin(1); // round
+            canvas.drawPath(stroke.path, paint);
+          }
+
+          surface.flush();
+          const image = surface.makeImageSnapshot();
+          return image.encodeToBase64();
+        } catch {
+          return null;
+        }
+      },
     }));
 
     // 뷰포트 내 스트로크만 필터링 (컬링)
@@ -104,6 +133,11 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       const bounds = stroke.path.getBounds();
       return bounds.y + bounds.height >= viewportTop && bounds.y <= viewportBottom;
     });
+
+    // 스케일 팩터: 컨테이너가 줄어들면 콘텐츠를 축소 렌더링하므로,
+    // 터치 좌표를 역수로 보정하여 논리 좌표계에 맞춤
+    const scale = measuredWidth / screenWidth;
+    const invScale = 1 / scale;
 
     // 제스처: Apple Pencil (pointerType=1) → 드로잉, 손가락 (pointerType=0) → 스크롤
     const isDrawing = useSharedValue(false);
@@ -118,13 +152,13 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
         isDrawing.value = pType === 1;
         lastTranslationY.value = 0;
         if (isDrawing.value) {
-          runOnJS(onStrokeStart)(e.x, e.y);
+          runOnJS(onStrokeStart)(e.x * invScale, e.y * invScale);
         }
       })
       .onUpdate((e) => {
         "worklet";
         if (isDrawing.value) {
-          runOnJS(onStrokeMove)(e.x, e.y);
+          runOnJS(onStrokeMove)(e.x * invScale, e.y * invScale);
         } else {
           const delta = e.translationY - lastTranslationY.value;
           lastTranslationY.value = e.translationY;
@@ -160,9 +194,14 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     return (
       <GestureHandlerRootView style={styles.container}>
         <GestureDetector gesture={gesture}>
-          <View ref={viewRef} style={styles.canvas} collapsable={false}>
+          <View
+            ref={viewRef}
+            style={styles.canvas}
+            collapsable={false}
+            onLayout={(e) => setMeasuredWidth(e.nativeEvent.layout.width)}
+          >
             <Canvas style={StyleSheet.absoluteFill}>
-              <Group transform={[{ translateY: -scrollOffset }]}>
+              <Group transform={[{ scale: measuredWidth / screenWidth }, { translateY: -scrollOffset }]}>
                 {/* 스트로크 렌더링 (뷰포트 컬링 적용) */}
                 {visibleStrokes.map((stroke, index) => (
                   <Path

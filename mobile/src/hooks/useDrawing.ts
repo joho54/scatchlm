@@ -17,6 +17,7 @@ export function useDrawing(noteId?: string) {
   const [scrollOffset, setScrollOffset] = useState(0);
   const redoStack = useRef<StrokeData[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFeedbackStrokeCount = useRef(0);
 
   // 스트로크 로드
   useEffect(() => {
@@ -135,6 +136,42 @@ export function useDrawing(noteId?: string) {
     return maxY;
   }, [strokes]);
 
+  // 마지막 피드백 이후 추가된 스트로크만 반환
+  const getNewStrokes = useCallback((): StrokeData[] => {
+    return strokes.slice(lastFeedbackStrokeCount.current);
+  }, [strokes]);
+
+  // 신규 스트로크의 바운딩 박스 반환 (크롭 영역)
+  const getNewStrokesBounds = useCallback((): { x: number; y: number; width: number; height: number } | null => {
+    const newStrokes = getNewStrokes();
+    if (newStrokes.length === 0) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const stroke of newStrokes) {
+      const b = stroke.path.getBounds();
+      if (b.width === 0 && b.height === 0) continue;
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width);
+      maxY = Math.max(maxY, b.y + b.height);
+    }
+    if (minX === Infinity) return null;
+
+    // 여유 패딩
+    const pad = 16;
+    return {
+      x: Math.max(0, minX - pad),
+      y: Math.max(0, minY - pad),
+      width: maxX - minX + pad * 2,
+      height: maxY - minY + pad * 2,
+    };
+  }, [getNewStrokes]);
+
+  // 피드백 완료 시 호출 — 현재 스트로크 수 기록
+  const markFeedbackPoint = useCallback(() => {
+    lastFeedbackStrokeCount.current = strokes.length;
+  }, [strokes]);
+
   // 즉시 저장 (화면 나갈 때 호출용)
   const saveNow = useCallback(async () => {
     if (!noteId) return;
@@ -168,5 +205,8 @@ export function useDrawing(noteId?: string) {
     redo,
     saveNow,
     getStrokesMaxY,
+    getNewStrokes,
+    getNewStrokesBounds,
+    markFeedbackPoint,
   };
 }

@@ -16,6 +16,15 @@ export interface Feedback {
   createdAt: string;
 }
 
+/** 새 응답 포맷 (6.5.1) */
+export interface AIResponse {
+  type: "feedback";
+  recognized_text: string;
+  feedback: string;
+  summary: string;
+}
+
+/** @deprecated 이전 응답 포맷. AIResponse로 전환 중. */
 export interface FeedbackResponse {
   recognized_text: string;
   corrections: {

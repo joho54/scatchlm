@@ -1,5 +1,5 @@
 import api from "./api";
-import type { FeedbackResponse } from "../types";
+import type { AIResponse } from "../types";
 
 export async function requestFeedback(params: {
   imageBase64: string;
@@ -7,10 +7,11 @@ export async function requestFeedback(params: {
   language?: string;
   taskType?: string;
   textbookId?: string;
+  currentPage?: number;
   pageStart?: number;
   pageEnd?: number;
   previousContext?: string;
-}): Promise<FeedbackResponse> {
+}): Promise<AIResponse> {
   // RN에서는 base64 data URI를 FormData에 직접 첨부
   const formData = new FormData();
   formData.append("image", {
@@ -25,6 +26,9 @@ export async function requestFeedback(params: {
   if (params.textbookId) {
     formData.append("textbook_id", params.textbookId);
   }
+  if (params.currentPage !== undefined) {
+    formData.append("current_page", String(params.currentPage));
+  }
   if (params.pageStart !== undefined) {
     formData.append("page_start", String(params.pageStart));
   }
@@ -35,7 +39,7 @@ export async function requestFeedback(params: {
     formData.append("previous_context", params.previousContext);
   }
 
-  const res = await api.post<FeedbackResponse>("/feedback", formData, {
+  const res = await api.post<AIResponse>("/feedback", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
   return res.data;

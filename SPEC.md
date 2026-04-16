@@ -52,7 +52,6 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 - 펜 굵기, 색상 조절
 - 지우개, 실행 취소/다시 실행
 - 캔버스 무한 스크롤 (세로)
-- 핀치 줌/팬 지원
 
 #### F2. 필기 인식 및 LLM 피드백
 - 캔버스의 드로잉을 이미지로 캡처
@@ -77,48 +76,38 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 - 노트별 제목, 생성일, 수정일
 - 로컬 저장
 
-### 3.2 RAG 연동 기능 (MVP 이후)
+### 3.2 교재 연동 강화 (MVP 이후)
 
-#### F5. 퀴즈 기능
-- 사용자가 캔버스에 퀴즈 요청을 손글씨로 작성 (예: "24과 어휘 퀴즈")
-- AI가 RAG로 교재에서 관련 내용을 검색하여 퀴즈를 캔버스 위에 생성
-- 사용자가 퀴즈 아래에 답을 손글씨로 작성
-- 제출(피드백 요청) 시 AI가 사용자의 답안 + 퀴즈 원문 + 교재 컨텍스트를 함께 인식하여 채점/피드백
-- 요청 방식: 펜으로 직접 작성 (별도 UI 버튼 없이, 필기 내용으로 의도 판별)
+#### F5. PDF 뷰어
+- 캔버스 옆에서 교재 PDF를 직접 열람
+- 스플릿 뷰 (좌: 캔버스, 우: PDF) 또는 슬라이드 오버 패널
+- 페이지 탐색 (이전/다음, 페이지 번호 직접 입력)
+- 현재 보고 있는 페이지 번호를 자동 추적
 
-#### F6. 단어 채점 기능
-- 사용자가 좌측에 원문 단어, 우측에 모국어 뜻을 작성
-- 피드백 요청 시 AI가 원문-뜻 매칭을 채점
-- 오답에 대해 정답과 보충 설명을 인라인 피드백으로 제공
-- RAG로 교재에서 해당 단어의 용례/문맥을 자동 검색하여 피드백에 포함
-
-#### F7. Mixed Request-Response Stroke Architecture (시스템 레벨)
-- 사용자가 AI 응답(피드백 카드) 콘텐츠에 연계하여 추가 답안을 작성할 수 있어야 함
-- 연계된 스트로크 + AI 응답 콘텐츠가 그대로 다음 요청의 컨텍스트로 전달
-- 대화형 피드백 구조: 요청 → 응답 → 응답 위에 추가 작성 → 재요청 (반복 가능)
-- 캡처 시 AI 응답 카드와 사용자 스트로크를 함께 포함해야 함
-- 이전 턴의 응답 텍스트는 텍스트 컨텍스트로, 현재 턴의 필기는 이미지로 전송
+#### F6. 페이지 컨텍스트 자동 주입
+- 사용자가 PDF 뷰어에서 페이지를 보고 있으면, 해당 페이지 텍스트를 LLM 컨텍스트에 자동 포함
+- PDF 뷰어를 열지 않은 경우 RAG로 교재에서 관련 내용을 자동 검색 (fallback)
+- 교재 형식(어휘 문제, 문법 문제, 작문 등)에 무관하게 LLM이 이미지 + 교재 텍스트로 판단
 
 ```
-[턴 1] 사용자: "24과 어휘 퀴즈" (손글씨)
-         → AI: 퀴즈 5문제 캔버스에 렌더링
-
-[턴 2] 사용자: 퀴즈 아래에 답안 작성 (손글씨)
-         → 요청: 이미지(퀴즈 카드 + 답안 스트로크) + 텍스트(턴1 응답 JSON)
-         → AI: 채점 결과 + 피드백 렌더링
-
-[턴 3] 사용자: 오답 옆에 수정 답안 작성 (손글씨)
-         → 요청: 이미지(채점 카드 + 수정 스트로크) + 텍스트(턴1~2 응답)
-         → AI: 재채점 + 추가 설명
+컨텍스트 합산 (배타적 선택이 아님):
+  - RAG 검색 결과: 교재 연결 시 항상 실행 (recognized_text 기반 top-k 청크)
+  - 현재 페이지 텍스트: PDF 뷰어가 열려 있으면 추가 포함
+  - 교재 미연결 시: 컨텍스트 없이 일반 피드백
 ```
 
-### 3.3 기타 부가 기능 (MVP 이후)
-- RAG 기반 학습 소스 관리 (NotebookLM 스타일: PDF/이미지/텍스트 등 다양한 소스 업로드, 임베딩 기반 자동 컨텍스트 선택)
+**설계 원칙**:
+- 교재 컨텍스트는 가용한 만큼 최대한 제공한다. RAG와 현재 페이지는 배타적이지 않다.
+- "채점"과 "일반 피드백"을 코드로 구분하지 않는다. 교재 컨텍스트가 있으면 LLM이 알아서 대조 채점하고, 없으면 일반 교정을 한다.
+- 교재마다 연습문제 형식이 다르다. 의도 판별이나 타입 라우팅을 코드로 만들지 않는다. Vision API가 이미지에서 문제 구조를 읽고, 교재 텍스트와 대조하여 평가한다. 비정형성은 LLM이 흡수한다.
+
+### 3.3 부가 기능 (이후 버전)
 - 학습 이력 추적
 - 오답 노트 자동 생성
 - 음성 입력 보조
 - 클라우드 동기화
 - 다국어 지원 설정 (학습 중인 언어 선택)
+- 다양한 소스 타입 지원 (이미지, 텍스트 등 PDF 외 소스)
 
 ---
 
@@ -130,17 +119,18 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 ┌──────────────────────────────────────┐
 │        모바일 앱 (React Native)        │
 │                                      │
-│  ┌───────────┐    ┌──────────────┐   │
-│  │  드로잉    │    │  피드백       │   │
-│  │  캔버스    │    │  오버레이     │   │
-│  │  (입력)    │    │  (출력)       │   │
-│  └─────┬─────┘    └──────▲───────┘   │
-│        │                 │           │
-│  ┌─────▼─────────────────┴───────┐   │
+│  ┌──────────────────────────────┐   │
+│  │  드로잉 캔버스 (Skia)         │   │
+│  │  - 스트로크 입력/렌더링        │   │
+│  │  - 피드백 카드 인라인 렌더링   │   │
+│  │  - 무한 스크롤 (가상 좌표계)   │   │
+│  └─────────────┬────────────────┘   │
+│                │                     │
+│  ┌─────────────▼─────────────────┐   │
 │  │       캔버스 매니저            │   │
 │  │  - 스트로크 저장               │   │
 │  │  - 이미지 캡처                 │   │
-│  │  - 바운딩 박스 계산            │   │
+│  │  - 피드백 위치 관리            │   │
 │  └─────────────┬─────────────────┘   │
 │                │                     │
 │  ┌─────────────▼─────────────────┐   │
@@ -156,6 +146,8 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 │  │  - POST /api/feedback         │   │
 │  │  - POST /api/pdf/upload       │   │
 │  │  - GET  /api/pdf/extract      │   │
+│  │  - GET  /api/admin/usage      │   │
+│  │  - POST /api/dev/log          │   │
 │  │  - GET  /health               │   │
 │  └─────────────┬─────────────────┘   │
 │                │                     │
@@ -165,12 +157,15 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 │                │                     │
 │  ┌─────────────▼─────────────────┐   │
 │  │  Claude Vision API (async)     │   │
+│  │  2-pass: Haiku(인식) → Sonnet  │   │
 │  │  응답 → JSON 파싱 → 반환       │   │
 │  └───────────────────────────────┘   │
 │                                      │
 │  ┌───────────────────────────────┐   │
 │  │  PostgreSQL                    │   │
 │  │  - 교재 메타데이터              │   │
+│  │  - pgvector (RAG 청크 임베딩)  │   │
+│  │  - LLM 사용량 추적             │   │
 │  └───────────────────────────────┘   │
 └──────────────────────────────────────┘
                  │
@@ -213,10 +208,10 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
      │                                  │                            │
      │  1. POST /api/feedback           │                            │
      │  {image(PNG), noteId,            │                            │
-     │   pageStart, pageEnd}            │                            │
+     │   currentPage, textbookId}       │                            │
      │ ─────────────────────────────▶   │                            │
-     │                                  │  2. 교재 텍스트 조회        │
-     │  [스피너 표시]                    │  (PDF → 페이지 범위 추출)   │
+     │                                  │  2. 컨텍스트 합산           │
+     │  [스피너 표시]                    │  (현재 페이지 + RAG 검색)   │
      │                                  │                            │
      │                                  │  3. 프롬프트 구성 + API 호출 │
      │                                  │ ──────────────────────────▶ │
@@ -255,7 +250,7 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 │   풀이: ...                 │
 │                             │
 │   ┌───────────────────────┐ │
-│   │ ✓ 1번 정답            │ │  ← LLM 피드백 (오버레이)
+│   │ ✓ 1번 정답            │ │  ← LLM 피드백 (인라인 카드)
 │   │ ✗ 3번: A → B 수정     │ │
 │   │ 총평: ...             │ │
 │   └───────────────────────┘ │
@@ -321,81 +316,34 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 | content | TEXT | AI 응답 JSON 문자열 (스키마 비의존 — 아래 참조) |
 | position | {x: number, y: number} | 렌더링 위치 (캔버스 좌표) |
 | boundingBox | {x, y, width, height} | 피드백 영역 크기 |
-| turn_index | INTEGER | 턴 순번 (0-based) |
-| stroke_count_at_request | INTEGER | 요청 시점의 strokes.length |
 | createdAt | DateTime | 생성일 |
 
-#### 6.5.1 응답 타입 설계 (Discriminated Union)
+#### 6.5.1 응답 포맷 설계
 
-`content` 컬럼은 TEXT 타입으로, AI 응답 JSON 문자열을 그대로 저장한다. 응답의 내부 구조는 DB 스키마가 관여하지 않는다. 응답 타입이 추가되어도 테이블 마이그레이션은 발생하지 않는다.
+`content` 컬럼은 TEXT 타입으로, AI 응답 JSON 문자열을 그대로 저장한다. 응답의 내부 구조는 DB 스키마가 관여하지 않는다.
 
-**타입 검증 책임은 애플리케이션 레이어에 있다.** 읽을 때 `JSON.parse` → `type` 필드로 discriminated union에 매핑한다.
+**단일 응답 타입**: 교재 형식(어휘, 문법, 작문 등)에 따른 타입 분기를 두지 않는다. LLM이 `feedback` 필드에 자유 형식으로 피드백을 작성하며, FE는 Paragraph 렌더링으로 통일한다.
 
-**공통 base**:
 ```typescript
-interface ResponseBase {
-  type: string;
-  recognized_text: string;  // Vision API가 항상 인식한 원문
-  summary: string;          // 항상 포함되는 요약
+// FE (TypeScript)
+interface AIResponse {
+  type: "feedback";           // 확장 여지만 남겨둠. 당분간 "feedback" 단일값.
+  recognized_text: string;    // Vision API가 인식한 원문
+  feedback: string;           // 자유 형식 피드백 (LLM이 문제 유형에 맞게 구조화)
+  summary: string;            // 한국어 요약
 }
 ```
 
-**타입별 확장**:
-```typescript
-interface FeedbackResponse extends ResponseBase {
-  type: "feedback";
-  corrections: { position: number; original: string; corrected: string; reason: string }[];
-}
-
-interface QuizResponse extends ResponseBase {
-  type: "quiz";
-  questions: { id: number; question: string; hint?: string }[];
-}
-
-interface QuizResultResponse extends ResponseBase {
-  type: "quiz_result";
-  scores: { id: number; correct: boolean; answer?: string; explanation?: string }[];
-  total: string;
-}
-
-interface VocabResultResponse extends ResponseBase {
-  type: "vocab_result";
-  items: { word: string; user_answer: string | null; correct: boolean;
-           correct_answer?: string; reason?: string; context?: string }[];
-  total: string;
-}
-
-type AIResponse = FeedbackResponse | QuizResponse | QuizResultResponse | VocabResultResponse;
-```
-
-**백엔드 대응 (Pydantic)**:
 ```python
-class FeedbackResponse(BaseModel):
+# BE (Pydantic)
+class AIResponse(BaseModel):
     type: Literal["feedback"]
     recognized_text: str
+    feedback: str
     summary: str
-    corrections: list[Correction]
-
-class QuizResponse(BaseModel):
-    type: Literal["quiz"]
-    recognized_text: str
-    summary: str
-    questions: list[QuizQuestion]
-
-# ... 동일 패턴
-
-AIResponse = Union[FeedbackResponse, QuizResponse, QuizResultResponse, VocabResultResponse]
 ```
 
-**프롬프트 전략**: 의도 판별(Haiku)이 `task_type`을 결정한 뒤, Sonnet 프롬프트에 해당 타입의 JSON 스키마만 포함한다. 전체 union을 프롬프트에 넣지 않는다.
-
-```python
-RESPONSE_SCHEMAS: dict[str, str] = {
-    "feedback": '{"type":"feedback","recognized_text":"...","corrections":[...],"summary":"..."}',
-    "quiz":     '{"type":"quiz","recognized_text":"...","questions":[...],"summary":"..."}',
-    # ...
-}
-```
+**설계 원칙**: 교재 연습문제의 형식 다양성(어휘 채점, 빈칸 채우기, 작문 교정 등)은 LLM이 흡수한다. 의도 판별이나 타입별 프롬프트 라우팅을 코드로 만들지 않는다. 시스템 프롬프트 하나로 모든 형식을 처리한다.
 
 ---
 
@@ -432,19 +380,20 @@ RESPONSE_SCHEMAS: dict[str, str] = {
 
 ### 7.2 컨텍스트 최적화 (텍스트 토큰 절감)
 
-#### 7.2.1 이전 피드백을 텍스트로 요약 전달
-- 첫 요청: 이미지만 전송
-- 후속 요청: 이전 피드백을 **짧은 텍스트 요약**으로 전달 (이전 이미지 재전송 X)
+#### 7.2.1 컨텍스트 전달 전략
+- 첫 요청: 이미지 + (PDF 뷰어가 열려 있으면) 현재 페이지 텍스트
+- 후속 요청: 이미지 + 현재 페이지 텍스트 + 직전 피드백 요약 (1턴)
+- 이전 이미지는 재전송하지 않음
 
 ```
-[1차 요청] 이미지(신규 필기)
-[2차 요청] 이미지(신규 필기) + "이전 컨텍스트: 24과 어휘 중 1,3번 오답"
+[요청 1] 이미지(필기) + 교재 52p 텍스트
+[요청 2] 이미지(필기) + 교재 53p 텍스트 + "이전: 24과 어휘 중 1,3번 오답"
 ```
 
 #### 7.2.2 시스템 프롬프트 최소화
 - 시스템 프롬프트를 짧고 구조화된 형태로 유지
 - 학습 언어, 피드백 형식 등 고정 파라미터만 포함
-- 예시: `"Lang:ja. 손글씨를 읽고 JSON으로 피드백. {corrections:[{line,issue,fix}], summary:str}"`
+- 단일 프롬프트로 모든 교재 형식을 처리 (의도 판별/타입 라우팅 없음)
 
 #### 7.2.3 구조화된 출력 요청
 - LLM 응답을 JSON 형식으로 제한하여 불필요한 텍스트 출력 방지
@@ -452,11 +401,10 @@ RESPONSE_SCHEMAS: dict[str, str] = {
 
 ```json
 {
+  "type": "feedback",
   "recognized_text": "原文をそのまま書く",
-  "corrections": [
-    {"position": 1, "original": "...", "corrected": "...", "reason": "..."}
-  ],
-  "summary": "2/5 정답. 조사 사용을 복습하세요."
+  "feedback": "1번 정답. 2번: 助詞「は」→「が」 (주격 조사 혼동). 3번 정답.",
+  "summary": "2/3 정답. 조사 사용을 복습하세요."
 }
 ```
 
@@ -474,13 +422,13 @@ RESPONSE_SCHEMAS: dict[str, str] = {
 #### 7.3.3 모델 티어링
 - 단순 작업 (단어 뜻 질문): Haiku (저비용, 빠른 응답)
 - 복잡한 작업 (작문 교정, 문법 분석): Sonnet
-- 작업 유형은 프롬프트 분류 또는 사용자 선택으로 결정
+- 작업 유형은 사용자 선택 또는 기본값(Sonnet)으로 결정
 
 ```
 사용자 요청
     │
     ▼
-  복잡도 판단
+  모델 선택 (사용자 설정 기반)
     ├─ 단순 (단어, 뜻) ──→ Haiku  ($0.25/1M input)
     └─ 복잡 (교정, 분석) ──→ Sonnet ($3/1M input)
 ```
@@ -532,10 +480,8 @@ RESPONSE_SCHEMAS: dict[str, str] = {
 
 ### 제외 (이후 버전)
 - [ ] 교재 챕터 자동 분할 + 선택 UI
-- [ ] RAG 기반 학습 소스 관리 (다양한 소스 타입, 임베딩 기반 자동 검색, 펜 글씨 기반 자동 조회) → M7
-- [ ] 퀴즈 기능 (RAG 기반 퀴즈 생성 + 캔버스 풀이/채점) → M8
-- [ ] 단어 채점 기능 (원문-뜻 매칭 채점 + RAG 용례 보강) → M8
-- [ ] Mixed Request-Response Stroke Architecture (연쇄 대화형 피드백) → M8
+- [x] RAG 기반 교재 컨텍스트 자동 검색 (임베딩 기반, PDF 뷰어 미사용 시 fallback) → M7
+- [x] PDF 뷰어 + 페이지 컨텍스트 자동 주입 → M8
 - [ ] 음성 입력
 - [ ] 클라우드 동기화
 - [ ] 학습 이력/통계
@@ -547,14 +493,15 @@ RESPONSE_SCHEMAS: dict[str, str] = {
 
 | 단계 | 내용 | 산출물 | 상태 |
 |------|------|--------|------|
-| M1 | 프로젝트 세팅 (RN + FastAPI) + 드로잉 캔버스 구현 | 펜 입력이 가능한 캔버스 화면, FastAPI 기본 구조 | ✅ 코드 완료, iOS 빌드 대기 |
+| M1 | 프로젝트 세팅 (RN + FastAPI) + 드로잉 캔버스 구현 | 펜 입력이 가능한 캔버스 화면, FastAPI 기본 구조 | ✅ 완료 (iPad 디바이스 검증 완료) |
 | M2 | 백엔드 피드백 API + Claude Vision 연동 | POST /api/feedback → JSON 응답 | ✅ 완료 |
-| M3 | 무한 스크롤 캔버스 + 피드백 인라인 렌더링 | 캔버스 세로 무한 스크롤, 피드백을 캔버스 위에 직접 렌더링 | 스펙 작성 완료, 구현 미착수 |
+| M3 | 무한 스크롤 캔버스 + 피드백 인라인 렌더링 | 캔버스 세로 무한 스크롤, 피드백을 캔버스 위에 직접 렌더링 | ✅ 완료 |
 | M4 | PDF 업로드 + 교재 컨텍스트 연동 | POST /api/pdf/upload, 페이지 범위 지정, 컨텍스트 전송 | ✅ 완료 |
 | M5 | 노트 관리 | 노트 CRUD, 로컬 저장 (SQLite) | ✅ 완료 |
-| M7 | RAG 기반 교재 컨텍스트 자동 검색 | 임베딩 파이프라인, 벡터 검색, 자동 컨텍스트 주입 | 미착수 |
-| M8 | Mixed Request-Response + 퀴즈/단어 채점 | F5 퀴즈, F6 단어 채점, F7 연쇄 대화 구조 | 미착수 (M7 선행) |
-| M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면 | 미착수 |
+| M7 | RAG 기반 교재 컨텍스트 자동 검색 | 임베딩 파이프라인, 벡터 검색, 자동 컨텍스트 주입 | ✅ 완료 |
+| M8 | PDF 뷰어 + 페이지 컨텍스트 | F5 PDF 뷰어, F6 페이지 컨텍스트 자동 주입, 컨텍스트 우선순위 로직 | ✅ 완료 |
+| M9 | Apple PencilKit 마이그레이션 | 네이티브 필기 엔진, PKDrawing 저장, 피드백 오버레이 | 미착수 |
+| M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면 | 🔶 진행 중 |
 
 ### 10.2 M3 상세 스펙: 무한 스크롤 캔버스 + 피드백 인라인 렌더링
 
@@ -595,7 +542,7 @@ RESPONSE_SCHEMAS: dict[str, str] = {
 
 #### 현재 시스템과의 관계
 - M4에서 구현된 수동 페이지 범위 지정은 유지 (사용자 오버라이드용)
-- RAG는 페이지 범위 미지정 시 자동으로 관련 청크를 검색하는 fallback
+- RAG는 교재 연결 시 항상 실행. PDF 뷰어의 현재 페이지 텍스트와 합산하여 컨텍스트 제공 (M8)
 - `textbook_context` 파라미터는 동일하게 사용, 소스만 변경
 
 #### 아키텍처
@@ -635,7 +582,7 @@ PDF → PyMuPDF 텍스트 추출 → 청킹 (300-500 토큰) → 임베딩 → p
 | page_start | int | 시작 페이지 |
 | page_end | int | 끝 페이지 |
 | content | text | 청크 텍스트 |
-| embedding | vector(512) | 임베딩 벡터 |
+| embedding | vector(512) | 임베딩 벡터 (Voyage AI voyage-3-lite) |
 | created_at | timestamp | 생성일 |
 
 #### API 변경
@@ -690,207 +637,297 @@ PDF → PyMuPDF 텍스트 추출 → 청킹 (300-500 토큰) → 임베딩 → p
 
 #### 주의 사항
 - 인덱싱은 비동기 (BackgroundTasks). 대용량 PDF는 수 초 소요.
-- 벡터 차원은 임베딩 모델에 종속 (Voyage AI voyage-3-lite = 1024차원)
+- 벡터 차원은 임베딩 모델에 종속 (Voyage AI voyage-3-lite = 512차원)
 - pgvector 인덱스 (ivfflat 또는 hnsw)는 데이터량이 적은 초기에는 불필요, 추후 추가
 - 수동 페이지 범위 지정이 항상 RAG보다 우선 (사용자 의도 존중)
 
-### 10.4 M8 상세 스펙: Mixed Request-Response + 퀴즈/단어 채점
-
-#### 선행 조건
-- M7 (RAG) 완료 필수 — 퀴즈/단어 채점 모두 교재 컨텍스트 자동 검색에 의존
-- M3 (무한 스크롤 + 인라인 렌더링) 완료 필수 — 피드백 카드 위 추가 작성 구조
+### 10.4 M8 상세 스펙: PDF 뷰어 + 페이지 컨텍스트
 
 #### 목표
-1. AI 응답 카드 위/아래에 사용자가 추가 필기 → 재요청 시 연쇄 컨텍스트 전달
-2. 펜 글씨로 퀴즈 요청 → AI가 교재 기반 퀴즈 생성 → 캔버스에서 풀이/채점
-3. 단어-뜻 매칭 채점 + RAG 기반 용례 보강
+- 교재 PDF를 캔버스 옆에서 직접 열람
+- 사용자가 보고 있는 페이지의 텍스트를 LLM 컨텍스트에 자동 주입
+- RAG(M7)와 합산하여 교재 컨텍스트 최대 제공
 
-#### F7 설계: Mixed Request-Response Stroke Architecture
+#### 선행 조건
+- M4 (PDF 업로드 + 텍스트 추출) 완료 필수 — 서버에 PDF가 존재해야 함
+- M7 (RAG)은 선택적 — 없어도 페이지 직접 참조로 동작, 있으면 fallback으로 활용
 
-**핵심 문제**: 현재는 "스트로크 → 캡처 → 피드백" 단방향. AI 응답 위에 추가 작성한 내용을 다시 요청에 포함하려면 캡처 범위와 컨텍스트 구성이 달라져야 한다.
+#### UI 설계
 
-##### 턴 상태 관리
-
-노트 화면(`app/note/[id].tsx`)에서 턴 단위로 요청-응답을 추적한다.
-
-**Turn 타입**:
-```typescript
-interface Turn {
-  id: string;                    // 고유 ID (timestamp 기반)
-  index: number;                 // 0-based 턴 순번
-  feedbackItem: FeedbackRenderItem;  // 캔버스 위 렌더링 정보
-  responseJson: FeedbackResponse;    // AI 응답 원본 JSON
-  strokeCountAtRequest: number;      // 요청 시점의 strokes.length
-}
+**스플릿 뷰** (iPad 가로 모드 기준):
+```
+┌──────────────────────┬─────────────────┐
+│                      │                 │
+│   캔버스 (드로잉)     │   PDF 뷰어      │
+│                      │   ← p.52 →     │
+│   (사용자 필기)       │   (교재 내용)    │
+│                      │                 │
+│   ┌────────────────┐ │                 │
+│   │ 피드백 카드     │ │                 │
+│   └────────────────┘ │                 │
+│                      │                 │
+├──────────────────────┴─────────────────┤
+│  ✏️  ⌫  ↩  │ 📖  │ 💬 피드백          │
+└────────────────────────────────────────┘
 ```
 
-**턴 경계 판별**: `strokeCountAtRequest`로 스트로크를 턴별로 분리한다.
-```
-strokes: [s0, s1, s2, s3, s4, s5, s6, s7]
-                      ↑              ↑
-               Turn 0 요청 (len=3)  Turn 1 요청 (len=6)
+- 📖 버튼으로 PDF 패널 토글 (열기/닫기)
+- PDF 패널은 화면 우측 40% 차지, 캔버스는 좌측 60%로 리사이즈
+- PDF 미연결 시 📖 버튼은 교재 연결 flow 트리거 (기존 handleAttachTextbook)
+- 페이지 이동: 스와이프 또는 하단 < p.52 > 네비게이션
 
-s0~s2: 초기 입력 (Turn 0의 요청 대상)
-s3~s5: Turn 0 피드백 카드 아래 작성 (Turn 1의 요청 대상)
-s6~s7: Turn 1 피드백 카드 아래 작성 (현재 진행 중)
-```
+#### 컨텍스트 합산 로직
 
-**feedbackItems 파생**: `turns` 배열에서 렌더링용 `feedbackItems`를 파생한다. 별도 상태로 관리하지 않는다.
-```typescript
-const feedbackItems = turns.map(t => t.feedbackItem);
-```
+RAG 검색 결과와 현재 페이지 텍스트는 배타적이지 않다. 둘 다 가용하면 합산한다.
 
-**SQLite 영속화**: 노트 재진입 시 턴 체인을 복원하기 위해 feedbacks 테이블을 확장한다.
-```sql
-ALTER TABLE feedbacks ADD COLUMN turn_index INTEGER DEFAULT 0;
-ALTER TABLE feedbacks ADD COLUMN stroke_count_at_request INTEGER DEFAULT 0;
-```
+```python
+# feedback_service.py
+async def resolve_textbook_context(
+    textbook_id: str | None,
+    current_page: int | None,       # PDF 뷰어에서 보고 있는 페이지
+    recognized_text: str | None,    # RAG 검색 쿼리 (M7)
+) -> str | None:
+    parts = []
 
-##### 컨텍스트 체인
+    # 보고 있는 페이지 (있으면 항상 포함)
+    if current_page is not None and textbook_id:
+        page_text = await extract_page_text(textbook_id, current_page)
+        if page_text:
+            parts.append(f"[현재 페이지 {current_page}]\n{page_text}")
 
-기존 `previous_context` (평문 텍스트)를 `turn_history` (구조화된 턴 배열)로 대체한다. 최근 3턴만 전달 (토큰 절감).
+    # RAG 검색 (교재 연결됐으면 항상 실행)
+    if textbook_id and recognized_text:
+        chunks = await rag_search(recognized_text, textbook_id)
+        if chunks:
+            parts.append(f"[관련 교재 내용]\n{chunks}")
 
-```typescript
-// contextBuilder.ts
-function buildTurnHistory(turns: Turn[]): TurnHistoryEntry[] {
-  return turns.slice(-3).map(t => ({
-    user_recognized: t.responseJson.recognized_text,
-    ai_response: t.responseJson,
-  }));
-}
+    return "\n\n".join(parts) if parts else None
 ```
 
-백엔드에서 턴 히스토리를 프롬프트에 구성:
-```
-Previous conversation turns:
-[Turn 0] User wrote: 24과 어휘 퀴즈
-Your response: {"recognized_text":"...","corrections":[...],"summary":"..."}
-[Turn 1] User wrote: 1.사과 2.바나나...
-Your response: {"type":"quiz_result","scores":[...],"total":"3/5"}
+#### API 변경
 
-The image shows the user's latest handwriting,
-which may be a response to your previous output.
+`POST /api/feedback` 파라미터 추가:
+```
+기존: image, note_id, language, textbook_id, page_start, page_end, previous_context
+추가: current_page (int, optional) — PDF 뷰어에서 보고 있는 페이지 번호
 ```
 
-##### 캡처 전략
+`current_page`가 있으면 `page_start/page_end` 대신 해당 페이지 텍스트를 컨텍스트로 사용. 기존 수동 페이지 범위 지정도 유지 (하위 호환).
 
-**1단계 (MVP)**: 뷰포트 캡처 유지 (`makeImageFromView`)
-- 사용자는 작업 중인 영역을 보고 있으므로 뷰포트에 직전 피드백 카드 + 새 스트로크가 포함됨
-- 이전 턴의 피드백 내용은 `turn_history` 텍스트로 전달 — 이미지에 포함될 필요 없음
-- 코드 변경 없이 동작
+#### 기술 선택
 
-**2단계 (필요 시)**: Skia Surface 기반 영역 캡처
-- 직전 피드백 카드 상단 ~ 새 스트로크 하단까지만 오프스크린 렌더링
-- `makeImageFromView`가 뷰포트 밖 콘텐츠를 놓치는 경우에 전환
-
-##### 의도 판별
-
-피드백 요청 시 2-pass로 처리 (M7 RAG 파이프라인 확장):
-```
-1단계: Haiku — 손글씨 인식 + 의도 분류
-  → "퀴즈", "문제", "quiz" 키워드 → task_type: "quiz_generate"
-  → 이전 턴이 quiz_generate → task_type: "quiz_grade"
-  → 좌/우 분할 레이아웃 감지 → task_type: "vocab_grade"
-  → 기타 → task_type: "feedback" (기존 동작)
-
-2단계: Sonnet — task_type에 따른 프롬프트로 최종 응답 생성
-```
-
-##### API 변경
-
-`POST /api/feedback` 파라미터 확장:
-```
-기존: image, note_id, language, previous_context
-변경: image, note_id, language, turn_history (JSON array)
-```
-
-`turn_history`가 `previous_context`를 완전히 대체한다. 하위 호환은 유지하지 않는다 (클라이언트/서버 동시 배포).
-
-#### F5 설계: 퀴즈 기능
-
-**흐름**:
-```
-[생성 단계]
-사용자: "24과 어휘 퀴즈 5문제" (손글씨)
-  → Haiku: 필기 인식 → recognized_text
-  → 의도 판별: quiz_generate
-  → RAG: 교재에서 24과 관련 청크 검색
-  → Sonnet: 청크 기반 퀴즈 5문제 생성
-  → 응답 JSON:
-    { "type": "quiz",
-      "questions": [
-        { "id": 1, "question": "___에 들어갈 단어는?", "hint": "..." },
-        ...
-      ] }
-  → 캔버스에 퀴즈 카드 렌더링
-
-[채점 단계]
-사용자: 퀴즈 카드 아래에 답안 작성
-  → 캡처: 퀴즈 카드 + 답안 스트로크
-  → previous_context: 퀴즈 JSON (정답 포함)
-  → Sonnet: 채점 + 피드백
-  → 응답 JSON:
-    { "type": "quiz_result",
-      "scores": [
-        { "id": 1, "correct": true },
-        { "id": 2, "correct": false, "answer": "正しい答え", "explanation": "..." }
-      ],
-      "total": "3/5",
-      "summary": "..." }
-```
-
-**퀴즈 카드 렌더링**: 기존 `FeedbackRenderItem`을 확장하여 `type` 필드 추가. 퀴즈 카드는 번호가 매겨진 문제 목록으로 렌더링. 각 문제 아래에 답안 작성 공간(여백) 확보.
-
-#### F6 설계: 단어 채점 기능
-
-**레이아웃 인식**:
-```
-┌────────────┬────────────┐
-│ apple      │ 사과       │
-│ banana     │ 바나다     │  ← 오타
-│ cherry     │            │  ← 미작성
-└────────────┴────────────┘
-```
-
-- Vision API가 좌/우 컬럼 구조를 인식
-- 프롬프트에 "좌측=원문, 우측=사용자 번역" 레이아웃 힌트 제공
-- RAG로 각 단어의 교재 내 용례를 검색하여 피드백에 포함
-
-**응답 JSON**:
-```json
-{
-  "type": "vocab_result",
-  "items": [
-    { "word": "apple", "user_answer": "사과", "correct": true },
-    { "word": "banana", "user_answer": "바나다", "correct": false,
-      "correct_answer": "바나나", "reason": "오타" },
-    { "word": "cherry", "user_answer": null, "correct": false,
-      "correct_answer": "체리", "context": "교재 p.23: 'cherry blossom festival'" }
-  ],
-  "total": "1/3",
-  "summary": "..."
-}
-```
+| 구성요소 | 선택지 | 비고 |
+|----------|--------|------|
+| PDF 렌더링 | `react-native-pdf` 또는 WebView + PDF.js | 네이티브 성능 vs 호환성 트레이드오프 |
+| 페이지 추적 | `onPageChanged` 콜백 → `currentPage` 상태 | 실시간 추적 |
+| 레이아웃 | 조건부 flex (PDF 열림: 60/40, 닫힘: 100/0) | 애니메이션은 후순위 |
 
 #### 구현 순서
 
 | 단계 | 파일 | 내용 |
 |------|------|------|
-| 1 | `src/types/index.ts` | `FeedbackRenderItem`에 `type` 필드 추가, 퀴즈/채점 응답 타입 정의 |
-| 2 | `src/services/contextBuilder.ts` | 턴 체인 구성 — 이전 피드백 JSON + 턴 추적 |
-| 3 | `src/hooks/useDrawing.ts` | 캡처 영역 계산 — 마지막 피드백 카드 이후 스트로크 영역 |
-| 4 | `src/components/DrawingCanvas.tsx` | 퀴즈 카드 렌더링 (번호 목록, 답안 여백), 채점 카드 렌더링 (O/X 표시) |
-| 5 | `services/feedback_service.py` | 의도 판별 로직, task_type별 프롬프트 분기, 퀴즈/채점/단어 채점 프롬프트 |
-| 6 | `routers/feedback.py` | `turn_history` 파라미터 추가, 연쇄 요청 처리 |
-| 7 | `app/note/[id].tsx` | 턴 추적 상태, 연쇄 요청 UI, 피드백 타입별 렌더링 분기 |
-| 8 | 테스트 | 의도 판별, 퀴즈 생성/채점, 단어 채점 통합 테스트 |
+| 1 | `src/components/PdfViewer.tsx` | PDF 렌더링 컴포넌트, 페이지 네비게이션, onPageChanged 콜백 |
+| 2 | `app/note/[id].tsx` | 스플릿 뷰 레이아웃, PDF 패널 토글, currentPage 상태 |
+| 3 | `src/services/feedback.ts` | `current_page` 파라미터 추가 |
+| 4 | `routers/feedback.py` | `current_page` 파라미터 수신, 컨텍스트 우선순위 로직 |
+| 5 | `services/feedback_service.py` | `resolve_textbook_context` 함수 구현 |
+| 6 | 테스트 | 페이지 컨텍스트 주입, 우선순위 분기, PDF 뷰어 통합 테스트 |
 
 #### 주의 사항
-- 의도 판별은 Haiku로 수행 (비용 절감). 판별 실패 시 기본값은 "feedback" (기존 동작)
-- 퀴즈 생성 시 정답을 서버에만 보관, 클라이언트에는 문제만 전송 (부정행위 방지)
-- 단어 채점은 좌/우 레이아웃을 강제하지 않음 — Vision API가 구조를 자동 인식하도록 프롬프트 설계
-- 턴 체인은 최대 3턴으로 제한 (토큰 폭증 방지)
-- Mixed Architecture는 M3의 `makeImageFromView` 한계와 충돌 — Skia `Surface` 기반 캡처로 전환 필요 (특정 영역 캡처)
+- PDF 렌더링 라이브러리의 네이티브 빌드 필요 (CocoaPods 재설치)
+- 스플릿 뷰에서 캔버스 너비가 변하면 기존 스트로크 좌표에 영향 없음 (가상 좌표계이므로)
+- `makeImageFromView` 캡처 범위가 캔버스 영역만 포함되는지 확인 필요 (PDF 패널 제외)
+- 대용량 PDF(100p+)의 페이지 렌더링 성능 모니터링
+
+### 10.5 M9 상세 스펙: Apple PencilKit 마이그레이션
+
+#### 목표
+현재 Skia 기반 드로잉 엔진을 Apple PencilKit으로 교체하여 Apple Notes 수준의 자연스러운 필기감을 확보한다.
+
+#### 현재 문제 (Skia 한계)
+- `path.lineTo()`만 사용하여 곡선 보간 없음 — 빠른 필기 시 각진 획
+- Apple Pencil의 압력/기울기 데이터 미활용 — 균일한 획 두께
+- JS 브리지 경유 (GestureHandler → Reanimated → runOnJS → state) — 렌더링 지연
+- Predictive Touch 미지원 — 펜촉과 렌더링 사이 체감 지연
+- 소프트웨어 레벨 palm rejection만 적용 (`pointerType` 체크)
+
+#### PencilKit이 해결하는 것
+| 항목 | Skia (현재) | PencilKit |
+|------|------------|-----------|
+| 잉크 렌더링 | Canvas 2D (Skia) | Metal 네이티브 (~9ms 지연) |
+| Predictive Touch | 미지원 | 시스템 레벨 예측 렌더링 |
+| 필압/기울기 | 미사용 | 자동 반영 (획 두께/투명도 동적 변화) |
+| Palm Rejection | `pointerType` 분기 | 시스템 레벨 |
+| 잉크 스무딩 | 없음 | 자동 (Bezier 보간) |
+| 도구 종류 | 펜/지우개 | 펜, 연필, 마커, 만년필, 수채화, 크레용 등 |
+
+#### 라이브러리 선택
+
+| 라이브러리 | 장점 | 단점 | 권장 |
+|-----------|------|------|------|
+| `expo-pencilkit-ui` | Expo Modules API 네이티브 통합, 설정 최소 | API 표면 작음 (도구 선택 API 없음) | ✅ 1차 검토 |
+| `react-native-pencil-kit` | 풍부한 API (도구, ruler, drawingPolicy), Fabric 지원 | config plugin 필요, Expo Go 불가 | 2차 대안 |
+
+두 라이브러리 모두 Expo Go 불가 → `expo run:ios` (dev client) 필수. 현재 iPad 물리 디바이스 배포 환경이므로 문제 없음.
+
+#### 아키텍처
+
+```
+┌─────────────────────────────────────┐
+│  React Native View (Z-stack)        │
+│                                     │
+│  ┌───────────────────────────────┐  │
+│  │  Layer 2: Skia Canvas         │  │  ← 피드백 카드 렌더링 (pointerEvents="none")
+│  │  (Paragraph, RoundedRect)     │  │
+│  ├───────────────────────────────┤  │
+│  │  Layer 1: PencilKitView       │  │  ← 필기 입력 (네이티브)
+│  │  (PKCanvasView)               │  │
+│  └───────────────────────────────┘  │
+└─────────────────────────────────────┘
+
+터치 라우팅:
+  - Apple Pencil → PencilKitView (네이티브 처리)
+  - 손가락 스크롤 → PencilKitView (UIScrollView 네이티브)
+  - 피드백 오버레이 → pointerEvents="none" (터치 통과)
+```
+
+**핵심 원칙**: PencilKit은 필기 입력 전용, 피드백 렌더링은 기존 Skia 오버레이 유지. 두 레이어의 스크롤 오프셋을 동기화한다.
+
+#### 데이터 모델 변경
+
+**현재 (Skia)**:
+```
+Stroke { svg_path: string, color: string, width: number }
+→ 개별 스트로크를 SVG 문자열로 저장
+```
+
+**변경 후 (PencilKit)**:
+```
+Drawing { data: string (base64), created_at: DateTime }
+→ PKDrawing 전체를 base64 blob으로 저장 (노트당 1개)
+```
+
+- PKDrawing은 불투명 바이너리 포맷. 개별 스트로크 접근 불가 (PencilKit 없이 렌더링 불가)
+- 기존 SVG 스트로크 데이터와 호환 불가 → 마이그레이션 시 기존 노트는 읽기 전용 또는 재작성
+- 압력, 기울기, 속도 정보가 PKDrawing에 포함됨
+
+SQLite 스키마:
+```sql
+-- 기존 strokes 테이블은 유지 (레거시 노트 호환)
+-- 신규 테이블 추가
+CREATE TABLE drawings (
+  id TEXT PRIMARY KEY,
+  note_id TEXT NOT NULL REFERENCES notes(id),
+  data TEXT NOT NULL,          -- PKDrawing base64
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
+
+#### 이미지 캡처 (Claude Vision API 연동)
+
+| 기능 | 현재 (Skia) | PencilKit |
+|------|------------|-----------|
+| 전체 캡처 | `makeImageFromView(ref)` | `getBase64PngData({scale})` |
+| 신규 영역 캡처 | `Skia.Surface` + `drawPath()` + 바운딩 박스 | PKDrawing `image(from:rect, scale:)` — 래퍼 확장 필요 |
+
+`captureNewStrokesBase64()` (선택 영역 캡처)는 rect 기반 렌더링 API가 래퍼에 노출되지 않을 수 있음. 이 경우:
+- 옵션 A: 라이브러리 fork하여 `getBase64PngData({rect, scale})` 추가
+- 옵션 B: 전체 캡처 후 JS에서 크롭 (토큰 비용 증가 허용)
+- 옵션 C: 전체 캡처로 단순화 (MVP 접근, 향후 최적화)
+
+#### 무한 스크롤
+
+PKCanvasView는 UIScrollView 서브클래스로 네이티브 스크롤을 지원한다. 그러나 현재 래퍼 라이브러리들이 `contentSize` 제어를 노출하지 않음.
+
+대응 방안:
+1. **래퍼 확장**: `contentSize` prop 추가 (네이티브 모듈 수정)
+2. **페이지 기반**: 고정 높이 PKCanvasView를 FlatList로 관리 (페이지 단위)
+3. **충분히 큰 고정 캔버스**: contentSize를 충분히 크게 설정 (예: 10000px)
+
+옵션 1이 가장 자연스럽지만 라이브러리 fork 필요. POC에서 옵션 3으로 검증 후 판단.
+
+#### 피드백 오버레이 스크롤 동기화
+
+PencilKit의 스크롤과 Skia 오버레이의 스크롤을 동기화해야 한다.
+
+```typescript
+// PencilKitView의 onScroll 이벤트 → Skia 오버레이 scrollOffset 동기화
+<PencilKitView
+  onScroll={(e) => {
+    const offsetY = e.nativeEvent.contentOffset.y;
+    setFeedbackScrollOffset(offsetY);
+  }}
+/>
+<Canvas style={{ position: 'absolute', pointerEvents: 'none' }}>
+  <Group transform={[{ translateY: -feedbackScrollOffset }]}>
+    {/* 피드백 카드 렌더링 */}
+  </Group>
+</Canvas>
+```
+
+주의: `onScroll` 이벤트가 래퍼에 노출되지 않을 경우, 네이티브 모듈 확장 필요.
+
+#### Android 대응
+
+PencilKit은 iOS 전용. Android 전략:
+
+- **현재**: Skia 기반 드로잉 엔진을 Android 전용으로 유지
+- **인터페이스 추상화**: 공통 DrawingEngine 인터페이스 정의, 플랫폼별 구현 교체
+
+```typescript
+// 공통 인터페이스
+interface DrawingEngine {
+  captureBase64(): Promise<string>;
+  captureNewStrokesBase64(): Promise<string | null>;
+  saveDrawing(): Promise<void>;
+  loadDrawing(noteId: string): Promise<void>;
+  undo(): void;
+  redo(): void;
+  clear(): void;
+  setTool(tool: DrawingTool): void;
+}
+
+// 플랫폼 분기
+const DrawingCanvas = Platform.OS === 'ios'
+  ? PencilKitCanvas   // PencilKit 네이티브
+  : SkiaCanvas;       // 기존 Skia 유지
+```
+
+iPad가 1차 타겟이므로 Android Skia 엔진은 현재 수준 유지. 향후 Stylus API 활용 개선 가능.
+
+#### 구현 순서
+
+| 단계 | 내용 | 파일 |
+|------|------|------|
+| 0 | **POC** — PencilKitView 임베딩, 필기, PNG 캡처, 스크롤 동작 검증 | 별도 브랜치 |
+| 1 | DrawingEngine 인터페이스 정의 | `src/types/drawing.ts` |
+| 2 | PencilKitCanvas 컴포넌트 구현 | `src/components/PencilKitCanvas.tsx` |
+| 3 | PKDrawing 저장/로드 (SQLite drawings 테이블) | `src/services/database.ts` |
+| 4 | 피드백 오버레이 분리 (Skia Canvas, pointerEvents="none") | `src/components/FeedbackOverlay.tsx` |
+| 5 | 스크롤 동기화 (PencilKit ↔ 피드백 오버레이) | `src/hooks/useDrawing.ts` |
+| 6 | 이미지 캡처 연동 (captureBase64 → feedback API) | `src/components/PencilKitCanvas.tsx` |
+| 7 | 기존 SkiaCanvas를 Android 전용으로 분기 | `src/components/DrawingCanvas.tsx` |
+| 8 | 기존 노트 마이그레이션 (SVG → 읽기 전용 or 재렌더링) | `src/services/database.ts` |
+
+#### 선행 조건
+- M3 (무한 스크롤 + 피드백 렌더링) 완료 ✅
+- iPad 물리 디바이스 빌드 환경 ✅
+- Expo dev client (`expo run:ios`) 환경 ✅
+
+#### 리스크 및 검증 항목 (POC에서 확인)
+
+| 리스크 | 검증 방법 | 블로커 여부 |
+|--------|----------|------------|
+| 래퍼가 contentSize 미노출 → 무한 스크롤 불가 | 큰 고정 캔버스(10000px)로 테스트 | 중 — fork로 해결 가능 |
+| onScroll 미노출 → 피드백 오버레이 동기화 불가 | 래퍼 API 확인, 네이티브 이벤트 테스트 | 고 — fork 필수 가능성 |
+| rect 기반 캡처 미노출 → 선택 영역 캡처 불가 | 전체 캡처 후 크롭으로 대체 가능 | 저 |
+| 기존 SVG 스트로크 → PKDrawing 변환 불가 | 기존 노트 읽기 전용 처리로 우회 | 저 |
+
+#### 주의 사항
+- POC를 먼저 수행하여 래퍼 라이브러리의 실제 API 한계를 확인할 것. 명세의 "래퍼 확장 필요" 항목이 실제로 필요한지는 POC 결과에 따라 결정.
+- PencilKit 도입은 iOS 전용 네이티브 의존성을 추가한다. Expo Go 사용 불가가 확정되므로 개발 워크플로우가 `expo run:ios` 기반으로 고정됨.
+- PKDrawing 포맷은 Apple 독점. 향후 크로스플랫폼 렌더링이나 웹 뷰어가 필요하면 별도 래스터라이즈 파이프라인이 필요.
 
 ### 10.1 인프라 (마일스톤 외)
 
@@ -898,9 +935,9 @@ which may be a response to your previous output.
 |------|------|
 | Supabase Auth 연동 (BE JWKS/ES256 검증 + Mobile 클라이언트) | ✅ 완료 |
 | 백엔드 테스트 (14건: auth 5, feedback 4, pdf 5) | ✅ 전체 통과 |
-| Xcode 26.4 + iOS 빌드 환경 | ✅ 설치 완료, iOS 26.4 시뮬레이터 다운로드 중 |
+| Xcode 26.4 + iOS 빌드 환경 | ✅ 완료 (iPad 물리 디바이스 배포로 전환) |
 | SQLite 로컬 DB (notes, strokes, feedbacks 테이블) | ✅ 완료 |
-| 드로잉 캔버스 (react-native-skia + GestureHandler) | ✅ 코드 완료, 빌드 대기 |
+| 드로잉 캔버스 (react-native-skia + GestureHandler) | ✅ 완료 (iPad 검증 완료) |
 | 노트 목록 UI (생성/삭제/탐색) | ✅ 완료 |
 | 로그인 UI (Supabase Auth) | ✅ 완료 |
 | 스트로크 자동 저장/로드 (SVG path ↔ SQLite) | ✅ 완료 |

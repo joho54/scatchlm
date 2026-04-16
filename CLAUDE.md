@@ -33,6 +33,7 @@ scatchlm/
 - **인증**: Supabase Auth (JWT 검증)
 - **LLM**: anthropic Python SDK (Claude Vision API, async)
 - **PDF**: PyMuPDF (fitz)
+- **마이그레이션**: Alembic (async, autogenerate)
 - **테스트**: pytest + pytest-asyncio
 
 ### Mobile (TypeScript)
@@ -62,6 +63,22 @@ npm run ios                             # iOS 시뮬레이터
 npm run android                         # Android 에뮬레이터
 ```
 
+### DB 마이그레이션 (Alembic)
+
+모델(`app/models/`) 변경 시 반드시 마이그레이션을 생성하고 적용할 것. 수동 ALTER TABLE 금지.
+
+```bash
+cd backend
+source venv/bin/activate
+alembic revision --autogenerate -m "설명"   # 마이그레이션 자동 생성
+alembic upgrade head                        # DB에 적용
+alembic current                             # 현재 revision 확인
+alembic downgrade -1                        # 롤백
+```
+
+- `env.py`가 `app.core.config.settings.DATABASE_URL`을 사용하므로 `alembic.ini`에 DB URL 설정 불필요
+- 새 모델 파일 추가 시 `alembic/env.py`에 import 추가 필요
+
 ## 코드 컨벤션
 
 - Backend: Python 3.11+, async/await 패턴, Pydantic 모델로 요청/응답 정의
@@ -82,6 +99,10 @@ npm run android                         # Android 에뮬레이터
   1. **문제 상황**: 관찰된 사실만 기술
   2. **예상 원인 후보**: 가능성 높은 순서대로 나열, 각각 근거 포함
   3. **다음 절차**: 원인을 좁히기 위한 구체적 행동
+
+## 디버깅 행동지침
+
+- 구현에 어려움을 겪을 때 사용자에게 사과하는 대신, 명세나 문제에 대한 합의에 먼저 도달한 후 표준적인 솔루션을 제공할 것.
 
 ## 참고
 

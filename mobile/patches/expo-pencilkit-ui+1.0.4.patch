@@ -1,0 +1,43 @@
+diff --git a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
+index a011fc1..e293508 100644
+--- a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
++++ b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
+@@ -24,7 +24,7 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+ 
+     private func setupCanvasView() {
+         // Configure canvas view exactly like the working example
+-        canvasView.drawingPolicy = .anyInput
++        canvasView.drawingPolicy = .default
+         canvasView.overrideUserInterfaceStyle = .light
+         canvasView.isMultipleTouchEnabled = true
+         canvasView.isOpaque = true
+@@ -33,9 +33,10 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+         canvasView.isScrollEnabled = true
+         canvasView.isUserInteractionEnabled = true
+         canvasView.minimumZoomScale = 1.0
+-        canvasView.maximumZoomScale = 4.0
+-        canvasView.bounces = false
++        canvasView.maximumZoomScale = 1.0
++        canvasView.bounces = true
+         canvasView.bouncesZoom = false
++        canvasView.alwaysBounceVertical = true
+ 
+         // Initialize with empty drawing
+         canvasView.drawing = PKDrawing()
+@@ -53,6 +54,16 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+ 
+     }
+ 
++    public override func layoutSubviews() {
++        super.layoutSubviews()
++        // contentSize를 뷰 높이의 5배로 설정하여 세로 스크롤 가능하게 함
++        let viewWidth = bounds.width
++        let viewHeight = bounds.height
++        if viewHeight > 0 && canvasView.contentSize.height <= viewHeight {
++            canvasView.contentSize = CGSize(width: viewWidth, height: viewHeight * 5)
++        }
++    }
++
+     public override func didMoveToSuperview() {
+         super.didMoveToSuperview()
+ 

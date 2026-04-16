@@ -55,6 +55,9 @@ export default function HomeScreen() {
         <TouchableOpacity onPress={() => router.push("/settings")}>
           <Text style={styles.headerButton}>설정</Text>
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push("/poc-pencilkit")}>
+          <Text style={[styles.headerButton, { color: "#E11D48" }]}>PKit POC</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={signOut}>
           <Text style={[styles.headerButton, { color: "#999" }]}>로그아웃</Text>
         </TouchableOpacity>

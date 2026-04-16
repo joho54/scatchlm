@@ -19,7 +19,7 @@ describe("noteStore", () => {
         title: "노트1",
         language: "en",
         created_at: "2026-01-01",
-        updated_at: "2026-01-01", textbook_id: null, textbook_name: null,
+        updated_at: "2026-01-01", textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null,
       },
     ];
     mockDb.getAllNotes.mockResolvedValue(mockNotes);
@@ -37,7 +37,7 @@ describe("noteStore", () => {
       title: "새 노트",
       language: "ja",
       created_at: "2026-01-02",
-      updated_at: "2026-01-02", textbook_id: null, textbook_name: null,
+      updated_at: "2026-01-02", textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null,
     };
     mockDb.createNote.mockResolvedValue(newNote);
 
@@ -56,7 +56,7 @@ describe("noteStore", () => {
           title: "원래 제목",
           language: "en",
           created_at: "2026-01-01",
-          updated_at: "2026-01-01", textbook_id: null, textbook_name: null,
+          updated_at: "2026-01-01", textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null,
         },
       ],
     });
@@ -76,14 +76,14 @@ describe("noteStore", () => {
           title: "삭제할 노트",
           language: "en",
           created_at: "2026-01-01",
-          updated_at: "2026-01-01", textbook_id: null, textbook_name: null,
+          updated_at: "2026-01-01", textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null,
         },
         {
           id: "2",
           title: "남는 노트",
           language: "en",
           created_at: "2026-01-01",
-          updated_at: "2026-01-01", textbook_id: null, textbook_name: null,
+          updated_at: "2026-01-01", textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null,
         },
       ],
     });

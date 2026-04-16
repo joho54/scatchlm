@@ -19,6 +19,7 @@ interface ToolbarProps {
   onTogglePdf?: () => void;
   pdfOpen?: boolean;
   hasTextbook?: boolean;
+  mode?: "skia" | "pencilkit";
 }
 
 export default function Toolbar({
@@ -36,55 +37,55 @@ export default function Toolbar({
   onTogglePdf,
   pdfOpen,
   hasTextbook,
+  mode = "skia",
 }: ToolbarProps) {
+  const isPencilKit = mode === "pencilkit";
+
   return (
     <View style={styles.container}>
       <View style={styles.row}>
-        {/* 색상 선택 */}
-        {COLORS.map((color) => (
-          <TouchableOpacity
-            key={color}
-            onPress={() => onColorChange(color)}
-            style={[
-              styles.colorBtn,
-              { backgroundColor: color },
-              penColor === color && !isEraser && styles.selected,
-            ]}
-          />
-        ))}
+        {/* Skia 전용: 색상/굵기/지우개 (PencilKit에서는 PKToolPicker가 대체) */}
+        {!isPencilKit && (
+          <>
+            {COLORS.map((color) => (
+              <TouchableOpacity
+                key={color}
+                onPress={() => onColorChange(color)}
+                style={[
+                  styles.colorBtn,
+                  { backgroundColor: color },
+                  penColor === color && !isEraser && styles.selected,
+                ]}
+              />
+            ))}
+            <View style={styles.divider} />
+            {WIDTHS.map((w) => (
+              <TouchableOpacity
+                key={w}
+                onPress={() => onWidthChange(w)}
+                style={[styles.widthBtn, penWidth === w && !isEraser && styles.selected]}
+              >
+                <View
+                  style={{
+                    width: w * 3,
+                    height: w * 3,
+                    borderRadius: w * 1.5,
+                    backgroundColor: "#333",
+                  }}
+                />
+              </TouchableOpacity>
+            ))}
+            <View style={styles.divider} />
+            <TouchableOpacity
+              onPress={onEraserToggle}
+              style={[styles.toolBtn, isEraser && styles.eraserActive]}
+            >
+              <Text style={styles.toolText}>지우개</Text>
+            </TouchableOpacity>
+          </>
+        )}
 
-        {/* 구분선 */}
-        <View style={styles.divider} />
-
-        {/* 펜 굵기 */}
-        {WIDTHS.map((w) => (
-          <TouchableOpacity
-            key={w}
-            onPress={() => onWidthChange(w)}
-            style={[styles.widthBtn, penWidth === w && !isEraser && styles.selected]}
-          >
-            <View
-              style={{
-                width: w * 3,
-                height: w * 3,
-                borderRadius: w * 1.5,
-                backgroundColor: "#333",
-              }}
-            />
-          </TouchableOpacity>
-        ))}
-
-        <View style={styles.divider} />
-
-        {/* 지우개 */}
-        <TouchableOpacity
-          onPress={onEraserToggle}
-          style={[styles.toolBtn, isEraser && styles.eraserActive]}
-        >
-          <Text style={styles.toolText}>지우개</Text>
-        </TouchableOpacity>
-
-        {/* Undo / Redo */}
+        {/* Undo / Redo (공통) */}
         <TouchableOpacity
           onPress={onUndo}
           disabled={!canUndo}

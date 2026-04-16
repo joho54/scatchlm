@@ -1,8 +1,140 @@
+diff --git a/node_modules/expo-pencilkit-ui/build/index.js b/node_modules/expo-pencilkit-ui/build/index.js
+index 00e4a92..cceed5a 100644
+--- a/node_modules/expo-pencilkit-ui/build/index.js
++++ b/node_modules/expo-pencilkit-ui/build/index.js
+@@ -139,6 +139,39 @@ export const PencilKitView = React.forwardRef((props, ref) => {
+                 }
+             }
+         },
++        getDrawingBounds: async () => {
++            if (Platform.OS === "ios" &&
++                ExpoPencilKit &&
++                viewRef.current) {
++                const viewTag = findNodeHandle(viewRef.current);
++                if (viewTag) {
++                    return await ExpoPencilKit.getDrawingBounds(viewTag);
++                }
++            }
++            return { x: 0, y: 0, width: 0, height: 0 };
++        },
++        getStrokeCount: async () => {
++            if (Platform.OS === "ios" &&
++                ExpoPencilKit &&
++                viewRef.current) {
++                const viewTag = findNodeHandle(viewRef.current);
++                if (viewTag) {
++                    return await ExpoPencilKit.getStrokeCount(viewTag);
++                }
++            }
++            return 0;
++        },
++        captureRegion: async (x, y, width, height) => {
++            if (Platform.OS === "ios" &&
++                ExpoPencilKit &&
++                viewRef.current) {
++                const viewTag = findNodeHandle(viewRef.current);
++                if (viewTag) {
++                    return await ExpoPencilKit.captureRegion(viewTag, x, y, width, height);
++                }
++            }
++            return "";
++        },
+     }), []);
+     if (Platform.OS !== "ios" || !ExpoPencilKitViewManager) {
+         return null;
+diff --git a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift
+index 96560bc..2d54461 100644
+--- a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift
++++ b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift
+@@ -25,7 +25,7 @@ public class ExpoPencilKitModule: Module {
+ 
+         // View manager for PencilKit canvas
+         View(ExpoPencilKitView.self) {
+-            Events("onDrawStart", "onDrawEnd", "onDrawChange", "onCanUndoChanged", "onCanRedoChanged")
++            Events("onDrawStart", "onDrawEnd", "onDrawChange", "onCanUndoChanged", "onCanRedoChanged", "onScroll", "onStrokeCountChanged")
+ 
+             Prop("imagePath") { (view: ExpoPencilKitView, imagePath: [String: Any]?) in
+                 view.setImagePath(imagePath)
+@@ -115,6 +115,43 @@ public class ExpoPencilKitModule: Module {
+                 return self.getCanvasBackgroundColor()
+             }
+         }
++
++        // Get stroke count
++        AsyncFunction("getStrokeCount") { (viewTag: Int) -> Int in
++            return await MainActor.run {
++                return self.canvasView?.drawing.strokes.count ?? 0
++            }
++        }
++
++        // Get bounding box of all strokes
++        AsyncFunction("getDrawingBounds") { (viewTag: Int) -> [String: Double] in
++            return await MainActor.run {
++                guard let canvasView = self.canvasView else {
++                    return ["x": 0, "y": 0, "width": 0, "height": 0]
++                }
++                let strokes = canvasView.drawing.strokes
++                if strokes.isEmpty {
++                    return ["x": 0, "y": 0, "width": 0, "height": 0]
++                }
++                var minX = Double.infinity, minY = Double.infinity
++                var maxX = -Double.infinity, maxY = -Double.infinity
++                for stroke in strokes {
++                    let b = stroke.renderBounds
++                    minX = min(minX, b.origin.x)
++                    minY = min(minY, b.origin.y)
++                    maxX = max(maxX, b.origin.x + b.size.width)
++                    maxY = max(maxY, b.origin.y + b.size.height)
++                }
++                return ["x": minX, "y": minY, "width": maxX - minX, "height": maxY - minY]
++            }
++        }
++
++        // Capture a specific region of the drawing as PNG base64
++        AsyncFunction("captureRegion") { (viewTag: Int, x: Double, y: Double, width: Double, height: Double) -> String in
++            return await MainActor.run {
++                return self.captureRegion(x: x, y: y, width: width, height: height)
++            }
++        }
+     }
+ 
+     // MARK: - Canvas Registration
+@@ -264,6 +301,21 @@ public class ExpoPencilKitModule: Module {
+         canvasView?.backgroundColor = color
+     }
+ 
++    private func captureRegion(x: Double, y: Double, width: Double, height: Double) -> String {
++        guard let canvasView = canvasView else {
++            return ""
++        }
++
++        let rect = CGRect(x: x, y: y, width: width, height: height)
++        let image = canvasView.drawing.image(from: rect, scale: UIScreen.main.scale)
++
++        guard let imageData = image.pngData() else {
++            return ""
++        }
++
++        return imageData.base64EncodedString()
++    }
++
+     private func getCanvasBackgroundColor() -> String {
+         guard let canvasView = canvasView else {
+             return "FFFFFF" // Default to white
 diff --git a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
-index a011fc1..e293508 100644
+index a011fc1..2d0a229 100644
 --- a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
 +++ b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
-@@ -24,7 +24,7 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+@@ -16,6 +16,8 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+     let onDrawChange = EventDispatcher()
+     let onCanUndoChanged = EventDispatcher()
+     let onCanRedoChanged = EventDispatcher()
++    let onScroll = EventDispatcher()
++    let onStrokeCountChanged = EventDispatcher()
+ 
+     required init(appContext: AppContext? = nil) {
+         super.init(appContext: appContext)
+@@ -24,7 +26,7 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
  
      private func setupCanvasView() {
          // Configure canvas view exactly like the working example
@@ -11,7 +143,7 @@ index a011fc1..e293508 100644
          canvasView.overrideUserInterfaceStyle = .light
          canvasView.isMultipleTouchEnabled = true
          canvasView.isOpaque = true
-@@ -33,9 +33,10 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+@@ -33,9 +35,10 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
          canvasView.isScrollEnabled = true
          canvasView.isUserInteractionEnabled = true
          canvasView.minimumZoomScale = 1.0
@@ -24,7 +156,7 @@ index a011fc1..e293508 100644
  
          // Initialize with empty drawing
          canvasView.drawing = PKDrawing()
-@@ -53,6 +54,16 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+@@ -53,6 +56,16 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
  
      }
  
@@ -41,3 +173,30 @@ index a011fc1..e293508 100644
      public override func didMoveToSuperview() {
          super.didMoveToSuperview()
  
+@@ -150,10 +163,26 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+             "data": data
+         ])
+         emitUndoRedoStateChanges()
++        onStrokeCountChanged([
++            "strokeCount": canvasView.drawing.strokes.count
++        ])
+     }
+ 
+     // MARK: - UIScrollViewDelegate
+ 
++    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
++        let offset = scrollView.contentOffset
++        let size = scrollView.contentSize
++        onScroll([
++            "contentOffsetX": offset.x,
++            "contentOffsetY": offset.y,
++            "contentSizeWidth": size.width,
++            "contentSizeHeight": size.height,
++            "visibleWidth": scrollView.bounds.width,
++            "visibleHeight": scrollView.bounds.height
++        ])
++    }
++
+     public func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+         return imageView
+     }

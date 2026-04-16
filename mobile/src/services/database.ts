@@ -50,6 +50,10 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   try {
     await db.execAsync(`ALTER TABLE notes ADD COLUMN textbook_pages INTEGER DEFAULT 0;`);
   } catch {}
+  // 마이그레이션: PencilKit drawing blob 컬럼 추가
+  try {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN drawing_data TEXT;`);
+  } catch {}
 
   return db;
 }
@@ -63,6 +67,7 @@ export interface NoteRow {
   textbook_id: string | null;
   textbook_name: string | null;
   textbook_pages: number;
+  drawing_data: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -89,7 +94,7 @@ export async function createNote(
     now,
     now
   );
-  return { id, title, language, textbook_id: null, textbook_name: null, created_at: now, updated_at: now };
+  return { id, title, language, textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null, created_at: now, updated_at: now };
 }
 
 export async function updateNoteTitle(
@@ -146,6 +151,28 @@ export async function getNoteById(noteId: string): Promise<NoteRow | null> {
     noteId
   );
   return rows[0] ?? null;
+}
+
+// ── Drawing Data (PencilKit) ──
+
+export async function saveDrawingData(noteId: string, base64: string): Promise<void> {
+  const db = await getDatabase();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    "UPDATE notes SET drawing_data = ?, updated_at = ? WHERE id = ?",
+    base64,
+    now,
+    noteId
+  );
+}
+
+export async function getDrawingData(noteId: string): Promise<string | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ drawing_data: string | null }>(
+    "SELECT drawing_data FROM notes WHERE id = ?",
+    noteId
+  );
+  return row?.drawing_data ?? null;
 }
 
 // ── Strokes ──

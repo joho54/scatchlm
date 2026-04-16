@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import time
@@ -11,11 +12,11 @@ from app.core.config import settings
 log = logging.getLogger(__name__)
 
 
-async def save_pdf(file: UploadFile, user_id: str) -> tuple[str, str, int, int]:
+async def save_pdf(file: UploadFile, user_id: str) -> tuple[str, str, int, int, str]:
     """PDF 파일을 서버에 저장하고 메타데이터를 반환한다.
 
     Returns:
-        (server_path, file_name, total_pages, file_size)
+        (server_path, file_name, total_pages, file_size, content_hash)
     """
     os.makedirs(settings.PDF_UPLOAD_DIR, exist_ok=True)
 
@@ -37,8 +38,10 @@ async def save_pdf(file: UploadFile, user_id: str) -> tuple[str, str, int, int]:
     total_pages = len(doc)
     doc.close()
 
-    log.info("PDF saved: %s pages=%d size=%.1fKB path=%s", file.filename, total_pages, file_size / 1024, server_path)
-    return server_path, file.filename, total_pages, file_size
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    log.info("PDF saved: %s pages=%d size=%.1fKB hash=%s path=%s", file.filename, total_pages, file_size / 1024, content_hash[:12], server_path)
+    return server_path, file.filename, total_pages, file_size, content_hash
 
 
 def extract_text(server_path: str, page_start: int, page_end: int) -> str:

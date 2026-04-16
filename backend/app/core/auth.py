@@ -1,14 +1,15 @@
 import logging
+from typing import Optional
 
 import jwt
 from jwt import PyJWKClient
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 _jwks_client: PyJWKClient | None = None
 
@@ -21,11 +22,8 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
-def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> str:
-    """Supabase JWT를 JWKS로 검증하고 user_id(sub)를 반환한다."""
-    token = credentials.credentials
+def _verify_token(token: str) -> str:
+    """JWT를 검증하고 user_id(sub)를 반환한다."""
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
         payload = jwt.decode(
@@ -45,3 +43,15 @@ def get_current_user_id(
     except jwt.InvalidTokenError as e:
         log.warning("JWT invalid: %s", e)
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+
+def get_current_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    token: Optional[str] = Query(None),
+) -> str:
+    """Authorization 헤더 또는 ?token= 쿼리 파라미터에서 JWT를 검증한다."""
+    if credentials and credentials.credentials:
+        return _verify_token(credentials.credentials)
+    if token:
+        return _verify_token(token)
+    raise HTTPException(status_code=401, detail="Not authenticated")

@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -40,10 +41,35 @@ async def upload_pdf(
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     try:
-        server_path, file_name, total_pages, file_size = await save_pdf(file, user_id)
+        server_path, file_name, total_pages, file_size, content_hash = await save_pdf(file, user_id)
     except ValueError as e:
         log.warning("PDF upload rejected: size limit file=%s error=%s", file.filename, e)
         raise HTTPException(status_code=413, detail=str(e))
+
+    # 동일 내용 PDF가 이미 존재하면 기존 레코드 재사용 (임베딩 스킵)
+    existing = await db.execute(
+        select(TextbookSource).where(
+            TextbookSource.user_id == user_id,
+            TextbookSource.content_hash == content_hash,
+        )
+    )
+    existing_source = existing.scalar_one_or_none()
+
+    if existing_source:
+        log.info("PDF duplicate: hash=%s existing_id=%s, reusing", content_hash[:12], existing_source.id)
+        # 중복 파일 삭제
+        import os
+        try:
+            os.remove(server_path)
+        except OSError:
+            pass
+        return {
+            "id": existing_source.id,
+            "fileName": existing_source.file_name,
+            "totalPages": existing_source.total_pages,
+            "fileSize": existing_source.file_size,
+            "indexing": "complete",
+        }
 
     log.info("PDF saved: file=%s pages=%d size=%dKB path=%s", file_name, total_pages, file_size // 1024, server_path)
 
@@ -54,6 +80,7 @@ async def upload_pdf(
         server_path=server_path,
         total_pages=total_pages,
         file_size=file_size,
+        content_hash=content_hash,
     )
     db.add(source)
     try:
@@ -73,6 +100,35 @@ async def upload_pdf(
         "fileSize": file_size,
         "indexing": "started",
     }
+
+
+@router.get("/{textbook_id}/file")
+async def serve_pdf_file(
+    textbook_id: str,
+    token: str | None = None,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """PDF 파일을 직접 서빙한다 (WebView PDF 뷰어용).
+
+    WebView에서는 Authorization 헤더를 직접 설정할 수 없으므로
+    ?token=JWT 쿼리 파라미터도 허용한다.
+    """
+    result = await db.execute(
+        select(TextbookSource).where(
+            TextbookSource.id == textbook_id,
+            TextbookSource.user_id == user_id,
+        )
+    )
+    source = result.scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+
+    return FileResponse(
+        source.server_path,
+        media_type="application/pdf",
+        filename=source.file_name,
+    )
 
 
 @router.get("/extract")

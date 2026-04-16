@@ -19,8 +19,9 @@ router = APIRouter(prefix="/api", tags=["feedback"])
 
 
 class FeedbackResponse(BaseModel):
+    type: str = "feedback"
     recognized_text: str
-    corrections: list[dict]
+    feedback: str
     summary: str
 
 
@@ -31,6 +32,7 @@ async def request_feedback(
     language: str = Form("en"),
     task_type: str = Form("complex"),
     textbook_id: str | None = Form(None),
+    current_page: int | None = Form(None),
     page_start: int | None = Form(None),
     page_end: int | None = Form(None),
     previous_context: str | None = Form(None),
@@ -41,11 +43,11 @@ async def request_feedback(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty image")
 
-    # 교재 컨텍스트 결정
-    textbook_context = None
+    # 교재 컨텍스트 합산 (배타적이지 않음)
+    context_parts = []
+    source = None
 
-    if textbook_id and page_start and page_end:
-        # 수동 페이지 범위 지정 (우선)
+    if textbook_id:
         result = await db.execute(
             select(TextbookSource).where(
                 TextbookSource.id == textbook_id,
@@ -53,21 +55,35 @@ async def request_feedback(
             )
         )
         source = result.scalar_one_or_none()
-        if source:
-            textbook_context = extract_pdf_text(source.server_path, page_start, page_end)
+
+    # 1. 수동 페이지 범위 (있으면 우선)
+    if source and page_start and page_end:
+        page_text = extract_pdf_text(source.server_path, page_start, page_end)
+        if page_text:
+            context_parts.append(f"[페이지 {page_start}-{page_end}]\n{page_text}")
             log.info("Context: manual page range p.%d-%d", page_start, page_end)
 
-    elif textbook_id:
-        # RAG 자동 검색: 손글씨 인식 → 임베딩 → 유사도 검색
+    # 2. 현재 보고 있는 페이지 (PDF 뷰어)
+    elif source and current_page:
+        page_text = extract_pdf_text(source.server_path, current_page, current_page)
+        if page_text:
+            context_parts.append(f"[현재 페이지 {current_page}]\n{page_text}")
+            log.info("Context: current page p.%d", current_page)
+
+    # 3. RAG 자동 검색 (교재 연결 시 항상 실행)
+    if textbook_id:
         try:
             recognized = await get_recognition(image_bytes, language)
             if recognized:
                 chunks = await search_relevant_chunks(db, textbook_id, recognized)
                 if chunks:
-                    textbook_context = format_chunks_as_context(chunks)
+                    rag_context = format_chunks_as_context(chunks)
+                    context_parts.append(f"[관련 교재 내용]\n{rag_context}")
                     log.info("Context: RAG auto-search, %d chunks found", len(chunks))
         except Exception:
-            log.exception("RAG search failed, proceeding without context")
+            log.exception("RAG search failed, proceeding without RAG context")
+
+    textbook_context = "\n\n".join(context_parts) if context_parts else None
 
     error_msg = None
     try:

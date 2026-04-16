@@ -17,4 +17,5 @@ class TextbookSource(Base):
     server_path: Mapped[str] = mapped_column(String, nullable=False)
     total_pages: Mapped[int] = mapped_column(Integer, nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

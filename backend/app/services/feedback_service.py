@@ -14,11 +14,15 @@ client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 SYSTEM_PROMPT = (
     "You are a foreign language learning assistant. "
-    "The user submits handwritten notes as images. "
-    "Recognize the handwriting and provide structured feedback.\n"
+    "The user submits handwritten notes as images, sometimes with textbook reference text.\n"
+    "Recognize the handwriting, compare with textbook content if provided, and give feedback.\n"
     "Respond ONLY with valid JSON in this format:\n"
-    '{"recognized_text":"...","corrections":[{"position":1,"original":"...","corrected":"...","reason":"..."}],"summary":"..."}\n'
-    "Keep corrections concise. Write summary in Korean."
+    '{"type":"feedback","recognized_text":"...","feedback":"...","summary":"..."}\n'
+    "- recognized_text: the exact text you read from the handwriting\n"
+    "- feedback: your evaluation and corrections in free-form text. "
+    "If textbook content is provided, grade the user's answers against it. "
+    "Be specific about what is correct and what needs fixing.\n"
+    "- summary: a brief summary in Korean\n"
 )
 
 # 모델별 토큰 단가 (USD per 1M tokens)

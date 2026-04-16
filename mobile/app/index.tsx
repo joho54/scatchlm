@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,186 +7,265 @@ import {
   StyleSheet,
   Alert,
   TextInput,
+  useWindowDimensions,
 } from "react-native";
+import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path, Circle, Line, Polyline } from "react-native-svg";
+
+import NoteCard from "../src/components/NoteCard";
+import CreateNoteModal from "../src/components/CreateNoteModal";
 import { useNoteStore } from "../src/stores/noteStore";
 import { useAuthStore } from "../src/stores/authStore";
+import type { NoteRow } from "../src/services/database";
 import logger from "../src/services/logger";
+
+const CARD_MIN_WIDTH = 240;
+const CARD_GAP = 16;
+const HORIZONTAL_PADDING = 32;
 
 export default function HomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const { notes, loading, loadNotes, createNote, deleteNote } = useNoteStore();
   const { signOut } = useAuthStore();
-  const [showInput, setShowInput] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
+  const [modalVisible, setModalVisible] = useState(false);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     loadNotes();
   }, []);
 
-  const handleCreate = async () => {
-    const title = newTitle.trim() || "새 노트";
-    const note = await createNote(title);
-    setNewTitle("");
-    setShowInput(false);
-    logger.info("nav", "push /note", { noteId: note.id });
-    router.push(`/note/${note.id}`);
-  };
+  const numColumns = Math.max(1, Math.floor((screenWidth - HORIZONTAL_PADDING * 2 + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)));
 
-  const handleDelete = (id: string, title: string) => {
-    Alert.alert("노트 삭제", `"${title}"를 삭제할까요?`, [
-      { text: "취소", style: "cancel" },
-      {
-        text: "삭제",
-        style: "destructive",
-        onPress: () => deleteNote(id),
-      },
-    ]);
-  };
+  const filteredNotes = search
+    ? notes.filter((n) => n.title.toLowerCase().includes(search.toLowerCase()))
+    : notes;
 
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
-  };
+  const handleCreate = useCallback(
+    async (title: string, textbook?: { id: string; name: string; pages: number }) => {
+      setModalVisible(false);
+      const note = await createNote(title, "en", textbook);
+      logger.info("nav", "push /note", { noteId: note.id });
+      router.push(`/note/${note.id}`);
+    },
+    [createNote, router],
+  );
+
+  const handleDelete = useCallback(
+    (id: string, title: string) => {
+      Alert.alert("Delete note", `Delete "${title}"?`, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => deleteNote(id) },
+      ]);
+    },
+    [deleteNote],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: NoteRow }) => (
+      <View style={{ flex: 1 / numColumns, padding: CARD_GAP / 2 }}>
+        <NoteCard
+          note={item}
+          onPress={() => {
+            logger.info("nav", "push /note", { noteId: item.id });
+            router.push(`/note/${item.id}`);
+          }}
+          onLongPress={() => handleDelete(item.id, item.title)}
+        />
+      </View>
+    ),
+    [numColumns, router, handleDelete],
+  );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push("/settings")}>
-          <Text style={styles.headerButton}>설정</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push("/poc-pencilkit")}>
-          <Text style={[styles.headerButton, { color: "#E11D48" }]}>PKit POC</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={signOut}>
-          <Text style={[styles.headerButton, { color: "#999" }]}>로그아웃</Text>
-        </TouchableOpacity>
-      </View>
-
-      {showInput && (
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="노트 제목"
-            value={newTitle}
-            onChangeText={setNewTitle}
-            autoFocus
-            onSubmitEditing={handleCreate}
-          />
-          <TouchableOpacity style={styles.confirmButton} onPress={handleCreate}>
-            <Text style={styles.confirmText}>생성</Text>
+        <Text style={styles.headerTitle}>Notes</Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => router.push("/settings")}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#8e8e93" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Circle cx={12} cy={12} r={3} />
+              <Path d="M12 1v2m0 18v2m-9-11h2m18 0h2m-3.3-6.7l-1.4 1.4M6.7 17.3l-1.4 1.4m0-13.4l1.4 1.4m10.6 10.6l1.4 1.4" />
+            </Svg>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={signOut}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#8e8e93" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+              <Polyline points="16 17 21 12 16 7" />
+              <Line x1={21} y1={12} x2={9} y2={12} />
+            </Svg>
           </TouchableOpacity>
         </View>
-      )}
+      </View>
 
+      {/* Search */}
+      <View style={styles.searchBar}>
+        <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#aeaeb2" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Circle cx={11} cy={11} r={8} />
+          <Line x1={21} y1={21} x2={16.65} y2={16.65} />
+        </Svg>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search notes..."
+          placeholderTextColor="#aeaeb2"
+          value={search}
+          onChangeText={setSearch}
+        />
+      </View>
+
+      {/* Note Grid */}
       {loading ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>로딩 중...</Text>
+          <Text style={styles.emptyText}>Loading...</Text>
         </View>
-      ) : notes.length === 0 ? (
+      ) : filteredNotes.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>노트가 없습니다</Text>
-          <Text style={styles.emptySubtext}>
-            아래 + 버튼으로 새 노트를 만들어보세요
+          <Svg width={64} height={64} viewBox="0 0 24 24" fill="none" stroke="#aeaeb2" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" opacity={0.4}>
+            <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <Polyline points="14 2 14 8 20 8" />
+            <Line x1={12} y1={18} x2={12} y2={12} />
+            <Line x1={9} y1={15} x2={15} y2={15} />
+          </Svg>
+          <Text style={styles.emptyTitle}>
+            {search ? "No matching notes" : "No notes yet"}
+          </Text>
+          <Text style={styles.emptySub}>
+            {search ? "Try a different search" : "Tap + to create your first note"}
           </Text>
         </View>
       ) : (
         <FlatList
-          data={notes}
+          data={filteredNotes}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.noteCard}
-              onPress={() => {
-                logger.info("nav", "push /note", { noteId: item.id });
-                router.push(`/note/${item.id}`);
-              }}
-              onLongPress={() => handleDelete(item.id, item.title)}
-            >
-              <Text style={styles.noteTitle}>{item.title}</Text>
-              <Text style={styles.noteDate}>{formatDate(item.updated_at)}</Text>
-            </TouchableOpacity>
-          )}
+          key={numColumns}
+          numColumns={numColumns}
+          contentContainerStyle={styles.grid}
+          renderItem={renderItem}
         />
       )}
 
+      {/* FAB */}
       <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setShowInput(!showInput)}
+        style={[styles.fab, { bottom: 24 + insets.bottom }]}
+        onPress={() => setModalVisible(true)}
+        activeOpacity={0.8}
       >
-        <Text style={styles.fabText}>+</Text>
+        <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <Line x1={12} y1={5} x2={12} y2={19} />
+          <Line x1={5} y1={12} x2={19} y2={12} />
+        </Svg>
       </TouchableOpacity>
+
+      {/* Create Modal */}
+      <CreateNoteModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        onCreate={handleCreate}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  container: {
+    flex: 1,
+    backgroundColor: "#f2f2f7",
+  },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
+    alignItems: "center",
+    paddingHorizontal: HORIZONTAL_PADDING,
+    paddingTop: 20,
   },
-  headerButton: { fontSize: 15, color: "#007AFF" },
-  inputRow: {
+  headerTitle: {
+    fontSize: 34,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    color: "#1c1c1e",
+  },
+  headerActions: {
+    marginLeft: "auto",
     flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    alignItems: "center",
     gap: 8,
   },
-  input: {
-    flex: 1,
+  headerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.85)",
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: "#fff",
-  },
-  confirmButton: {
-    backgroundColor: "#000",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    justifyContent: "center",
-  },
-  confirmText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  list: { padding: 16, gap: 8 },
-  noteCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
+    borderColor: "rgba(0,0,0,0.06)",
     alignItems: "center",
+    justifyContent: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
     elevation: 1,
   },
-  noteTitle: { fontSize: 16, fontWeight: "500", flex: 1 },
-  noteDate: { fontSize: 13, color: "#999", marginLeft: 12 },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center" },
-  emptyText: { fontSize: 18, color: "#999" },
-  emptySubtext: { fontSize: 14, color: "#bbb", marginTop: 8 },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: HORIZONTAL_PADDING,
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.04)",
+    borderRadius: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: "#1c1c1e",
+    padding: 0,
+  },
+  grid: {
+    padding: HORIZONTAL_PADDING - CARD_GAP / 2,
+    paddingBottom: 100,
+  },
+  empty: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#8e8e93",
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#8e8e93",
+  },
+  emptySub: {
+    fontSize: 14,
+    color: "#aeaeb2",
+  },
   fab: {
     position: "absolute",
-    bottom: 32,
-    right: 24,
+    right: 32,
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#000",
-    justifyContent: "center",
+    overflow: "hidden",
     alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  fabText: { color: "#fff", fontSize: 28, lineHeight: 30 },
 });

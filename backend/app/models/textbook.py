@@ -12,7 +12,7 @@ class TextbookSource(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
-    note_id: Mapped[str] = mapped_column(String, nullable=False)
+    note_id: Mapped[str | None] = mapped_column(String, nullable=True)
     file_name: Mapped[str] = mapped_column(String, nullable=False)
     server_path: Mapped[str] = mapped_column(String, nullable=False)
     total_pages: Mapped[int] = mapped_column(Integer, nullable=False)

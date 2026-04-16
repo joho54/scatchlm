@@ -36,22 +36,36 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #f5f5f5; }
   touch-action: none;
   position: relative;
 }
-canvas {
+.page-wrap {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  will-change: transform;
+}
+.page-wrap.animating {
+  transition: transform 280ms ease-out;
+}
+.page-canvas {
   position: absolute;
   left: 0; top: 0;
   background: #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  will-change: transform;
 }
 #loading {
   position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%);
   color: #999; font-family: sans-serif; font-size: 14px;
+  z-index: 10;
 }
 </style>
 </head>
 <body>
 <div id="container">
-  <canvas id="pdf-canvas"></canvas>
+  <div id="wrap-0" class="page-wrap"><canvas id="c-0" class="page-canvas"></canvas></div>
+  <div id="wrap-1" class="page-wrap"><canvas id="c-1" class="page-canvas"></canvas></div>
+  <div id="wrap-2" class="page-wrap"><canvas id="c-2" class="page-canvas"></canvas></div>
   <div id="loading">PDF 로딩 중...</div>
 </div>
 <script>
@@ -60,115 +74,243 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 let pdfDoc = null;
 let currentPage = 1;
 const totalPages = ${totalPages};
-let rendering = false;
 
-const canvas = document.getElementById('pdf-canvas');
-const ctx = canvas.getContext('2d');
+const container = document.getElementById('container');
 const loadingEl = document.getElementById('loading');
 
-/* ── 줌/팬 상태 ── */
-let zoomLevel = 1;
-const MIN_ZOOM = 1;
+/* ── 3-슬롯 캔버스 버퍼 ── */
+const slots = [0, 1, 2].map(i => {
+  const wrap = document.getElementById('wrap-' + i);
+  const canvas = document.getElementById('c-' + i);
+  return { wrap, canvas, ctx: canvas.getContext('2d'), page: 0, cssW: 0, cssH: 0 };
+});
+let currIdx = 1, prevIdx = 0, nextIdx = 2;
+
+/* ── 컨테이너 / 줌 / 팬 상태 ── */
+let containerW = 0, containerH = 0;
+let zoomLevel = 1, minZoom = 1;
 const MAX_ZOOM = 4;
 let panX = 0, panY = 0;
-// 캔버스의 CSS 크기 (논리 픽셀)
-let cssW = 0, cssH = 0;
-// 컨테이너 크기
-let containerW = 0, containerH = 0;
+let slideOffset = 0;
+let isAnimating = false;
 
-function clampPan() {
-  // 줌 상태에서 캔버스가 컨테이너보다 클 때만 팬 허용
-  const scaledW = cssW * zoomLevel;
-  const scaledH = cssH * zoomLevel;
-  const maxPanX = Math.max(0, (scaledW - containerW) / 2);
-  const maxPanY = Math.max(0, (scaledH - containerH) / 2);
-  panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
-  panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
+function updateContainerSize() {
+  containerW = container.clientWidth;
+  containerH = container.clientHeight;
+}
+
+/* ── 렌더링 ── */
+async function renderToSlot(idx, pageNum) {
+  const s = slots[idx];
+  if (!pdfDoc || pageNum < 1 || pageNum > totalPages) {
+    s.page = 0; s.canvas.width = 0; s.cssW = 0; s.cssH = 0;
+    return;
+  }
+  const page = await pdfDoc.getPage(pageNum);
+  const vp = page.getViewport({ scale: 1 });
+  const scale = containerW / vp.width;
+  const viewport = page.getViewport({ scale });
+  const dpr = window.devicePixelRatio || 1;
+  s.canvas.width = viewport.width * dpr;
+  s.canvas.height = viewport.height * dpr;
+  s.cssW = viewport.width;
+  s.cssH = viewport.height;
+  s.canvas.style.width = s.cssW + 'px';
+  s.canvas.style.height = s.cssH + 'px';
+  s.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  await page.render({ canvasContext: s.ctx, viewport }).promise;
+  s.page = pageNum;
+}
+
+/* ── Transform 헬퍼 ── */
+function centerCanvas(idx) {
+  const s = slots[idx];
+  if (!s.cssW) return;
+  // 프리렌더된 인접 페이지도 minZoom 기준으로 배치 (슬라이드 → 전환 시 깜빡임 방지)
+  const zm = (s.cssH > 0) ? Math.min(1, containerH / s.cssH) : 1;
+  const ox = Math.max(0, (containerW - s.cssW * zm) / 2);
+  const oy = Math.max(0, (containerH - s.cssH * zm) / 2);
+  s.canvas.style.transformOrigin = '0 0';
+  s.canvas.style.transform = 'translate(' + ox + 'px,' + oy + 'px) scale(' + zm + ')';
 }
 
 function applyTransform() {
-  // 가로 중앙 정렬: 캔버스가 컨테이너보다 좁으면 중앙에 배치
-  const offsetX = Math.max(0, (containerW - cssW * zoomLevel) / 2);
-  canvas.style.transformOrigin = '0 0';
-  canvas.style.transform =
-    'translate(' + (offsetX + panX) + 'px,' + panY + 'px) scale(' + zoomLevel + ')';
+  const s = slots[currIdx];
+  if (!s.cssW) return;
+  const ox = Math.max(0, (containerW - s.cssW * zoomLevel) / 2);
+  const oy = Math.max(0, (containerH - s.cssH * zoomLevel) / 2);
+  s.canvas.style.transformOrigin = '0 0';
+  s.canvas.style.transform =
+    'translate(' + (ox + panX) + 'px,' + (oy + panY) + 'px) scale(' + zoomLevel + ')';
 }
 
-function resetView() {
-  zoomLevel = 1;
-  panX = 0;
-  panY = 0;
-  applyTransform();
+function clampPan() {
+  const s = slots[currIdx];
+  const sw = s.cssW * zoomLevel, sh = s.cssH * zoomLevel;
+  const mX = Math.max(0, (sw - containerW) / 2);
+  const mY = Math.max(0, (sh - containerH) / 2);
+  panX = Math.max(-mX, Math.min(mX, panX));
+  panY = Math.max(-mY, Math.min(mY, panY));
 }
 
-async function renderPage(num) {
-  if (rendering || !pdfDoc) return;
-  rendering = true;
+function resetZoom() { zoomLevel = minZoom; panX = 0; panY = 0; }
 
-  resetView();
+function positionSlots() {
+  slots[prevIdx].wrap.style.transform = 'translateX(' + (-containerW + slideOffset) + 'px)';
+  slots[currIdx].wrap.style.transform = 'translateX(' + slideOffset + 'px)';
+  slots[nextIdx].wrap.style.transform = 'translateX(' + (containerW + slideOffset) + 'px)';
+}
 
-  const page = await pdfDoc.getPage(num);
-  const container = document.getElementById('container');
-  containerW = container.clientWidth;
-  containerH = container.clientHeight;
+function updateMinZoom() {
+  const s = slots[currIdx];
+  minZoom = (s.cssH > 0) ? Math.min(1, containerH / s.cssH) : 1;
+}
 
-  const vp = page.getViewport({ scale: 1 });
+/* ── 인접 페이지 프리렌더 ── */
+let prerenderGen = 0;
+async function prerenderAdjacent() {
+  const gen = ++prerenderGen;
+  const pg = currentPage;
+  if (pg > 1 && slots[prevIdx].page !== pg - 1) {
+    await renderToSlot(prevIdx, pg - 1);
+    if (gen !== prerenderGen) return;
+    centerCanvas(prevIdx);
+  }
+  if (pg < totalPages && slots[nextIdx].page !== pg + 1) {
+    await renderToSlot(nextIdx, pg + 1);
+    if (gen !== prerenderGen) return;
+    centerCanvas(nextIdx);
+  }
+}
 
-  // fit-width: 가로폭 기준으로 채움
-  const scale = containerW / vp.width;
-  const viewport = page.getViewport({ scale });
+/* ── 슬라이드 애니메이션 ── */
+function commitSlide(dir) {
+  return new Promise(function(resolve) {
+    isAnimating = true;
+    var targetOffset = -dir * containerW;
+    slots.forEach(function(s) { s.wrap.classList.add('animating'); });
+    slideOffset = targetOffset;
+    positionSlots();
 
-  // HiDPI 대응
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = viewport.width * dpr;
-  canvas.height = viewport.height * dpr;
-  cssW = viewport.width;
-  cssH = viewport.height;
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
+    var done = false;
+    function onEnd() {
+      if (done) return;
+      done = true;
+      clearTimeout(fb);
+      slots.forEach(function(s) { s.wrap.classList.remove('animating'); });
 
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  await page.render({ canvasContext: ctx, viewport }).promise;
+      if (dir === 1) {
+        var op = prevIdx; prevIdx = currIdx; currIdx = nextIdx; nextIdx = op;
+      } else {
+        var on = nextIdx; nextIdx = currIdx; currIdx = prevIdx; prevIdx = on;
+      }
+      currentPage += dir;
+      slideOffset = 0;
+      updateMinZoom();
+      resetZoom();
+      positionSlots();
+      applyTransform();
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', page: currentPage }));
+      isAnimating = false;
+      resolve();
+      prerenderAdjacent();
+    }
+    slots[currIdx].wrap.addEventListener('transitionend', onEnd, { once: true });
+    var fb = setTimeout(onEnd, 350);
+  });
+}
 
-  rendering = false;
+function snapBack() {
+  return new Promise(function(resolve) {
+    if (slideOffset === 0) { resolve(); return; }
+    isAnimating = true;
+    slots.forEach(function(s) { s.wrap.classList.add('animating'); });
+    slideOffset = 0;
+    positionSlots();
+
+    var done = false;
+    function onEnd() {
+      if (done) return;
+      done = true;
+      clearTimeout(fb);
+      slots.forEach(function(s) { s.wrap.classList.remove('animating'); });
+      isAnimating = false;
+      resolve();
+    }
+    slots[currIdx].wrap.addEventListener('transitionend', onEnd, { once: true });
+    var fb = setTimeout(onEnd, 350);
+  });
+}
+
+/* ── goToPage (RN 브릿지 + 내부) ── */
+async function goToPage(num) {
+  if (!pdfDoc || num < 1 || num > totalPages || num === currentPage || isAnimating) return;
+
+  if (Math.abs(num - currentPage) === 1) {
+    var dir = num > currentPage ? 1 : -1;
+    var tgt = dir === 1 ? nextIdx : prevIdx;
+    if (slots[tgt].page !== num) {
+      await renderToSlot(tgt, num);
+      centerCanvas(tgt);
+      positionSlots();
+    }
+    await commitSlide(dir);
+    return;
+  }
+
+  // 비인접 페이지: 즉시 전환
+  resetZoom();
+  slideOffset = 0;
+  await renderToSlot(currIdx, num);
   currentPage = num;
+  updateMinZoom();
+  positionSlots();
   applyTransform();
-  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', page: num }));
+  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', page: currentPage }));
+  prerenderAdjacent();
 }
+window.goToPage = goToPage;
 
+/* ── 초기 로드 ── */
 async function loadPdf() {
   try {
-    const pdf = await pdfjsLib.getDocument('${pdfUrl}').promise;
+    var pdf = await pdfjsLib.getDocument('${pdfUrl}').promise;
     pdfDoc = pdf;
     loadingEl.style.display = 'none';
-    await renderPage(1);
+    updateContainerSize();
+    await renderToSlot(currIdx, 1);
+    updateMinZoom();
+    positionSlots();
+    applyTransform();
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', page: 1 }));
+    prerenderAdjacent();
   } catch(e) {
     loadingEl.textContent = 'PDF 로드 실패: ' + e.message;
   }
 }
 
 /* ── 터치 제스처 ── */
-let touches0 = [];       // touchstart 시점의 터치 목록
-let lastPinchDist = 0;
-let isPinching = false;
-let lastTapTime = 0;
-let panStartX = 0, panStartY = 0;
-let panBaseX = 0, panBaseY = 0;
+var touches0 = [];
+var lastPinchDist = 0;
+var lastTapTime = 0;
+var panStartX = 0, panStartY = 0;
+var panBaseX = 0, panBaseY = 0;
+var gestureMode = 'none'; // none | pinch | pan | slide
 
-function dist(t1, t2) {
-  const dx = t1.clientX - t2.clientX;
-  const dy = t1.clientY - t2.clientY;
+function tDist(a, b) {
+  var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-document.addEventListener('touchstart', (e) => {
+document.addEventListener('touchstart', function(e) {
+  if (isAnimating) return;
   touches0 = Array.from(e.touches);
+  gestureMode = 'none';
 
   if (e.touches.length === 2) {
-    isPinching = true;
-    lastPinchDist = dist(e.touches[0], e.touches[1]);
+    gestureMode = 'pinch';
+    lastPinchDist = tDist(e.touches[0], e.touches[1]);
   } else if (e.touches.length === 1) {
-    isPinching = false;
     panStartX = e.touches[0].clientX;
     panStartY = e.touches[0].clientY;
     panBaseX = panX;
@@ -176,78 +318,120 @@ document.addEventListener('touchstart', (e) => {
   }
 }, { passive: true });
 
-document.addEventListener('touchmove', (e) => {
-  if (e.touches.length === 2 && isPinching) {
-    // 핀치 줌 — 두 손가락 중심점 기준 확대
-    const newDist = dist(e.touches[0], e.touches[1]);
-    const ratio = newDist / lastPinchDist;
-    const prevZoom = zoomLevel;
-    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel * ratio));
+document.addEventListener('touchmove', function(e) {
+  if (isAnimating) return;
 
-    // 핀치 중심점 (컨테이너 좌표)
-    const fx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-    const fy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-
-    // 중심점 기준 pan 보정: 줌 전후로 focal point가 같은 위치를 가리키도록
-    const offsetX = Math.max(0, (containerW - cssW * prevZoom) / 2);
-    panX = fx - (fx - offsetX - panX) * (newZoom / prevZoom) - Math.max(0, (containerW - cssW * newZoom) / 2);
-    panY = fy - (fy - panY) * (newZoom / prevZoom);
-
-    zoomLevel = newZoom;
-    lastPinchDist = newDist;
+  /* 핀치 줌 */
+  if (e.touches.length === 2 && gestureMode === 'pinch') {
+    var nd = tDist(e.touches[0], e.touches[1]);
+    var ratio = nd / lastPinchDist;
+    var prev = zoomLevel;
+    var nz = Math.max(minZoom, Math.min(MAX_ZOOM, zoomLevel * ratio));
+    var fx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    var fy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    var s = slots[currIdx];
+    var oxO = Math.max(0, (containerW - s.cssW * prev) / 2);
+    var oyO = Math.max(0, (containerH - s.cssH * prev) / 2);
+    var oxN = Math.max(0, (containerW - s.cssW * nz) / 2);
+    var oyN = Math.max(0, (containerH - s.cssH * nz) / 2);
+    panX = fx - (fx - oxO - panX) * (nz / prev) - oxN;
+    panY = fy - (fy - oyO - panY) * (nz / prev) - oyN;
+    zoomLevel = nz;
+    lastPinchDist = nd;
     clampPan();
     applyTransform();
-  } else if (e.touches.length === 1 && !isPinching) {
-    // 1-finger 팬 (줌 상태이거나 세로 넘침이 있을 때)
-    const dx = e.touches[0].clientX - panStartX;
-    const dy = e.touches[0].clientY - panStartY;
-    panX = panBaseX + dx;
-    panY = panBaseY + dy;
-    clampPan();
-    applyTransform();
-  }
-}, { passive: true });
-
-document.addEventListener('touchend', (e) => {
-  if (isPinching) {
-    isPinching = false;
     return;
   }
 
-  // 더블탭 → 줌 리셋
-  const now = Date.now();
-  if (e.changedTouches.length === 1 && touches0.length === 1) {
+  /* 1-finger */
+  if (e.touches.length === 1 && gestureMode !== 'pinch') {
+    var dx = e.touches[0].clientX - panStartX;
+    var dy = e.touches[0].clientY - panStartY;
+
+    if (gestureMode === 'none') {
+      if (zoomLevel > 1.05) {
+        gestureMode = 'pan';
+      } else {
+        if (Math.abs(dx) > 8) gestureMode = 'slide';
+        else if (Math.abs(dy) > 8) gestureMode = 'pan';
+        else return;
+      }
+    }
+
+    if (gestureMode === 'slide') {
+      var off = dx;
+      if ((currentPage <= 1 && dx > 0) || (currentPage >= totalPages && dx < 0)) {
+        off = dx * 0.3;
+      }
+      slideOffset = off;
+      positionSlots();
+    } else if (gestureMode === 'pan') {
+      panX = panBaseX + dx;
+      panY = panBaseY + dy;
+      clampPan();
+      applyTransform();
+    }
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', function(e) {
+  if (isAnimating) return;
+
+  if (gestureMode === 'pinch') { gestureMode = 'none'; return; }
+
+  if (gestureMode === 'slide') {
+    var dx = slideOffset;
+    var th = containerW * 0.2;
+    if (dx < -th && currentPage < totalPages) commitSlide(1);
+    else if (dx > th && currentPage > 1) commitSlide(-1);
+    else snapBack();
+    gestureMode = 'none';
+    return;
+  }
+
+  /* 더블탭 */
+  var now = Date.now();
+  if (e.changedTouches.length === 1 && touches0.length === 1 && gestureMode !== 'pan') {
     if (now - lastTapTime < 300) {
-      resetView();
+      var tx = e.changedTouches[0].clientX;
+      var ty = e.changedTouches[0].clientY;
+      if (zoomLevel > minZoom + 0.05) {
+        resetZoom();
+      } else {
+        var nz = 2;
+        var s = slots[currIdx];
+        var oxO = Math.max(0, (containerW - s.cssW * zoomLevel) / 2);
+        var oyO = Math.max(0, (containerH - s.cssH * zoomLevel) / 2);
+        var oxN = Math.max(0, (containerW - s.cssW * nz) / 2);
+        var oyN = Math.max(0, (containerH - s.cssH * nz) / 2);
+        panX = tx - (tx - oxO - panX) * (nz / zoomLevel) - oxN;
+        panY = ty - (ty - oyO - panY) * (nz / zoomLevel) - oyN;
+        zoomLevel = nz;
+      }
+      clampPan();
+      applyTransform();
       lastTapTime = 0;
+      gestureMode = 'none';
       return;
     }
     lastTapTime = now;
   }
-
-  // 1x 줌 + 수평 스와이프 → 페이지 이동
-  if (zoomLevel <= 1.05 && touches0.length === 1) {
-    const dx = e.changedTouches[0].clientX - touches0[0].clientX;
-    const dy = e.changedTouches[0].clientY - touches0[0].clientY;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
-      if (dx < 0 && currentPage < totalPages) {
-        renderPage(currentPage + 1);
-      } else if (dx > 0 && currentPage > 1) {
-        renderPage(currentPage - 1);
-      }
-    }
-  }
+  gestureMode = 'none';
 });
 
-// 화면 회전 / 리사이즈 대응
-window.addEventListener('resize', () => {
-  if (pdfDoc) renderPage(currentPage);
+/* ── 리사이즈 ── */
+window.addEventListener('resize', function() {
+  if (!pdfDoc) return;
+  updateContainerSize();
+  resetZoom();
+  slideOffset = 0;
+  renderToSlot(currIdx, currentPage).then(function() {
+    updateMinZoom();
+    positionSlots();
+    applyTransform();
+    prerenderAdjacent();
+  });
 });
-
-// RN에서 goToPage 호출
-window.goToPage = function(num) {
-  if (num >= 1 && num <= totalPages) renderPage(num);
-};
 
 loadPdf();
 </script>

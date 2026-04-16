@@ -14,13 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import PencilKitCanvas from "../../src/components/PencilKitCanvas";
 import PdfViewer from "../../src/components/PdfViewer";
-import Toolbar from "../../src/components/Toolbar";
+import FloatingActionPill from "../../src/components/FloatingActionPill";
 import { usePencilKitDrawing } from "../../src/hooks/usePencilKitDrawing";
 import { requestFeedback } from "../../src/services/feedback";
 import { saveFeedback, getFeedbacksByNoteId } from "../../src/services/database";
 import { buildPreviousContext } from "../../src/services/contextBuilder";
 import { getNoteById, linkTextbook } from "../../src/services/database";
 import { pickAndUploadPdf } from "../../src/services/textbook";
+import Svg, { Path } from "react-native-svg";
 import type { AIResponse, FeedbackResponse, FeedbackRenderItem } from "../../src/types";
 import logger from "../../src/services/logger";
 
@@ -69,10 +70,16 @@ export default function NoteScreen() {
       const rows = await getFeedbacksByNoteId(id);
       const items: FeedbackRenderItem[] = rows.map((row) => {
         let text = row.content;
+        let recognizedText: string | undefined;
+        let feedback: string | undefined;
+        let summary: string | undefined;
         try {
           const parsed = JSON.parse(row.content);
           if (parsed.feedback) {
             // 새 포맷 (AIResponse)
+            recognizedText = parsed.recognized_text;
+            feedback = parsed.feedback;
+            summary = parsed.summary;
             text = [parsed.recognized_text, "", parsed.feedback, "", parsed.summary].join("\n");
           } else if (parsed.corrections) {
             // 이전 포맷 (FeedbackResponse) 호환
@@ -92,6 +99,9 @@ export default function NoteScreen() {
           text,
           width: row.bbox_width || canvasWidth - 32,
           height: row.bbox_height || lines * FEEDBACK_CARD_LINE_HEIGHT + FEEDBACK_CARD_PADDING,
+          recognizedText,
+          feedback,
+          summary,
         };
       });
       if (items.length > 0) {
@@ -176,6 +186,9 @@ export default function NoteScreen() {
         text: feedbackText,
         width: cardWidth,
         height: cardHeight,
+        recognizedText: result.recognized_text,
+        feedback: result.feedback,
+        summary: result.summary,
       };
 
       setFeedbackItems((prev) => [...prev, newItem]);
@@ -204,17 +217,6 @@ export default function NoteScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.topBar, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backText}>{"<-"} 목록</Text>
-        </TouchableOpacity>
-        {textbookName && (
-          <Text style={styles.textbookLabel} numberOfLines={1}>
-            {textbookName}
-          </Text>
-        )}
-      </View>
-
       {/* 스플릿 뷰: landscape=좌우, portrait=상하 */}
       <View style={[styles.splitContainer, pdfOpen && !isLandscape && styles.splitContainerColumn]}>
         {pdfOpen && textbookId && (
@@ -246,29 +248,31 @@ export default function NoteScreen() {
         </View>
       </View>
 
+      {/* Floating back button */}
+      <TouchableOpacity
+        style={[styles.backFab, { top: 12 + insets.top }]}
+        onPress={() => router.back()}
+        activeOpacity={0.7}
+      >
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M15 18l-6-6 6-6" />
+        </Svg>
+      </TouchableOpacity>
+
+      {/* Loading bar */}
       {loading && (
         <View style={styles.loadingBar}>
           <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.loadingText}>피드백을 받고 있습니다...</Text>
+          <Text style={styles.loadingText}>Analyzing handwriting...</Text>
         </View>
       )}
 
-      <Toolbar
-        penColor="#000000"
-        penWidth={4}
-        isEraser={false}
-        canUndo={pk.canUndo}
-        canRedo={pk.canRedo}
-        onColorChange={() => {}}
-        onWidthChange={() => {}}
-        onEraserToggle={() => {}}
-        onUndo={pk.undo}
-        onRedo={pk.redo}
-        onFeedback={handleFeedback}
+      {/* Floating action pill */}
+      <FloatingActionPill
         onTogglePdf={handleTogglePdf}
+        onFeedback={handleFeedback}
         pdfOpen={pdfOpen}
-        hasTextbook={!!textbookId}
-        mode="pencilkit"
+        loading={loading}
       />
     </View>
   );
@@ -280,32 +284,36 @@ const styles = StyleSheet.create({
   splitContainerColumn: { flexDirection: "column" },
   canvasFull: { flex: 1 },
   canvasSplit: { flex: 1, flexBasis: 0 },
-  pdfPanel: { flex: 1, flexBasis: 0, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "#ddd" },
-  pdfPanelRow: { flex: 1, flexBasis: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#ddd" },
-  topBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  pdfPanel: { flex: 1, flexBasis: 0, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "#e5e5ea" },
+  pdfPanelRow: { flex: 1, flexBasis: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e5ea" },
+  backFab: {
+    position: "absolute",
+    left: 12,
+    zIndex: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
+    justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: "#f8f8f8",
-  },
-  backText: { fontSize: 16, color: "#007AFF" },
-  textbookLabel: {
-    fontSize: 13,
-    color: "#4F46E5",
-    maxWidth: "60%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 4,
   },
   loadingBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
-    backgroundColor: "#EBF4FF",
+    backgroundColor: "#e8f2ff",
     gap: 8,
   },
   loadingText: {
-    fontSize: 14,
-    color: "#4A5568",
+    fontSize: 13,
+    color: "#4a5568",
   },
 });

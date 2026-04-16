@@ -81,20 +81,27 @@ export async function getAllNotes(): Promise<NoteRow[]> {
 
 export async function createNote(
   title: string,
-  language: string = "en"
+  language: string = "en",
+  textbook?: { id: string; name: string; pages: number },
 ): Promise<NoteRow> {
   const db = await getDatabase();
   const id = uuid();
   const now = new Date().toISOString();
+  const tbId = textbook?.id ?? null;
+  const tbName = textbook?.name ?? null;
+  const tbPages = textbook?.pages ?? 0;
   await db.runAsync(
-    "INSERT INTO notes (id, title, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO notes (id, title, language, textbook_id, textbook_name, textbook_pages, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     id,
     title,
     language,
+    tbId,
+    tbName,
+    tbPages,
     now,
     now
   );
-  return { id, title, language, textbook_id: null, textbook_name: null, textbook_pages: 0, drawing_data: null, created_at: now, updated_at: now };
+  return { id, title, language, textbook_id: tbId, textbook_name: tbName, textbook_pages: tbPages, drawing_data: null, created_at: now, updated_at: now };
 }
 
 export async function updateNoteTitle(
@@ -287,4 +294,27 @@ export async function saveFeedback(
     bbox_height: boundingBox.height,
     created_at: now,
   };
+}
+
+// ── Textbooks (distinct from notes) ──
+
+export interface TextbookInfo {
+  id: string;
+  name: string;
+  pages: number;
+}
+
+export async function getAllTextbooks(): Promise<TextbookInfo[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ textbook_id: string; textbook_name: string; textbook_pages: number }>(
+    `SELECT DISTINCT textbook_id, textbook_name, textbook_pages
+     FROM notes
+     WHERE textbook_id IS NOT NULL
+     ORDER BY textbook_name ASC`
+  );
+  return rows.map((r) => ({
+    id: r.textbook_id,
+    name: r.textbook_name,
+    pages: r.textbook_pages,
+  }));
 }

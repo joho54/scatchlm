@@ -12,7 +12,7 @@ interface NoteState {
   notes: NoteRow[];
   loading: boolean;
   loadNotes: () => Promise<void>;
-  createNote: (title: string, language?: string) => Promise<NoteRow>;
+  createNote: (title: string, language?: string, textbook?: { id: string; name: string; pages: number }) => Promise<NoteRow>;
   updateTitle: (id: string, title: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
 }
@@ -34,10 +34,10 @@ export const useNoteStore = create<NoteState>((set) => ({
     }
   },
 
-  createNote: async (title, language = "en") => {
+  createNote: async (title, language = "en", textbook?) => {
     try {
-      logger.info("notes", "createNote", { title, language });
-      const note = await dbCreateNote(title, language);
+      logger.info("notes", "createNote", { title, language, textbook: textbook?.id });
+      const note = await dbCreateNote(title, language, textbook);
       set((state) => ({ notes: [note, ...state.notes] }));
       return note;
     } catch (e: any) {

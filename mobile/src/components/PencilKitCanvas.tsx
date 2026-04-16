@@ -1,6 +1,7 @@
-import React, { useCallback, useRef } from "react";
-import { StyleSheet, View, Text, Platform, Animated } from "react-native";
+import React, { useCallback, useMemo, useRef } from "react";
+import { StyleSheet, View, Text, Platform, Animated, useWindowDimensions } from "react-native";
 import type { FeedbackRenderItem } from "../types";
+import FeedbackCard from "./FeedbackCard";
 
 // iOS only — expo-pencilkit-ui
 let PencilKitViewComponent: any = null;
@@ -51,8 +52,25 @@ export default function PencilKitCanvas({
     );
   }
 
+  // 노트 줄무늬 배경 생성 (40px 간격)
+  const { height: screenHeight } = useWindowDimensions();
+  const ruledLines = useMemo(() => {
+    const lineCount = Math.ceil((screenHeight * 3) / 40); // 스크롤 영역 대비 충분한 줄
+    return Array.from({ length: lineCount }, (_, i) => (
+      <View key={i} style={[styles.ruledLine, { top: 40 * (i + 1) }]} />
+    ));
+  }, [screenHeight]);
+
   return (
     <View style={styles.container}>
+      {/* 노트 줄무늬 배경 — 스크롤 동기화 */}
+      <Animated.View
+        style={[styles.ruledLinesContainer, { transform: [{ translateY: scrollY }] }]}
+        pointerEvents="none"
+      >
+        {ruledLines}
+      </Animated.View>
+
       {/* PencilKit 네이티브 캔버스 */}
       <PencilKitViewComponent
         ref={pencilKitRef}
@@ -71,19 +89,15 @@ export default function PencilKitCanvas({
           pointerEvents="none"
         >
           {feedbackItems.map((item) => (
-            <View
+            <FeedbackCard
               key={item.id}
-              style={[
-                styles.feedbackCard,
-                {
-                  top: item.y,
-                  width: item.width,
-                  minHeight: item.height,
-                },
-              ]}
-            >
-              <Text style={styles.feedbackText}>{item.text}</Text>
-            </View>
+              recognizedText={item.recognizedText}
+              feedback={item.feedback}
+              summary={item.summary}
+              text={item.text}
+              y={item.y}
+              width={item.width}
+            />
           ))}
         </Animated.View>
       )}
@@ -93,23 +107,19 @@ export default function PencilKitCanvas({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff", overflow: "hidden" },
+  ruledLinesContainer: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.5,
+  },
+  ruledLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "#e8ecf0",
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-  },
-  feedbackCard: {
-    position: "absolute",
-    left: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#E2E8F0",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  feedbackText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: "#1E293B",
   },
   fallback: { flex: 1, justifyContent: "center", alignItems: "center" },
   fallbackText: { color: "#999", fontSize: 16 },

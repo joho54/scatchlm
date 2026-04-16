@@ -29,7 +29,7 @@ async def _background_index(textbook_id: str, user_id: str, server_path: str):
 @router.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
-    note_id: str = Form(...),
+    note_id: str | None = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -100,6 +100,29 @@ async def upload_pdf(
         "fileSize": file_size,
         "indexing": "started",
     }
+
+
+@router.get("/textbooks")
+async def list_textbooks(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(TextbookSource)
+        .where(TextbookSource.user_id == user_id)
+        .order_by(TextbookSource.created_at.desc())
+    )
+    sources = result.scalars().all()
+    return [
+        {
+            "id": s.id,
+            "fileName": s.file_name,
+            "totalPages": s.total_pages,
+            "fileSize": s.file_size,
+            "createdAt": s.created_at.isoformat() if s.created_at else None,
+        }
+        for s in sources
+    ]
 
 
 @router.get("/{textbook_id}/file")

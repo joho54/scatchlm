@@ -58,10 +58,12 @@ pytest tests/test_auth.py -v           # 특정 테스트
 ### Mobile
 ```bash
 cd mobile
-npm start                               # Expo 개발 서버
+metro                                    # Expo 개발 서버 (alias, 로그 → mobile/logs/metro.log)
 npm run ios                             # iOS 시뮬레이터
 npm run android                         # Android 에뮬레이터
 ```
+
+- Metro 로그 파일: `mobile/logs/metro.log` — `console.log` 출력이 여기에 파이프됨 (`~/.zshrc` alias)
 
 ### DB 마이그레이션 (Alembic)
 

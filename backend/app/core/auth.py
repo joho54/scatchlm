@@ -5,8 +5,12 @@ import jwt
 from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import get_db
+from app.models.user import User
 
 log = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -45,13 +49,34 @@ def _verify_token(token: str) -> str:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
 
-def get_current_user_id(
+async def _ensure_user_exists(user_id: str, email: str | None, db: AsyncSession) -> None:
+    """users 테이블에 해당 유저가 없으면 자동 생성."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    if result.scalar_one_or_none() is None:
+        user = User(id=user_id, email=email or f"{user_id}@unknown")
+        db.add(user)
+        await db.commit()
+        log.info("Auto-created user: %s", user_id)
+
+
+async def get_current_user_id(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     token: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
 ) -> str:
     """Authorization 헤더 또는 ?token= 쿼리 파라미터에서 JWT를 검증한다."""
     if credentials and credentials.credentials:
-        return _verify_token(credentials.credentials)
-    if token:
-        return _verify_token(token)
-    raise HTTPException(status_code=401, detail="Not authenticated")
+        raw_token = credentials.credentials
+    elif token:
+        raw_token = token
+    else:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user_id = _verify_token(raw_token)
+
+    # JWT에서 email 추출
+    payload = jwt.decode(raw_token, options={"verify_signature": False})
+    email = payload.get("email")
+
+    await _ensure_user_exists(user_id, email, db)
+    return user_id

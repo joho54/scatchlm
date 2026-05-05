@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/scatchlm"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/scatchlm?ssl=disable"
     ANTHROPIC_API_KEY: str = ""
     SUPABASE_URL: str = ""
     SUPABASE_PUBLISHABLE_KEY: str = ""

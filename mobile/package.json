@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "metro": "mkdir -p logs && npx expo start 2>&1 | tee logs/metro.log",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",

@@ -235,24 +235,31 @@ struct NoteView: View {
                 }
 
                 // 캡처 — 항상 흰 배경 + 가시적 잉크
-                let scale = UIScreen.main.scale
-                let rawImage = newDrawing.image(from: bounds, scale: scale)
-                let renderer = UIGraphicsImageRenderer(size: rawImage.size)
+                // Claude API 최대 8000px — 초과 시 리사이즈
+                let rawImage = newDrawing.image(from: bounds, scale: 1.0)
+                // 최대 4000px로 리사이즈
+                let maxDim: CGFloat = 4000
+                let imgSize = rawImage.size
+                let ratio = max(imgSize.width, imgSize.height) > maxDim
+                    ? maxDim / max(imgSize.width, imgSize.height)
+                    : 1.0
+                let targetSize = CGSize(width: imgSize.width * ratio, height: imgSize.height * ratio)
+
+                let renderer = UIGraphicsImageRenderer(size: targetSize)
                 let isDarkMode = UITraitCollection.current.userInterfaceStyle == .dark
                 let finalImage = renderer.image { ctx in
                     UIColor.white.setFill()
-                    ctx.fill(CGRect(origin: .zero, size: rawImage.size))
+                    ctx.fill(CGRect(origin: .zero, size: targetSize))
                     if isDarkMode {
-                        // 다크모드: 투명 배경에 흰 잉크 → 색 반전하여 검정 잉크로
                         guard let cgImage = rawImage.cgImage,
                               let ciImage = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: CIImage(cgImage: cgImage)])?.outputImage,
                               let invertedCG = CIContext().createCGImage(ciImage, from: ciImage.extent) else {
-                            rawImage.draw(at: .zero)
+                            rawImage.draw(in: CGRect(origin: .zero, size: targetSize))
                             return
                         }
-                        UIImage(cgImage: invertedCG).draw(at: .zero)
+                        UIImage(cgImage: invertedCG).draw(in: CGRect(origin: .zero, size: targetSize))
                     } else {
-                        rawImage.draw(at: .zero)
+                        rawImage.draw(in: CGRect(origin: .zero, size: targetSize))
                     }
                 }
                 guard let pngData = finalImage.pngData() else {
@@ -405,7 +412,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         // Render feedback cards as subviews
-        // Remove old cards
+        let existingCards = uiView.subviews.filter { $0.tag == 9999 }.count
+        appLog("canvas", "updateUIView", ["feedbacks": "\(feedbacks.count)", "existingCards": "\(existingCards)", "bounds": "\(uiView.bounds)"])
         uiView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
 
         let cardWidth = uiView.bounds.width - 32

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1194, initial-scale=1.0">
+<title>ScatchLM - Note Screen (Light/Dark)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; -webkit-font-smoothing: antialiased; transition: background 0.3s, color 0.3s; }
+
+  /* ===== Light Theme ===== */
+  :root[data-theme="light"] {
+    --bg-body: #f2f2f7;
+    --bg-primary: #ffffff;
+    --bg-elevated: #ffffff;
+    --bg-card: rgba(255,255,255,0.55);
+    --bg-pdf: #f5f5f7;
+    --border: #e5e5ea;
+    --border-subtle: rgba(0,0,0,0.04);
+    --text-primary: #1c1c1e;
+    --text-secondary: #8e8e93;
+    --text-tertiary: #aeaeb2;
+    --canvas-line: rgba(0,0,0,0.06);
+    --canvas-bg: #ffffff;
+    --glass-bg: rgba(255,255,255,0.08);
+    --glass-border-top: rgba(255,255,255,0.6);
+    --glass-border-bottom: rgba(0,0,0,0.04);
+    --glass-shadow: rgba(0,0,0,0.08);
+    --pill-active-bg: rgba(0,0,0,0.7);
+    --pill-active-fg: #ffffff;
+    --feedback-bg: rgba(255,255,255,0.75);
+    --feedback-border-top: rgba(255,255,255,0.6);
+    --feedback-shadow: rgba(0,0,0,0.06);
+    --spinner-color: #1c1c1e;
+    --success: #34c759;
+    --error: #ff3b30;
+  }
+
+  /* ===== Dark Theme ===== */
+  :root[data-theme="dark"] {
+    --bg-body: #000000;
+    --bg-primary: #000000;
+    --bg-elevated: #1c1c1e;
+    --bg-card: rgba(44,44,46,0.75);
+    --bg-pdf: #1c1c1e;
+    --border: rgba(255,255,255,0.08);
+    --border-subtle: rgba(255,255,255,0.04);
+    --text-primary: #ffffff;
+    --text-secondary: #8e8e93;
+    --text-tertiary: #636366;
+    --canvas-line: rgba(255,255,255,0.04);
+    --canvas-bg: #1c1c1e;
+    --glass-bg: rgba(255,255,255,0.06);
+    --glass-border-top: rgba(255,255,255,0.1);
+    --glass-border-bottom: rgba(0,0,0,0.3);
+    --glass-shadow: rgba(0,0,0,0.4);
+    --pill-active-bg: rgba(255,255,255,0.85);
+    --pill-active-fg: #000000;
+    --feedback-bg: rgba(44,44,46,0.75);
+    --feedback-border-top: rgba(255,255,255,0.08);
+    --feedback-shadow: rgba(0,0,0,0.3);
+    --spinner-color: rgba(255,255,255,0.9);
+    --success: #30d158;
+    --error: #ff453a;
+  }
+
+  body { background: var(--bg-body); color: var(--text-primary); }
+
+  .screen {
+    width: 1194px;
+    height: 834px;
+    margin: 20px auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    position: relative;
+    transition: background 0.3s;
+  }
+
+  .split { flex: 1; display: flex; overflow: hidden; }
+
+  /* ===== PDF Panel ===== */
+  .pdf-panel {
+    width: 45%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-pdf);
+    border-right: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow: hidden;
+    position: relative;
+    transition: background 0.3s;
+  }
+  .pdf-content {
+    flex: 1;
+    overflow-y: auto;
+    transition: filter 0.3s ease;
+  }
+  .pdf-content.theme-original { filter: none; }
+  .pdf-content.theme-dim { filter: brightness(0.65) contrast(1.1); }
+  .pdf-content.theme-dark { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(1.05); }
+
+  .pdf-page-mock {
+    background: #ffffff;
+    padding: 32px 28px;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #333;
+    min-height: 100%;
+  }
+  .pdf-page-mock h3 { font-size: 16px; margin-bottom: 12px; color: #111; }
+  .pdf-page-mock p { margin-bottom: 8px; }
+  .pdf-highlight { background: #fff3cd; padding: 1px 3px; border-radius: 2px; }
+
+  /* PDF theme picker */
+  .pdf-theme-picker {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+    z-index: 10;
+    transition: opacity 0.3s;
+  }
+  [data-theme="light"] .pdf-theme-picker { opacity: 0; pointer-events: none; }
+  [data-theme="dark"] .pdf-theme-picker { opacity: 1; pointer-events: auto; }
+
+  .pdf-theme-btn {
+    padding: 5px 12px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pdf-theme-btn:hover { color: rgba(255,255,255,0.8); }
+  .pdf-theme-btn.active {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+  }
+
+  /* ===== Canvas Panel ===== */
+  .canvas-panel {
+    flex: 1;
+    position: relative;
+    background: var(--canvas-bg);
+    overflow: hidden;
+    transition: background 0.3s;
+  }
+  .canvas-content {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+  }
+  .canvas-text {
+    padding: 40px 32px;
+    min-height: 2400px;
+    font-size: 16px;
+    line-height: 40px;
+    color: var(--text-primary);
+    font-family: "Bradley Hand", "Segoe Script", cursive;
+    background-image: repeating-linear-gradient(
+      to bottom, transparent, transparent 39px, var(--canvas-line) 39px, var(--canvas-line) 40px
+    );
+    background-size: 100% 40px;
+    transition: color 0.3s;
+  }
+  .canvas-text .heading {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: -apple-system, sans-serif;
+    margin: 20px 0 0;
+    line-height: 40px;
+  }
+  .canvas-text .sub {
+    font-size: 13px;
+    font-family: -apple-system, sans-serif;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  .canvas-text .correct { color: var(--success); font-weight: 600; }
+  .canvas-text .wrong { color: var(--error); text-decoration: line-through; }
+
+  /* ===== Floating Glass Elements ===== */
+  .liquid-glass {
+    position: absolute;
+    z-index: 30;
+    overflow: hidden;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .liquid-glass-surface {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: 3;
+    pointer-events: none;
+    transition: box-shadow 0.3s;
+  }
+
+  /* Back button */
+  .glass-back {
+    top: 12px; left: 12px;
+    width: 36px; height: 36px;
+    border-radius: 18px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .glass-back .liquid-glass-surface {
+    box-shadow:
+      inset 0 0.5px 0.5px var(--glass-border-top),
+      inset 0 -0.5px 0.5px var(--glass-border-bottom),
+      0 2px 8px var(--glass-shadow);
+  }
+  .glass-back-icon {
+    position: relative;
+    z-index: 5;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .glass-back-icon svg { width: 20px; height: 20px; color: var(--text-primary); transition: color 0.3s; }
+
+  /* FAB Pill */
+  .glass-pill {
+    bottom: 20px; right: 20px;
+    border-radius: 28px;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+  }
+  .glass-pill .liquid-glass-surface {
+    box-shadow:
+      inset 0 0.5px 0.5px var(--glass-border-top),
+      inset 0 -0.5px 0.5px var(--glass-border-bottom),
+      0 4px 16px var(--glass-shadow);
+  }
+  .glass-pill-buttons {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .fab-pill-btn {
+    width: 48px; height: 48px;
+    border-radius: 24px;
+    border: none;
+    background: transparent;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .fab-pill-btn:hover { background: rgba(128,128,128,0.1); }
+  .fab-pill-btn:active { transform: scale(0.9); }
+  .fab-pill-btn svg { width: 22px; height: 22px; transition: color 0.3s; }
+  .fab-pill-btn.textbook svg { color: var(--text-secondary); }
+  .fab-pill-btn.textbook.active { background: var(--pill-active-bg); }
+  .fab-pill-btn.textbook.active svg { color: var(--pill-active-fg); }
+  .fab-pill-divider { width: 1px; height: 24px; background: var(--border); }
+  .fab-pill-btn.feedback svg { width: 26px; height: 26px; }
+
+  /* Spinner */
+  .fab-pill-btn.feedback .spinner {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 40deg,
+      var(--spinner-color) 270deg,
+      transparent 360deg
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+    animation: spin 0.9s cubic-bezier(0.4, 0.15, 0.6, 0.85) infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== Feedback Card ===== */
+  .feedback-card {
+    position: absolute;
+    left: 20px; right: 20px;
+    top: 240px;
+    z-index: 10;
+    border-radius: var(--radius-lg);
+    background: var(--feedback-bg);
+    backdrop-filter: blur(30px) saturate(150%);
+    -webkit-backdrop-filter: blur(30px) saturate(150%);
+    padding: 14px 16px;
+    box-shadow:
+      inset 0 0.5px 0.5px var(--feedback-border-top),
+      0 2px 12px var(--feedback-shadow);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .feedback-recognized {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    background: var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: "SF Mono", "Menlo", monospace;
+    line-height: 1.5;
+  }
+  .feedback-body {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-primary);
+  }
+  .feedback-body del { color: var(--error); text-decoration: line-through; }
+  .feedback-body strong { color: var(--success); font-weight: 700; }
+  .feedback-body p { margin: 0 0 6px 0; }
+  .feedback-body p:last-child { margin-bottom: 0; }
+  .feedback-summary {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ===== Demo Controls ===== */
+  .demo-controls {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    align-items: center;
+    margin: 16px auto 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .theme-toggle {
+    display: flex;
+    background: rgba(128,128,128,0.15);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .theme-toggle-btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .theme-toggle-btn.active {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .demo-controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-controls">
+  <div class="theme-toggle">
+    <button class="theme-toggle-btn" onclick="setTheme('light')">Light</button>
+    <button class="theme-toggle-btn active" onclick="setTheme('dark')">Dark</button>
+  </div>
+  <label><input type="checkbox" id="toggle-loading" onchange="toggleLoading()"> Loading</label>
+</div>
+
+<div class="screen">
+  <div class="split">
+
+    <!-- PDF Panel -->
+    <div class="pdf-panel">
+      <div class="pdf-content theme-dim" id="pdfContent">
+        <div class="pdf-page-mock">
+          <h3>Chapter 3: Verb Conjugation</h3>
+          <p>The present tense in English is used to describe habitual actions, general truths, and states of being.</p>
+          <p><strong>Regular verbs</strong> follow a predictable pattern:</p>
+          <p>I <span class="pdf-highlight">walk</span> &rarr; He <span class="pdf-highlight">walks</span></p>
+          <p>I <span class="pdf-highlight">study</span> &rarr; She <span class="pdf-highlight">studies</span></p>
+          <p style="margin-top: 16px;"><strong>Exercise 3.1:</strong> Conjugate the following verbs in the present tense.</p>
+          <p>1. (to run) She _______</p>
+          <p>2. (to fly) The bird _______</p>
+          <p>3. (to carry) He _______</p>
+          <p>4. (to watch) They _______</p>
+          <p>5. (to go) She _______</p>
+          <p style="margin-top: 16px;"><strong>Rule:</strong> For verbs ending in consonant + y, drop the y and add <span class="pdf-highlight">-ies</span>.</p>
+          <p>fly &rarr; flies, carry &rarr; carries, study &rarr; studies</p>
+          <p style="margin-top: 16px;"><strong>Exercise 3.2:</strong> Irregular verbs</p>
+          <p>to be &rarr; I <span class="pdf-highlight">am</span>, you <span class="pdf-highlight">are</span>, he <span class="pdf-highlight">is</span></p>
+          <p>to have &rarr; I <span class="pdf-highlight">have</span>, she <span class="pdf-highlight">has</span></p>
+          <p>to do &rarr; I <span class="pdf-highlight">do</span>, it <span class="pdf-highlight">does</span></p>
+        </div>
+      </div>
+      <div class="pdf-theme-picker">
+        <button class="pdf-theme-btn" data-theme="original" onclick="setPdfTheme('original')">Original</button>
+        <button class="pdf-theme-btn active" data-theme="dim" onclick="setPdfTheme('dim')">Dim</button>
+        <button class="pdf-theme-btn" data-theme="dark" onclick="setPdfTheme('dark')">Dark</button>
+      </div>
+    </div>
+
+    <!-- Canvas Panel -->
+    <div class="canvas-panel">
+
+      <div class="canvas-content">
+        <div class="canvas-text">
+          <div class="heading">Exercise 3.1 — Verb Conjugation</div>
+          <div class="sub">Present tense, 3rd person singular</div>
+          1. (to run) She runs
+          <br>2. (to fly) The bird <span class="wrong">flys</span>
+          <br>3. (to carry) He <span class="wrong">carrys</span>
+          <br>4. (to watch) They watches
+          <br>5. (to go) She goes
+          <br>
+          <br><div class="heading">Exercise 3.2 — Irregular Verbs</div>
+          <div class="sub">Fill in the correct form</div>
+          1. She is a teacher.
+          <br>2. They have two cats.
+          <br>3. He <span class="wrong">do</span> his homework every day.
+          <br>4. It does not matter.
+          <br>5. We are students at this school.
+          <br>
+          <br><div class="heading">Exercise 3.3 — Past Simple</div>
+          <div class="sub">Rewrite in past tense</div>
+          1. I go → I <span class="correct">went</span>
+          <br>2. She sees → She <span class="correct">saw</span>
+          <br>3. They take → They <span class="wrong">taked</span>
+          <br>4. He writes → He <span class="correct">wrote</span>
+          <br>5. We begin → We <span class="correct">began</span>
+          <br>
+          <br><div class="heading">Notes</div>
+          <div class="sub">Review before test</div>
+          - consonant + y → drop y, add -ies
+          <br>- irregular past: go/went, see/saw
+          <br>- "grew" not "growed"
+          <br><br><br><br>
+        </div>
+      </div>
+
+      <!-- Feedback Card -->
+      <div class="feedback-card">
+        <div class="feedback-recognized">She runs / The bird flys / He carrys</div>
+        <div class="feedback-body">
+          <p>1. She runs &mdash; Correct!</p>
+          <p>2. <del>flys</del> &rarr; <strong>flies</strong> (consonant + y rule)</p>
+          <p>3. <del>carrys</del> &rarr; <strong>carries</strong> (same rule)</p>
+        </div>
+        <div class="feedback-summary">
+          1/3 correct. consonant+y → drop y, add -ies.
+        </div>
+      </div>
+
+      <!-- Back button -->
+      <div class="liquid-glass glass-back">
+        <div class="liquid-glass-surface"></div>
+        <div class="glass-back-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </div>
+      </div>
+
+      <!-- FAB Pill -->
+      <div class="liquid-glass glass-pill">
+        <div class="liquid-glass-surface"></div>
+        <div class="glass-pill-buttons">
+          <button class="fab-pill-btn textbook active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          </button>
+          <div class="fab-pill-divider"></div>
+          <button class="fab-pill-btn feedback" id="btn-feedback" onclick="toggleLoading()">
+            <svg class="ai-icon" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="ai-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:var(--text-primary)"/><stop offset="100%" style="stop-color:var(--text-tertiary)"/></linearGradient></defs>
+              <path d="M14 0 L15.8 10.5 L26 14 L15.8 17.5 L14 28 L12.2 17.5 L2 14 L12.2 10.5 Z" fill="url(#ai-grad)"/>
+              <path d="M22 3 L22.8 6.2 L26 7 L22.8 7.8 L22 11 L21.2 7.8 L18 7 L21.2 6.2 Z" fill="url(#ai-grad)" opacity="0.6"/>
+            </svg>
+            <div class="spinner" style="display:none;"></div>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase() === theme);
+  });
+  // Reset PDF theme on light mode
+  if (theme === 'light') {
+    setPdfTheme('original');
+  } else {
+    setPdfTheme('dim');
+  }
+}
+
+function setPdfTheme(theme) {
+  const content = document.getElementById('pdfContent');
+  content.className = 'pdf-content theme-' + theme;
+  document.querySelectorAll('.pdf-theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === theme);
+  });
+}
+
+let isLoading = false;
+function toggleLoading() {
+  isLoading = !isLoading;
+  const btn = document.getElementById('btn-feedback');
+  const icon = btn.querySelector('.ai-icon');
+  const spinner = btn.querySelector('.spinner');
+  icon.style.display = isLoading ? 'none' : 'block';
+  spinner.style.display = isLoading ? 'block' : 'none';
+  document.getElementById('toggle-loading').checked = isLoading;
+}
+</script>
+
+</body>
+</html>

@@ -50,6 +50,8 @@
     align-items: center;
     padding: 20px 32px 0;
     flex-shrink: 0;
+    position: relative;
+    z-index: 10;
   }
   .header-title {
     font-size: 34px;
@@ -63,37 +65,65 @@
     align-items: center;
     gap: 8px;
   }
+
+  /* ===== Header Button — Liquid Glass ===== */
   .header-btn {
     width: 36px; height: 36px;
     border-radius: 18px;
-    background: rgba(255,255,255,0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(0,0,0,0.06);
+    position: relative;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
     transition: all 0.15s;
-    box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
-  .header-btn:hover { background: rgba(255,255,255,0.95); }
+  .header-btn:hover { opacity: 0.9; }
   .header-btn:active { transform: scale(0.92); }
-  .header-btn svg { width: 18px; height: 18px; color: var(--text-secondary); }
+  .header-btn .header-btn-icon {
+    position: relative;
+    z-index: 5;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .header-btn .header-btn-icon svg { width: 18px; height: 18px; color: var(--text-secondary); }
+
+  /* Liquid glass internals for header buttons */
+  .header-btn .liquid-glass-clone {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    z-index: 1;
+    will-change: filter;
+  }
+  .header-btn .liquid-glass-clone-inner {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+  }
+  .header-btn .liquid-glass-surface {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: 3;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0.5px 0.5px rgba(255,255,255,0.6),
+      inset 0 -0.5px 0.5px rgba(0,0,0,0.04),
+      0 2px 8px rgba(0,0,0,0.08);
+  }
 
   /* ===== Search bar ===== */
   .search-bar {
-    margin: 16px 32px 0;
+    margin: 14px 32px 0;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 14px;
-    background: rgba(255,255,255,0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(0,0,0,0.04);
-    border-radius: var(--radius-md);
+    padding: 9px 12px;
+    background: rgba(118,118,128,0.08);
+    border: none;
+    border-radius: 10px;
     flex-shrink: 0;
   }
-  .search-bar svg { width: 16px; height: 16px; color: var(--text-tertiary); flex-shrink: 0; }
+  .search-bar svg { width: 15px; height: 15px; color: var(--text-tertiary); flex-shrink: 0; }
   .search-bar input {
     flex: 1;
     border: none;
@@ -110,36 +140,34 @@
     overflow-y: auto;
     padding: 20px 32px 100px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
     align-content: start;
   }
 
-  /* ===== Note Card ===== */
+  /* ===== Note Card — Apple Notes style ===== */
   .note-card {
     background: var(--bg-primary);
-    border-radius: var(--radius-lg);
+    border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: var(--shadow-sm);
-    border: 1px solid rgba(0,0,0,0.04);
+    box-shadow: 0 0.5px 1px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.04);
+    border: none;
   }
   .note-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
   }
   .note-card:active { transform: scale(0.98); }
 
   /* Thumbnail area */
   .note-thumb {
-    height: 160px;
-    background: #fff;
+    height: 140px;
+    background: #fafafa;
     position: relative;
     overflow: hidden;
-    border-bottom: 1px solid var(--border-light);
   }
-  /* Notebook lines in thumbnail */
   .note-thumb-lines {
     position: absolute;
     inset: 0;
@@ -147,66 +175,71 @@
       to bottom,
       transparent,
       transparent 23px,
-      #eef0f3 23px,
-      #eef0f3 24px
+      #f0f0f2 23px,
+      #f0f0f2 24px
     );
-    opacity: 0.6;
+    opacity: 0.7;
   }
-  /* Handwriting preview in thumbnail */
   .note-thumb-text {
     position: absolute;
-    top: 16px;
-    left: 16px;
-    right: 16px;
+    top: 14px;
+    left: 14px;
+    right: 14px;
     font-family: "Bradley Hand", "Segoe Script", cursive;
-    font-size: 13px;
-    color: #2c3e50;
+    font-size: 12.5px;
+    color: #3a3a4a;
     line-height: 24px;
     overflow: hidden;
     pointer-events: none;
   }
-  /* Textbook indicator */
-  .note-thumb-badge {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 24px; height: 24px;
-    border-radius: 12px;
-    background: var(--accent-purple);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .note-thumb-badge svg { width: 12px; height: 12px; color: #fff; }
+  .note-thumb-badge { display: none; }
 
   /* Card info */
   .note-info {
-    padding: 12px 14px;
+    padding: 10px 14px 12px;
   }
   .note-title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
-    white-space: nowrap;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
   .note-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-    font-size: 12px;
+    gap: 4px;
+    margin-top: 5px;
+    font-size: 11px;
     color: var(--text-tertiary);
   }
-  .note-lang {
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--accent-light);
-    color: var(--accent);
-    font-weight: 600;
-    font-size: 11px;
+  .note-meta-dot {
+    width: 2px; height: 2px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    flex-shrink: 0;
+  }
+  .note-pdf {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note-pdf svg {
+    width: 10px; height: 10px;
+    flex-shrink: 0;
+    color: var(--text-tertiary);
   }
 
-  /* ===== FAB — new note ===== */
+  /* ===== FAB — Liquid Glass ===== */
   .fab-new {
     position: absolute;
     bottom: 24px;
@@ -214,21 +247,45 @@
     z-index: 20;
     width: 56px; height: 56px;
     border-radius: 28px;
-    background: rgba(255,255,255,0.5);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.6);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.5);
     transition: all 0.2s;
+    overflow: hidden;
   }
-  .fab-new:hover {
-    background: rgba(255,255,255,0.7);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.14);
-  }
+  .fab-new:hover { opacity: 0.9; }
   .fab-new:active { transform: scale(0.92); }
-  .fab-new svg { width: 28px; height: 28px; color: var(--text-primary); }
+  .fab-new .fab-icon {
+    position: relative;
+    z-index: 5;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fab-new .fab-icon svg { width: 28px; height: 28px; color: var(--text-primary); }
+
+  /* Liquid glass internals for FAB */
+  .fab-new .liquid-glass-clone {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    z-index: 1;
+    will-change: filter;
+  }
+  .fab-new .liquid-glass-clone-inner {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+  }
+  .fab-new .liquid-glass-surface {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: 3;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0.5px 0.5px rgba(255,255,255,0.5),
+      inset 0 -0.5px 0.5px rgba(0,0,0,0.03),
+      0 4px 16px rgba(0,0,0,0.12);
+  }
 
   /* ===== Empty state ===== */
   .empty-state {
@@ -325,20 +382,20 @@
   }
   .textbook-option:hover { background: rgba(255,255,255,0.8); }
   .textbook-option.selected {
-    border-color: var(--accent-purple);
-    background: var(--accent-purple-light);
+    border-color: rgba(0,0,0,0.7);
+    background: rgba(0,0,0,0.04);
   }
   .textbook-option-icon {
     width: 32px; height: 32px;
     border-radius: 8px;
-    background: var(--accent-purple-light);
+    background: rgba(0,0,0,0.04);
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
   .textbook-option.selected .textbook-option-icon {
-    background: var(--accent-purple);
+    background: rgba(0,0,0,0.7);
   }
-  .textbook-option-icon svg { width: 16px; height: 16px; color: var(--accent-purple); }
+  .textbook-option-icon svg { width: 16px; height: 16px; color: rgba(0,0,0,0.7); }
   .textbook-option.selected .textbook-option-icon svg { color: #fff; }
   .textbook-option-info { flex: 1; min-width: 0; }
   .textbook-option-name {
@@ -362,8 +419,8 @@
     transition: all 0.15s;
   }
   .textbook-option.selected .textbook-option-check {
-    border-color: var(--accent-purple);
-    background: var(--accent-purple);
+    border-color: rgba(0,0,0,0.7);
+    background: rgba(0,0,0,0.7);
   }
   .textbook-option-check svg { width: 12px; height: 12px; color: #fff; opacity: 0; }
   .textbook-option.selected .textbook-option-check svg { opacity: 1; }
@@ -428,31 +485,84 @@
     cursor: pointer;
     color: #666;
   }
+
+  /* SVG filters (hidden) */
+  .svg-filters { position: absolute; width: 0; height: 0; overflow: hidden; }
 </style>
 </head>
 <body>
+
+<!-- SVG Filters for Liquid Glass -->
+<svg class="svg-filters">
+  <defs>
+    <!-- FAB button filter -->
+    <filter id="fabGlassFilter" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.3" result="blurred"/>
+      <feImage id="fabDispImg" href="" x="0" y="0" width="56" height="56" result="dmap" preserveAspectRatio="none"/>
+      <feDisplacementMap id="fabDispMap" in="blurred" in2="dmap" scale="30" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+      <feColorMatrix in="displaced" type="saturate" values="1.4" result="saturated"/>
+      <feImage id="fabSpecImg" href="" x="0" y="0" width="56" height="56" result="spec" preserveAspectRatio="none"/>
+      <feComponentTransfer in="spec" result="specFaded"><feFuncA type="linear" slope="0.5"/></feComponentTransfer>
+      <feBlend in="specFaded" in2="saturated" mode="screen"/>
+    </filter>
+
+    <!-- Header button 1 (settings) filter -->
+    <filter id="hdrBtn1GlassFilter" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.2" result="blurred"/>
+      <feImage id="hdrBtn1DispImg" href="" x="0" y="0" width="36" height="36" result="dmap" preserveAspectRatio="none"/>
+      <feDisplacementMap id="hdrBtn1DispMap" in="blurred" in2="dmap" scale="20" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+      <feColorMatrix in="displaced" type="saturate" values="1.5" result="saturated"/>
+      <feImage id="hdrBtn1SpecImg" href="" x="0" y="0" width="36" height="36" result="spec" preserveAspectRatio="none"/>
+      <feComponentTransfer in="spec" result="specFaded"><feFuncA type="linear" slope="0.6"/></feComponentTransfer>
+      <feBlend in="specFaded" in2="saturated" mode="screen"/>
+    </filter>
+
+    <!-- Header button 2 (sign out) filter -->
+    <filter id="hdrBtn2GlassFilter" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.2" result="blurred"/>
+      <feImage id="hdrBtn2DispImg" href="" x="0" y="0" width="36" height="36" result="dmap" preserveAspectRatio="none"/>
+      <feDisplacementMap id="hdrBtn2DispMap" in="blurred" in2="dmap" scale="20" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+      <feColorMatrix in="displaced" type="saturate" values="1.5" result="saturated"/>
+      <feImage id="hdrBtn2SpecImg" href="" x="0" y="0" width="36" height="36" result="spec" preserveAspectRatio="none"/>
+      <feComponentTransfer in="spec" result="specFaded"><feFuncA type="linear" slope="0.6"/></feComponentTransfer>
+      <feBlend in="specFaded" in2="saturated" mode="screen"/>
+    </filter>
+  </defs>
+</svg>
 
 <div class="demo-controls">
   <label><input type="checkbox" id="toggle-empty" onchange="toggleEmpty()"> Empty state</label>
 </div>
 
-<div class="screen">
+<div class="screen" id="screen">
 
   <!-- Header -->
   <div class="header">
     <span class="header-title">Notes</span>
     <div class="header-actions">
       <!-- Settings -->
-      <div class="header-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2m-9-11h2m18 0h2m-3.3-6.7l-1.4 1.4M6.7 17.3l-1.4 1.4m0-13.4l1.4 1.4m10.6 10.6l1.4 1.4"/>
-        </svg>
+      <div class="header-btn" id="hdrBtn1">
+        <div class="liquid-glass-clone" id="hdrBtn1Clone">
+          <div class="liquid-glass-clone-inner" id="hdrBtn1CloneInner"></div>
+        </div>
+        <div class="liquid-glass-surface"></div>
+        <div class="header-btn-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2m-9-11h2m18 0h2m-3.3-6.7l-1.4 1.4M6.7 17.3l-1.4 1.4m0-13.4l1.4 1.4m10.6 10.6l1.4 1.4"/>
+          </svg>
+        </div>
       </div>
       <!-- Sign out -->
-      <div class="header-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
+      <div class="header-btn" id="hdrBtn2">
+        <div class="liquid-glass-clone" id="hdrBtn2Clone">
+          <div class="liquid-glass-clone-inner" id="hdrBtn2CloneInner"></div>
+        </div>
+        <div class="liquid-glass-surface"></div>
+        <div class="header-btn-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </div>
       </div>
     </div>
   </div>
@@ -477,14 +587,16 @@
           3. He carrys<br>
         </div>
         <div class="note-thumb-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          <span class="note-thumb-badge-text">PDF</span>
         </div>
       </div>
       <div class="note-info">
         <div class="note-title">24-3 Grammar Practice</div>
         <div class="note-meta">
-          <span class="note-lang">EN</span>
-          <span>2026.4.16</span>
+          <span>4.16</span>
+          <span class="note-meta-dot"></span>
+          <span class="note-pdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>roberts_grammar</span>
         </div>
       </div>
     </div>
@@ -503,8 +615,7 @@
       <div class="note-info">
         <div class="note-title">English Diary - April</div>
         <div class="note-meta">
-          <span class="note-lang">EN</span>
-          <span>2026.4.15</span>
+          <span>4.15</span>
         </div>
       </div>
     </div>
@@ -520,14 +631,16 @@
           le jardin - garden
         </div>
         <div class="note-thumb-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          <span class="note-thumb-badge-text">PDF</span>
         </div>
       </div>
       <div class="note-info">
         <div class="note-title">French Vocab Ch.5</div>
         <div class="note-meta">
-          <span class="note-lang">FR</span>
-          <span>2026.4.14</span>
+          <span>4.14</span>
+          <span class="note-meta-dot"></span>
+          <span class="note-pdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>french_basics</span>
         </div>
       </div>
     </div>
@@ -546,8 +659,7 @@
       <div class="note-info">
         <div class="note-title">Deutsch - Verben</div>
         <div class="note-meta">
-          <span class="note-lang">DE</span>
-          <span>2026.4.12</span>
+          <span>4.12</span>
         </div>
       </div>
     </div>
@@ -563,14 +675,16 @@
           Q3. If I ___ you, I would
         </div>
         <div class="note-thumb-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          <span class="note-thumb-badge-text">PDF</span>
         </div>
       </div>
       <div class="note-info">
         <div class="note-title">Unit 7 Practice Test</div>
         <div class="note-meta">
-          <span class="note-lang">EN</span>
-          <span>2026.4.10</span>
+          <span>4.10</span>
+          <span class="note-meta-dot"></span>
+          <span class="note-pdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>roberts_grammar</span>
         </div>
       </div>
     </div>
@@ -589,11 +703,11 @@
       <div class="note-info">
         <div class="note-title">Weekend Writing</div>
         <div class="note-meta">
-          <span class="note-lang">EN</span>
-          <span>2026.4.8</span>
+          <span>4.8</span>
         </div>
       </div>
     </div>
+
 
   </div>
 
@@ -606,9 +720,15 @@
     <span class="empty-sub">Tap + to create your first note</span>
   </div>
 
-  <!-- FAB — new note -->
-  <div class="fab-new" onclick="openModal()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  <!-- FAB — new note (liquid glass) -->
+  <div class="fab-new" id="fabNew" onclick="openModal()">
+    <div class="liquid-glass-clone" id="fabClone">
+      <div class="liquid-glass-clone-inner" id="fabCloneInner"></div>
+    </div>
+    <div class="liquid-glass-surface"></div>
+    <div class="fab-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </div>
   </div>
 
   <!-- Create Note Modal -->
@@ -624,7 +744,6 @@
       <div class="modal-field">
         <label class="modal-label">Textbook (optional)</label>
         <div class="textbook-selector">
-          <!-- Existing textbooks -->
           <div class="textbook-option" onclick="selectTextbook(this)">
             <div class="textbook-option-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -651,7 +770,6 @@
             </div>
           </div>
 
-          <!-- Upload new -->
           <div class="textbook-upload">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             Upload new PDF
@@ -669,6 +787,7 @@
 </div>
 
 <script>
+// ===== Original UI Logic =====
 function toggleEmpty() {
   const grid = document.getElementById('note-grid');
   const empty = document.getElementById('empty-state');
@@ -684,7 +803,6 @@ function openModal() {
 function closeModal(e) {
   if (e && e.target !== e.currentTarget) return;
   document.getElementById('modal-overlay').classList.remove('open');
-  // reset selections
   document.querySelectorAll('.textbook-option').forEach(el => el.classList.remove('selected'));
 }
 
@@ -693,6 +811,224 @@ function selectTextbook(el) {
   document.querySelectorAll('.textbook-option').forEach(o => o.classList.remove('selected'));
   if (!wasSelected) el.classList.add('selected');
 }
+
+// ===== Liquid Glass Engine =====
+const SurfaceEquations = {
+  convex_squircle: (x) => Math.pow(1 - Math.pow(1 - x, 4), 1 / 4),
+};
+
+function calculateDisplacementMap1D(glassThickness, bezelWidth, surfaceFn, refractiveIndex, samples = 128) {
+  const eta = 1 / refractiveIndex;
+  function refract(nx, ny) {
+    const dot = ny;
+    const k = 1 - eta * eta * (1 - dot * dot);
+    if (k < 0) return null;
+    const kSqrt = Math.sqrt(k);
+    return [-(eta * dot + kSqrt) * nx, eta - (eta * dot + kSqrt) * ny];
+  }
+  const result = [];
+  for (let i = 0; i < samples; i++) {
+    const x = i / samples;
+    const y = surfaceFn(x);
+    const dx = x < 1 ? 0.0001 : -0.0001;
+    const y2 = surfaceFn(Math.max(0, Math.min(1, x + dx)));
+    const derivative = (y2 - y) / dx;
+    const magnitude = Math.sqrt(derivative * derivative + 1);
+    const normal = [-derivative / magnitude, -1 / magnitude];
+    const refracted = refract(normal[0], normal[1]);
+    if (!refracted) { result.push(0); }
+    else { result.push(refracted[0] * ((y * bezelWidth + glassThickness) / refracted[1])); }
+  }
+  return result;
+}
+
+function calculateDisplacementMap2D(w, h, objW, objH, radius, bezelWidth, maxDisp, precomputed) {
+  const imageData = new ImageData(w, h);
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i] = 128; imageData.data[i+1] = 128; imageData.data[i+2] = 0; imageData.data[i+3] = 255;
+  }
+  const rSq = radius * radius, rPSq = (radius+1)**2, rBSq = Math.max(0,(radius-bezelWidth)**2);
+  const wB = objW - radius*2, hB = objH - radius*2;
+  const ox = (w-objW)/2, oy = (h-objH)/2;
+  for (let y1 = 0; y1 < objH; y1++) {
+    for (let x1 = 0; x1 < objW; x1++) {
+      const idx = ((oy+y1)*w + ox+x1)*4;
+      const x = x1 < radius ? x1-radius : x1 >= objW-radius ? x1-radius-wB : 0;
+      const y = y1 < radius ? y1-radius : y1 >= objH-radius ? y1-radius-hB : 0;
+      const dSq = x*x + y*y;
+      if (dSq <= rPSq && dSq >= rBSq) {
+        const dist = Math.sqrt(dSq);
+        const opacity = dSq < rSq ? 1 : 1-(dist-Math.sqrt(rSq))/(Math.sqrt(rPSq)-Math.sqrt(rSq));
+        const cos = dist > 0 ? x/dist : 0;
+        const sin = dist > 0 ? y/dist : 0;
+        const ratio = Math.max(0, Math.min(1, (radius-dist)/bezelWidth));
+        const bi = Math.floor(ratio * precomputed.length);
+        const d = precomputed[Math.max(0, Math.min(bi, precomputed.length-1))] || 0;
+        const dX = maxDisp > 0 ? (-cos*d)/maxDisp : 0;
+        const dY = maxDisp > 0 ? (-sin*d)/maxDisp : 0;
+        imageData.data[idx] = Math.max(0, Math.min(255, 128 + dX*127*opacity));
+        imageData.data[idx+1] = Math.max(0, Math.min(255, 128 + dY*127*opacity));
+      }
+    }
+  }
+  return imageData;
+}
+
+function calculateSpecularHighlight(objW, objH, radius, bezelWidth, angle = Math.PI/3) {
+  const imageData = new ImageData(objW, objH);
+  const sv = [Math.cos(angle), Math.sin(angle)];
+  const t = 1.5;
+  const rSq = radius*radius, rPSq = (radius+1)**2, rTSq = Math.max(0,(radius-t)**2);
+  const wB = objW-radius*2, hB = objH-radius*2;
+  for (let y1 = 0; y1 < objH; y1++) {
+    for (let x1 = 0; x1 < objW; x1++) {
+      const idx = (y1*objW+x1)*4;
+      const x = x1<radius ? x1-radius : x1>=objW-radius ? x1-radius-wB : 0;
+      const y = y1<radius ? y1-radius : y1>=objH-radius ? y1-radius-hB : 0;
+      const dSq = x*x+y*y;
+      if (dSq <= rPSq && dSq >= rTSq) {
+        const dist = Math.sqrt(dSq);
+        const opacity = dSq<rSq ? 1 : 1-(dist-Math.sqrt(rSq))/(Math.sqrt(rPSq)-Math.sqrt(rSq));
+        const cos = dist>0 ? x/dist : 0, sin = dist>0 ? -y/dist : 0;
+        const dot = Math.abs(cos*sv[0]+sin*sv[1]);
+        const edge = Math.max(0,Math.min(1,(radius-dist)/t));
+        const falloff = Math.sqrt(1-(1-edge)**2);
+        const coeff = dot*falloff;
+        const c = Math.min(255, 255*coeff);
+        imageData.data[idx]=c; imageData.data[idx+1]=c; imageData.data[idx+2]=c;
+        imageData.data[idx+3]=Math.min(255, c*coeff*opacity);
+      }
+    }
+  }
+  return imageData;
+}
+
+function imgToURL(imageData) {
+  const c = document.createElement('canvas');
+  c.width = imageData.width; c.height = imageData.height;
+  c.getContext('2d').putImageData(imageData, 0, 0);
+  return c.toDataURL();
+}
+
+// ===== Setup a glass element =====
+function setupGlass(config) {
+  const { el, cloneInner, filterId, dispImgId, specImgId, dispMapId, radius, bezelWidth, glassThickness, refractiveIndex, scale } = config;
+
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const surfaceFn = SurfaceEquations.convex_squircle;
+  const precomputed = calculateDisplacementMap1D(glassThickness, bezelWidth, surfaceFn, refractiveIndex);
+  const maxDisp = Math.max(...precomputed.map(Math.abs));
+
+  const dispData = calculateDisplacementMap2D(w, h, w, h, radius, bezelWidth, maxDisp||1, precomputed);
+  const specData = calculateSpecularHighlight(w, h, radius, bezelWidth);
+
+  document.getElementById(dispImgId).setAttribute('href', imgToURL(dispData));
+  document.getElementById(dispImgId).setAttribute('width', w);
+  document.getElementById(dispImgId).setAttribute('height', h);
+  document.getElementById(specImgId).setAttribute('href', imgToURL(specData));
+  document.getElementById(specImgId).setAttribute('width', w);
+  document.getElementById(specImgId).setAttribute('height', h);
+  document.getElementById(dispMapId).setAttribute('scale', maxDisp * scale);
+
+  // Setup clone content — clone the note grid
+  const grid = document.getElementById('note-grid');
+  const screen = document.getElementById('screen');
+  cloneInner.innerHTML = screen.innerHTML;
+  cloneInner.style.width = screen.offsetWidth + 'px';
+  cloneInner.style.height = screen.scrollHeight + 'px';
+  // Style the clone to match the screen background
+  cloneInner.style.background = '#f2f2f7';
+  cloneInner.style.borderRadius = '0';
+  cloneInner.style.overflow = 'hidden';
+
+  // Apply filter
+  el.querySelector('.liquid-glass-clone').style.filter = `url(#${filterId})`;
+}
+
+// ===== Update clone positions on scroll =====
+function updateClones() {
+  const grid = document.getElementById('note-grid');
+  const screen = document.getElementById('screen');
+  const screenRect = screen.getBoundingClientRect();
+  const scrollTop = grid.scrollTop;
+
+  // FAB button
+  const fab = document.getElementById('fabNew');
+  const fabInner = document.getElementById('fabCloneInner');
+  const fabRect = fab.getBoundingClientRect();
+  fabInner.style.transform = `translate(${-(fabRect.left - screenRect.left)}px, ${-(fabRect.top - screenRect.top) - scrollTop}px)`;
+
+  // Header button 1
+  const hdr1 = document.getElementById('hdrBtn1');
+  const hdr1Inner = document.getElementById('hdrBtn1CloneInner');
+  const hdr1Rect = hdr1.getBoundingClientRect();
+  hdr1Inner.style.transform = `translate(${-(hdr1Rect.left - screenRect.left)}px, ${-(hdr1Rect.top - screenRect.top) - scrollTop}px)`;
+
+  // Header button 2
+  const hdr2 = document.getElementById('hdrBtn2');
+  const hdr2Inner = document.getElementById('hdrBtn2CloneInner');
+  const hdr2Rect = hdr2.getBoundingClientRect();
+  hdr2Inner.style.transform = `translate(${-(hdr2Rect.left - screenRect.left)}px, ${-(hdr2Rect.top - screenRect.top) - scrollTop}px)`;
+}
+
+// ===== Init =====
+window.addEventListener('DOMContentLoaded', () => {
+  requestAnimationFrame(() => {
+    // FAB button: radius 28, bezelWidth 16, glassThickness 70, refractiveIndex 1.45
+    setupGlass({
+      el: document.getElementById('fabNew'),
+      cloneInner: document.getElementById('fabCloneInner'),
+      filterId: 'fabGlassFilter',
+      dispImgId: 'fabDispImg',
+      specImgId: 'fabSpecImg',
+      dispMapId: 'fabDispMap',
+      radius: 28,
+      bezelWidth: 16,
+      glassThickness: 70,
+      refractiveIndex: 1.45,
+      scale: 1.0,
+    });
+
+    // Header button 1 (settings): radius 18, bezelWidth 12, glassThickness 50, refractiveIndex 1.5
+    setupGlass({
+      el: document.getElementById('hdrBtn1'),
+      cloneInner: document.getElementById('hdrBtn1CloneInner'),
+      filterId: 'hdrBtn1GlassFilter',
+      dispImgId: 'hdrBtn1DispImg',
+      specImgId: 'hdrBtn1SpecImg',
+      dispMapId: 'hdrBtn1DispMap',
+      radius: 18,
+      bezelWidth: 12,
+      glassThickness: 50,
+      refractiveIndex: 1.5,
+      scale: 1.2,
+    });
+
+    // Header button 2 (sign out): radius 18, bezelWidth 12, glassThickness 50, refractiveIndex 1.5
+    setupGlass({
+      el: document.getElementById('hdrBtn2'),
+      cloneInner: document.getElementById('hdrBtn2CloneInner'),
+      filterId: 'hdrBtn2GlassFilter',
+      dispImgId: 'hdrBtn2DispImg',
+      specImgId: 'hdrBtn2SpecImg',
+      dispMapId: 'hdrBtn2DispMap',
+      radius: 18,
+      bezelWidth: 12,
+      glassThickness: 50,
+      refractiveIndex: 1.5,
+      scale: 1.2,
+    });
+
+    // Initial position
+    updateClones();
+
+    // Update on scroll of note grid
+    document.getElementById('note-grid').addEventListener('scroll', () => {
+      requestAnimationFrame(updateClones);
+    });
+  });
+});
 </script>
 
 </body>

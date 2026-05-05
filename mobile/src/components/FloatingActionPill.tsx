@@ -3,9 +3,16 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
+  Platform,
 } from "react-native";
 import Svg, { Path, Defs, LinearGradient, Stop } from "react-native-svg";
+
+let LiquidGlassView: any = null;
+if (Platform.OS === "ios") {
+  try {
+    LiquidGlassView = require("expo-liquid-glass").default;
+  } catch {}
+}
 
 interface FloatingActionPillProps {
   onTogglePdf: () => void;
@@ -28,9 +35,8 @@ function SparkleIcon() {
     <Svg width={26} height={26} viewBox="0 0 28 28">
       <Defs>
         <LinearGradient id="ai-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <Stop offset="0%" stopColor="#007aff" />
-          <Stop offset="50%" stopColor="#5856d6" />
-          <Stop offset="100%" stopColor="#af52de" />
+          <Stop offset="0%" stopColor="#1c1c1e" />
+          <Stop offset="100%" stopColor="#636366" />
         </LinearGradient>
       </Defs>
       <Path
@@ -46,14 +52,18 @@ function SparkleIcon() {
   );
 }
 
+function LoadingSpinner() {
+  return <View style={styles.spinner} />;
+}
+
 export default function FloatingActionPill({
   onTogglePdf,
   onFeedback,
   pdfOpen,
   loading,
 }: FloatingActionPillProps) {
-  return (
-    <View style={styles.pill}>
+  const content = (
+    <>
       <TouchableOpacity
         style={[styles.btn, pdfOpen && styles.btnTextbookActive]}
         onPress={onTogglePdf}
@@ -68,12 +78,25 @@ export default function FloatingActionPill({
         disabled={loading}
         activeOpacity={0.7}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color="#5856d6" />
-        ) : (
-          <SparkleIcon />
-        )}
+        {loading ? <LoadingSpinner /> : <SparkleIcon />}
       </TouchableOpacity>
+    </>
+  );
+
+  // Use Liquid Glass on iOS, fallback on other platforms
+  if (LiquidGlassView) {
+    return (
+      <LiquidGlassView style={styles.pill} radius={28}>
+        <View style={styles.pillInner}>
+          {content}
+        </View>
+      </LiquidGlassView>
+    );
+  }
+
+  return (
+    <View style={[styles.pill, styles.pillFallback]}>
+      {content}
     </View>
   );
 }
@@ -84,11 +107,19 @@ const styles = StyleSheet.create({
     bottom: 20,
     right: 20,
     zIndex: 30,
+    borderRadius: 28,
+  },
+  pillInner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
     padding: 4,
-    borderRadius: 28,
+  },
+  pillFallback: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    padding: 4,
     backgroundColor: "rgba(255,255,255,0.5)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.6)",
@@ -106,11 +137,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   btnTextbookActive: {
-    backgroundColor: "#5856d6",
+    backgroundColor: "rgba(0,0,0,0.7)",
   },
   divider: {
     width: 1,
     height: 24,
     backgroundColor: "rgba(0,0,0,0.08)",
+  },
+  spinner: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "rgba(0,0,0,0.1)",
+    borderTopColor: "#1c1c1e",
   },
 });

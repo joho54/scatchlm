@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1194, initial-scale=1.0">
+<title>ScatchLM - Apple Glassmorphism Study</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: #1c1c1e; color: #fff; -webkit-font-smoothing: antialiased; }
+
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px;
+  }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #8e8e93; margin-bottom: 48px; }
+
+  /* ===== Showcase Grid ===== */
+  .showcase {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+  }
+  .demo-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .demo-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #8e8e93;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .demo-label span {
+    color: #ff453a;
+    font-weight: 700;
+  }
+
+  /* ===== Background contexts ===== */
+  .context {
+    position: relative;
+    border-radius: 20px;
+    overflow: hidden;
+    padding: 48px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .context-gradient {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 30%, #f093fb 60%, #f5576c 100%);
+  }
+  .context-photo {
+    background: linear-gradient(135deg, #2d3436 0%, #636e72 50%, #b2bec3 100%);
+    /* Simulating a busy background */
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(255,107,107,0.4) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(78,205,196,0.4) 0%, transparent 50%),
+      radial-gradient(ellipse at 60% 80%, rgba(255,234,167,0.3) 0%, transparent 50%),
+      linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+  }
+  .context-light {
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(0,122,255,0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 70% 70%, rgba(175,82,222,0.1) 0%, transparent 40%),
+      #f2f2f7;
+  }
+  .context-dark {
+    background:
+      radial-gradient(ellipse at 30% 30%, rgba(88,86,214,0.3) 0%, transparent 50%),
+      radial-gradient(ellipse at 70% 60%, rgba(0,122,255,0.2) 0%, transparent 50%),
+      #000;
+  }
+
+  /* ===== BEFORE: Current naive glassmorphism ===== */
+  .glass-naive {
+    width: 320px;
+    padding: 24px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+
+  /* ===== AFTER: Apple-style with refraction ===== */
+  .glass-apple {
+    --glass-radius: 16px;
+    --light-angle: 135deg;  /* Light source: top-left */
+
+    position: relative;
+    width: 320px;
+    padding: 24px;
+    border-radius: var(--glass-radius);
+
+    /* Layer 1: Frosted glass base */
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+
+    /* No simple border — we use pseudo-elements for refraction */
+    border: none;
+    overflow: hidden;
+  }
+
+  /* Layer 2: Refraction border — spectral gradient at edges */
+  .glass-apple::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    padding: 1px; /* border thickness */
+
+    /* Spectral refraction: light splits into spectrum at glass edge */
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.6) 0%,
+      rgba(255,200,150,0.3) 15%,    /* warm — refracted red/orange */
+      rgba(255,255,255,0.15) 40%,
+      rgba(150,200,255,0.2) 70%,    /* cool — refracted blue */
+      rgba(255,255,255,0.05) 100%
+    );
+
+    /* Mask trick: only show the border, not the fill */
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+
+    pointer-events: none;
+  }
+
+  /* Layer 3: Inner glow — light bouncing inside the glass */
+  .glass-apple::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+
+    /* Directional inner highlight from light source */
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.12) 0%,
+      rgba(255,255,255,0.04) 30%,
+      transparent 60%
+    );
+
+    /* Subtle inner shadow for depth (glass thickness feel) */
+    box-shadow:
+      inset 0 1px 1px rgba(255,255,255,0.15),
+      inset 0 -1px 1px rgba(0,0,0,0.05);
+
+    pointer-events: none;
+  }
+
+  /* ===== Light mode variant ===== */
+  .glass-apple-light {
+    --glass-radius: 16px;
+    --light-angle: 135deg;
+
+    position: relative;
+    width: 320px;
+    padding: 24px;
+    border-radius: var(--glass-radius);
+
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: none;
+    overflow: hidden;
+
+    /* Outer shadow: glass floating above surface */
+    box-shadow:
+      0 2px 16px rgba(0,0,0,0.06),
+      0 8px 32px rgba(0,0,0,0.04);
+  }
+
+  .glass-apple-light::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    padding: 0.5px;
+
+    /* Light mode refraction: subtler spectrum */
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.9) 0%,
+      rgba(255,230,200,0.5) 20%,   /* warm edge */
+      rgba(255,255,255,0.3) 45%,
+      rgba(200,220,255,0.4) 75%,   /* cool edge */
+      rgba(255,255,255,0.1) 100%
+    );
+
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .glass-apple-light::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.4) 0%,
+      rgba(255,255,255,0.1) 25%,
+      transparent 50%
+    );
+
+    box-shadow:
+      inset 0 0.5px 0.5px rgba(255,255,255,0.7),
+      inset 0 -0.5px 0.5px rgba(0,0,0,0.03);
+
+    pointer-events: none;
+  }
+
+  /* ===== Dark mode variant (macOS Control Center style) ===== */
+  .glass-apple-dark {
+    --glass-radius: 16px;
+    --light-angle: 145deg;
+
+    position: relative;
+    width: 320px;
+    padding: 24px;
+    border-radius: var(--glass-radius);
+
+    background: rgba(40,40,45,0.65);
+    backdrop-filter: blur(50px) saturate(150%) brightness(1.1);
+    -webkit-backdrop-filter: blur(50px) saturate(150%) brightness(1.1);
+    border: none;
+    overflow: hidden;
+
+    box-shadow:
+      0 4px 24px rgba(0,0,0,0.3),
+      0 1px 3px rgba(0,0,0,0.2);
+  }
+
+  .glass-apple-dark::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    padding: 0.5px;
+
+    /* Dark mode: dimmer refraction, but still spectral */
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.25) 0%,
+      rgba(255,200,150,0.12) 20%,
+      rgba(255,255,255,0.05) 50%,
+      rgba(150,180,255,0.1) 80%,
+      rgba(255,255,255,0.02) 100%
+    );
+
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .glass-apple-dark::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.06) 0%,
+      transparent 35%
+    );
+
+    box-shadow:
+      inset 0 0.5px 0.5px rgba(255,255,255,0.08),
+      inset 0 -0.5px 0.5px rgba(0,0,0,0.15);
+
+    pointer-events: none;
+  }
+
+  /* ===== Pill / FAB variant ===== */
+  .glass-pill {
+    --glass-radius: 28px;
+    --light-angle: 135deg;
+
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px;
+    border-radius: var(--glass-radius);
+
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: none;
+    overflow: hidden;
+  }
+
+  .glass-pill::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    padding: 0.5px;
+
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.5) 0%,
+      rgba(255,220,180,0.25) 20%,
+      rgba(255,255,255,0.1) 50%,
+      rgba(180,210,255,0.2) 80%,
+      rgba(255,255,255,0.03) 100%
+    );
+
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .glass-pill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    background: linear-gradient(
+      var(--light-angle),
+      rgba(255,255,255,0.1) 0%,
+      transparent 40%
+    );
+    box-shadow:
+      inset 0 0.5px 0.5px rgba(255,255,255,0.12);
+    pointer-events: none;
+  }
+
+  .pill-btn {
+    width: 44px; height: 44px;
+    border-radius: 22px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.8);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 20px;
+    transition: background 0.15s;
+  }
+  .pill-btn:hover { background: rgba(255,255,255,0.1); }
+  .pill-divider {
+    width: 1px;
+    height: 20px;
+    background: rgba(255,255,255,0.12);
+  }
+
+  /* ===== Enhanced: Animated refraction on hover ===== */
+  .glass-apple-animated {
+    --glass-radius: 16px;
+    --light-angle: 135deg;
+
+    position: relative;
+    width: 320px;
+    padding: 24px;
+    border-radius: var(--glass-radius);
+
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: none;
+    overflow: hidden;
+    transition: transform 0.3s;
+  }
+  .glass-apple-animated:hover { transform: translateY(-2px); }
+
+  .glass-apple-animated::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    padding: 1px;
+
+    background: conic-gradient(
+      from var(--light-angle),
+      rgba(255,255,255,0.5) 0deg,
+      rgba(255,200,150,0.3) 60deg,
+      rgba(255,255,255,0.05) 120deg,
+      rgba(150,200,255,0.25) 220deg,
+      rgba(200,150,255,0.2) 280deg,
+      rgba(255,255,255,0.5) 360deg
+    );
+
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+
+    /* Animate the refraction angle */
+    animation: refract-rotate 8s linear infinite;
+  }
+
+  @keyframes refract-rotate {
+    to {
+      --light-angle: 495deg;
+    }
+  }
+
+  /* For browsers that support @property */
+  @property --light-angle {
+    syntax: '<angle>';
+    initial-value: 135deg;
+    inherits: false;
+  }
+
+  .glass-apple-animated::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--glass-radius);
+    background: linear-gradient(
+      135deg,
+      rgba(255,255,255,0.1) 0%,
+      transparent 40%
+    );
+    box-shadow:
+      inset 0 1px 1px rgba(255,255,255,0.12),
+      inset 0 -1px 1px rgba(0,0,0,0.05);
+    pointer-events: none;
+  }
+
+  /* ===== Card content ===== */
+  .card-content h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 1;
+  }
+  .card-content p {
+    font-size: 13px;
+    line-height: 1.6;
+    opacity: 0.7;
+    position: relative;
+    z-index: 1;
+  }
+  .card-content--dark h3 { color: #fff; }
+  .card-content--dark p { color: rgba(255,255,255,0.7); }
+  .card-content--light h3 { color: #1c1c1e; }
+  .card-content--light p { color: rgba(0,0,0,0.6); }
+
+  /* ===== Comparison layout ===== */
+  .comparison {
+    display: flex;
+    gap: 32px;
+    align-items: center;
+  }
+  .vs {
+    font-size: 12px;
+    color: #636366;
+    font-weight: 700;
+  }
+
+  /* ===== Anatomy diagram ===== */
+  .anatomy {
+    margin-top: 64px;
+    padding: 32px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .anatomy h2 {
+    font-size: 20px;
+    margin-bottom: 24px;
+  }
+  .anatomy-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .anatomy-item {
+    padding: 20px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .anatomy-item h4 {
+    font-size: 14px;
+    margin-bottom: 8px;
+    color: #007aff;
+  }
+  .anatomy-item p {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #8e8e93;
+  }
+  .anatomy-item code {
+    display: block;
+    margin-top: 10px;
+    font-size: 11px;
+    color: #5ac8fa;
+    background: rgba(0,0,0,0.3);
+    padding: 8px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+
+  /* ===== Full-width demo ===== */
+  .full-demo {
+    margin-top: 64px;
+  }
+  .full-demo h2 {
+    font-size: 20px;
+    margin-bottom: 24px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <h1>Apple Glassmorphism — Refraction at Boundaries</h1>
+  <p class="subtitle">Core principle: light refracts (splits into spectrum) when hitting glass edges. Warm tones concentrate at the light-entry edge, cool tones at the exit edge.</p>
+
+  <div class="showcase">
+
+    <!-- Before vs After: Dark -->
+    <div class="demo-section">
+      <div class="demo-label"><span>Before</span> — Naive (blur + border)</div>
+      <div class="context context-gradient">
+        <div class="glass-naive">
+          <div class="card-content card-content--dark">
+            <h3>Feedback Card</h3>
+            <p>1. She runs — Correct!<br>2. flys → flies (consonant+y rule)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <div class="demo-label"><span>After</span> — Refraction border</div>
+      <div class="context context-gradient">
+        <div class="glass-apple">
+          <div class="card-content card-content--dark">
+            <h3>Feedback Card</h3>
+            <p>1. She runs — Correct!<br>2. flys → flies (consonant+y rule)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Light mode -->
+    <div class="demo-section">
+      <div class="demo-label">Light mode — Feedback card</div>
+      <div class="context context-light">
+        <div class="glass-apple-light">
+          <div class="card-content card-content--light">
+            <h3>Feedback Card</h3>
+            <p>1. She runs — Correct!<br>2. flys → flies (consonant+y rule)<br>3. carrys → carries (same rule)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dark mode (Control Center) -->
+    <div class="demo-section">
+      <div class="demo-label">Dark mode — Control Center style</div>
+      <div class="context context-dark">
+        <div class="glass-apple-dark">
+          <div class="card-content card-content--dark">
+            <h3>Feedback Card</h3>
+            <p>1. She runs — Correct!<br>2. flys → flies (consonant+y rule)<br>3. carrys → carries (same rule)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pill -->
+    <div class="demo-section">
+      <div class="demo-label">FAB Pill — Refraction on rounded surfaces</div>
+      <div class="context context-gradient" style="padding: 64px 32px;">
+        <div class="glass-pill">
+          <button class="pill-btn">📖</button>
+          <div class="pill-divider"></div>
+          <button class="pill-btn">✨</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Animated -->
+    <div class="demo-section">
+      <div class="demo-label">Animated — Conic refraction rotation</div>
+      <div class="context context-dark">
+        <div class="glass-apple-animated">
+          <div class="card-content card-content--dark">
+            <h3>Live Refraction</h3>
+            <p>Hover me. Conic gradient rotates to simulate light angle change.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Anatomy -->
+  <div class="anatomy">
+    <h2>Anatomy: 3-Layer Glass Construction</h2>
+    <div class="anatomy-grid">
+      <div class="anatomy-item">
+        <h4>Layer 1: Glass Body</h4>
+        <p>Frosted base with high blur and saturation boost. Saturation >100% is key — Apple uses it to make background colors bleed through vividly.</p>
+        <code>background: rgba(255,255,255,0.08);
+backdrop-filter:
+  blur(40px)
+  saturate(180%);</code>
+      </div>
+      <div class="anatomy-item">
+        <h4>Layer 2: Refraction Border (::before)</h4>
+        <p>Gradient border using mask-composite trick. Warm tones (red/orange) at light-entry, cool tones (blue) at shadow-side. This is the "glass edge catching light" effect.</p>
+        <code>background: linear-gradient(
+  135deg,
+  rgba(255,255,255,0.6) 0%,
+  rgba(255,200,150,0.3) 15%,
+  rgba(255,255,255,0.15) 40%,
+  rgba(150,200,255,0.2) 70%,
+  rgba(255,255,255,0.05) 100%
+);
+/* mask-composite: exclude */</code>
+      </div>
+      <div class="anatomy-item">
+        <h4>Layer 3: Inner Glow (::after)</h4>
+        <p>Directional highlight from light source + inset box-shadow for glass thickness. Top-left bright, bottom-right dim.</p>
+        <code>background: linear-gradient(
+  135deg,
+  rgba(255,255,255,0.12) 0%,
+  transparent 40%
+);
+box-shadow:
+  inset 0 1px 1px
+    rgba(255,255,255,0.15),
+  inset 0 -1px 1px
+    rgba(0,0,0,0.05);</code>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

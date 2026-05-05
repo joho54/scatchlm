@@ -1,0 +1,8 @@
+{
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["ExpoLiquidGlassModule"],
+    "podName": "ExpoLiquidGlass",
+    "podspecPath": "./ios/ExpoLiquidGlass.podspec"
+  }
+}

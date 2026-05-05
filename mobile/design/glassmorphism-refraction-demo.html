@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, initial-scale=1.0">
+<title>ScatchLM - Glass Refraction (Dynamic Background)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: #1a1a2e; color: #fff; -webkit-font-smoothing: antialiased; overflow: hidden; }
+
+  /* ===== Scene ===== */
+  .scene {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ===== Moving background — text ===== */
+  .bg-layer {
+    position: absolute;
+    inset: 0;
+    padding: 40px 60px;
+    animation: bg-scroll 20s linear infinite;
+  }
+  @keyframes bg-scroll {
+    0%   { transform: translateY(0); }
+    100% { transform: translateY(-50%); }
+  }
+
+  .bg-text {
+    font-size: 15px;
+    line-height: 2;
+    color: rgba(255,255,255,0.85);
+    font-family: "SF Pro Text", -apple-system, sans-serif;
+    columns: 3;
+    column-gap: 48px;
+    letter-spacing: 0.01em;
+  }
+  .bg-text p {
+    margin-bottom: 16px;
+    break-inside: avoid;
+  }
+  .bg-text strong { color: #5ac8fa; font-weight: 600; }
+  .bg-text em { color: #ff9f0a; font-style: normal; }
+  .bg-text .heading {
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    margin: 24px 0 12px;
+    letter-spacing: -0.3px;
+  }
+
+  /* Grid pattern overlay for refraction visibility */
+  .bg-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  /* ===== SVG Filters for refraction ===== */
+  .svg-filters {
+    position: absolute;
+    width: 0;
+    height: 0;
+  }
+
+  /* ===== Glass panels ===== */
+  .glass-container {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 48px;
+  }
+
+  /* --- Panel 1: Edge refraction via SVG displacement --- */
+  .glass-refract {
+    --radius: 20px;
+    position: relative;
+    width: 360px;
+    height: 280px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: grab;
+  }
+  .glass-refract:active { cursor: grabbing; }
+
+  /* Backdrop layer — slightly displaced at edges to simulate refraction */
+  .glass-refract-backdrop {
+    position: absolute;
+    inset: -4px;
+    border-radius: var(--radius);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    /* SVG displacement filter for edge warp */
+    filter: url(#refraction-displacement);
+  }
+
+  /* Edge refraction overlay — chromatic split at boundaries */
+  .glass-refract-edge {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  /* Red channel shift — warm side of refraction */
+  .glass-refract-edge::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: var(--radius);
+    backdrop-filter: blur(1px);
+    -webkit-backdrop-filter: blur(1px);
+    /* Shift red channel toward light source */
+    background: rgba(255, 100, 50, 0.04);
+    /* Only visible at top-left edge */
+    -webkit-mask: linear-gradient(135deg, rgba(0,0,0,0.6) 0%, transparent 15%, transparent 85%, transparent 100%);
+    mask: linear-gradient(135deg, rgba(0,0,0,0.6) 0%, transparent 15%, transparent 85%, transparent 100%);
+    transform: translate(-1px, -1px);
+  }
+
+  /* Blue channel shift — cool side of refraction */
+  .glass-refract-edge::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: var(--radius);
+    backdrop-filter: blur(1px);
+    -webkit-backdrop-filter: blur(1px);
+    background: rgba(50, 100, 255, 0.04);
+    /* Only visible at bottom-right edge */
+    -webkit-mask: linear-gradient(135deg, transparent 0%, transparent 85%, rgba(0,0,0,0.5) 100%);
+    mask: linear-gradient(135deg, transparent 0%, transparent 85%, rgba(0,0,0,0.5) 100%);
+    transform: translate(1px, 1px);
+  }
+
+  /* Main glass surface */
+  .glass-refract-surface {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: rgba(255,255,255,0.03);
+    overflow: hidden;
+  }
+
+  /* Spectral refraction border */
+  .glass-refract-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255,255,255,0.5) 0%,
+      rgba(255,180,120,0.3) 15%,
+      rgba(255,255,255,0.08) 40%,
+      rgba(120,180,255,0.25) 75%,
+      rgba(200,140,255,0.15) 90%,
+      rgba(255,255,255,0.03) 100%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Inner glow */
+  .glass-refract-surface::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 40%);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.12), inset 0 -1px 1px rgba(0,0,0,0.08);
+    pointer-events: none;
+  }
+
+  .glass-refract-content {
+    position: relative;
+    z-index: 2;
+    padding: 28px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .glass-refract-content h3 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .glass-refract-content p {
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+    line-height: 1.6;
+  }
+
+  /* --- Panel 2: Thick glass lens effect --- */
+  .glass-lens {
+    --radius: 20px;
+    position: relative;
+    width: 360px;
+    height: 280px;
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  /* Multiple backdrop layers with slight offsets = lens distortion */
+  .glass-lens-layer {
+    position: absolute;
+    border-radius: var(--radius);
+  }
+
+  /* Outermost: most displaced (edge refraction is strongest at border) */
+  .glass-lens-layer-1 {
+    inset: 0;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    -webkit-mask: radial-gradient(ellipse at center, transparent 75%, black 90%);
+    mask: radial-gradient(ellipse at center, transparent 75%, black 90%);
+    transform: scale(1.008);
+    opacity: 0.7;
+  }
+
+  /* Middle ring */
+  .glass-lens-layer-2 {
+    inset: 0;
+    backdrop-filter: blur(1px);
+    -webkit-backdrop-filter: blur(1px);
+    -webkit-mask: radial-gradient(ellipse at center, transparent 60%, black 75%, transparent 90%);
+    mask: radial-gradient(ellipse at center, transparent 60%, black 75%, transparent 90%);
+    transform: scale(1.004);
+    opacity: 0.5;
+  }
+
+  /* Core: sharp center (flat glass center has no refraction) */
+  .glass-lens-layer-core {
+    inset: 0;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    background: rgba(255,255,255,0.04);
+  }
+
+  /* Chromatic aberration ring at edge */
+  .glass-lens-chroma {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .glass-lens-chroma::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: var(--radius);
+    background: conic-gradient(
+      from 135deg,
+      rgba(255,0,0,0.06) 0deg,
+      rgba(255,150,0,0.04) 60deg,
+      rgba(255,255,0,0.03) 90deg,
+      rgba(0,255,0,0.03) 150deg,
+      rgba(0,150,255,0.05) 210deg,
+      rgba(100,0,255,0.05) 280deg,
+      rgba(255,0,100,0.04) 330deg,
+      rgba(255,0,0,0.06) 360deg
+    );
+    -webkit-mask: radial-gradient(ellipse at center, transparent 70%, black 85%, transparent 100%);
+    mask: radial-gradient(ellipse at center, transparent 70%, black 85%, transparent 100%);
+    animation: chroma-rotate 20s linear infinite;
+  }
+  @keyframes chroma-rotate {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Surface border */
+  .glass-lens-border {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    pointer-events: none;
+  }
+  .glass-lens-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 0.5px;
+    background: linear-gradient(
+      135deg,
+      rgba(255,255,255,0.4) 0%,
+      rgba(255,200,150,0.2) 20%,
+      rgba(255,255,255,0.06) 50%,
+      rgba(150,200,255,0.15) 80%,
+      rgba(255,255,255,0.02) 100%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+  }
+  .glass-lens-border::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 35%);
+    box-shadow: inset 0 0.5px 0.5px rgba(255,255,255,0.1);
+  }
+
+  .glass-lens-content {
+    position: relative;
+    z-index: 5;
+    padding: 28px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .glass-lens-content h3 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .glass-lens-content p {
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+    line-height: 1.6;
+  }
+
+  /* ===== Interactive: Mouse-tracked light ===== */
+  .glass-interactive {
+    --radius: 20px;
+    --mouse-x: 50%;
+    --mouse-y: 50%;
+    --light-x: 30%;
+    --light-y: 20%;
+
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 180px;
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .glass-interactive-backdrop {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    background: rgba(255,255,255,0.04);
+  }
+
+  /* Dynamic refraction that follows cursor (simulates changing light angle) */
+  .glass-interactive-refract {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 1px;
+
+    /* Radial gradient from mouse position = light following eye */
+    background: radial-gradient(
+      ellipse 300px 200px at var(--mouse-x) var(--mouse-y),
+      rgba(255,255,255,0.6) 0%,
+      rgba(255,200,150,0.3) 20%,
+      rgba(255,255,255,0.05) 40%,
+      rgba(150,200,255,0.2) 70%,
+      rgba(255,255,255,0.02) 100%
+    );
+
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    transition: background 0.1s ease-out;
+  }
+
+  /* Dynamic inner highlight */
+  .glass-interactive-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: radial-gradient(
+      ellipse 200px 150px at var(--mouse-x) var(--mouse-y),
+      rgba(255,255,255,0.1) 0%,
+      transparent 50%
+    );
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.1);
+    pointer-events: none;
+    transition: background 0.15s ease-out;
+  }
+
+  .glass-interactive-content {
+    position: relative;
+    z-index: 2;
+    padding: 28px 32px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .glass-interactive-content h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .glass-interactive-content p {
+    font-size: 13px;
+    color: rgba(255,255,255,0.5);
+  }
+
+  /* ===== Labels ===== */
+  .panel-label {
+    position: absolute;
+    top: -32px;
+    left: 0;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.4);
+    white-space: nowrap;
+  }
+
+  /* ===== Controls ===== */
+  .controls {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ctrl-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.15); }
+  .ctrl-btn.active { background: rgba(0,122,255,0.3); border-color: rgba(0,122,255,0.5); color: #fff; }
+</style>
+</head>
+<body>
+
+<!-- SVG Filters -->
+<svg class="svg-filters">
+  <defs>
+    <!-- Displacement map for edge refraction -->
+    <filter id="refraction-displacement" x="-5%" y="-5%" width="110%" height="110%">
+      <!-- Create a radial pattern: zero displacement in center, max at edges -->
+      <feFlood flood-color="rgb(128,128,128)" result="flat"/>
+      <!-- Turbulence for subtle organic distortion -->
+      <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" seed="5" result="noise"/>
+      <!-- Only apply at edges using a radial mask approach -->
+      <feColorMatrix in="noise" type="matrix"
+        values="0 0 0 0 0.5
+                0 0 0 0 0.5
+                0 0 0 0 0.5
+                0 0 0 0.3 0" result="edge-noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="edge-noise" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+</svg>
+
+<div class="scene" id="scene">
+
+  <!-- Scrolling text background -->
+  <div class="bg-layer" id="bg-layer">
+    <div class="bg-text">
+      <p class="heading">Chapter 3: Verb Conjugation</p>
+      <p>The present tense in English is used to describe <strong>habitual actions</strong>, general truths, and states of being. Understanding these patterns is essential for correct subject-verb agreement.</p>
+      <p><strong>Regular verbs</strong> follow a predictable pattern: I <em>walk</em> → He <em>walks</em>. I <em>study</em> → She <em>studies</em>. When a verb ends in a consonant + y, we drop the y and add -ies.</p>
+      <p>Exercise 3.1: Conjugate the following verbs in the present tense for the given subjects. 1. (to run) She _______ 2. (to fly) The bird _______ 3. (to carry) He _______</p>
+      <p class="heading">Irregular Verbs</p>
+      <p>Some verbs do not follow the standard conjugation rules. These are called <strong>irregular verbs</strong>. Common examples: to be → I <em>am</em>, you <em>are</em>, he <em>is</em>. To have → I <em>have</em>, she <em>has</em>.</p>
+      <p>The verb "to be" is the most irregular verb in English. It has unique forms for almost every subject pronoun, and its past tense forms (<em>was</em>, <em>were</em>) are also irregular.</p>
+      <p class="heading">Modal Verbs</p>
+      <p>Modal verbs (<strong>can, could, will, would, shall, should, may, might, must</strong>) do not change form for third person singular. They are always followed by the base form of the main verb.</p>
+      <p>She <em>can swim</em>. He <em>must go</em>. They <em>should study</em>. Note: "ought to" behaves similarly but requires "to" before the base form.</p>
+      <p class="heading">Present Continuous</p>
+      <p>The present continuous (also called present progressive) is formed with <strong>be + verb-ing</strong>. It describes actions happening right now or temporary situations.</p>
+      <p>I <em>am reading</em>. She <em>is writing</em>. They <em>are studying</em>. Spelling rules for -ing: drop silent e (<em>make → making</em>), double final consonant after short vowel (<em>run → running</em>).</p>
+      <p class="heading">Past Simple</p>
+      <p>Regular past tense is formed by adding <strong>-ed</strong> to the base form. Pronunciation varies: /t/ after voiceless sounds (<em>walked</em>), /d/ after voiced sounds (<em>played</em>), /ɪd/ after t/d (<em>wanted</em>).</p>
+      <p>Irregular past tense forms must be memorized: <em>go → went</em>, <em>see → saw</em>, <em>take → took</em>, <em>write → wrote</em>, <em>speak → spoke</em>, <em>begin → began</em>.</p>
+      <p class="heading">Present Perfect</p>
+      <p>Formed with <strong>have/has + past participle</strong>. Used for: experiences (<em>I have visited Paris</em>), changes (<em>She has grown taller</em>), continuing situations (<em>We have lived here for 5 years</em>).</p>
+      <p>Key distinction: <em>I went</em> (past simple, finished) vs <em>I have gone</em> (present perfect, relevant now). American English often prefers past simple where British English uses present perfect.</p>
+
+      <!-- Duplicate for seamless scroll loop -->
+      <p class="heading">Chapter 3: Verb Conjugation</p>
+      <p>The present tense in English is used to describe <strong>habitual actions</strong>, general truths, and states of being. Understanding these patterns is essential for correct subject-verb agreement.</p>
+      <p><strong>Regular verbs</strong> follow a predictable pattern: I <em>walk</em> → He <em>walks</em>. I <em>study</em> → She <em>studies</em>. When a verb ends in a consonant + y, we drop the y and add -ies.</p>
+      <p>Exercise 3.1: Conjugate the following verbs in the present tense for the given subjects. 1. (to run) She _______ 2. (to fly) The bird _______ 3. (to carry) He _______</p>
+      <p class="heading">Irregular Verbs</p>
+      <p>Some verbs do not follow the standard conjugation rules. These are called <strong>irregular verbs</strong>. Common examples: to be → I <em>am</em>, you <em>are</em>, he <em>is</em>. To have → I <em>have</em>, she <em>has</em>.</p>
+      <p>The verb "to be" is the most irregular verb in English. It has unique forms for almost every subject pronoun, and its past tense forms (<em>was</em>, <em>were</em>) are also irregular.</p>
+      <p class="heading">Modal Verbs</p>
+      <p>Modal verbs (<strong>can, could, will, would, shall, should, may, might, must</strong>) do not change form for third person singular. They are always followed by the base form of the main verb.</p>
+      <p>She <em>can swim</em>. He <em>must go</em>. They <em>should study</em>. Note: "ought to" behaves similarly but requires "to" before the base form.</p>
+    </div>
+  </div>
+  <div class="bg-grid" id="bg-grid"></div>
+
+  <!-- Glass panels -->
+  <div class="glass-container">
+
+    <!-- Panel 1: SVG displacement refraction -->
+    <div style="position: relative;">
+      <div class="panel-label">Edge Displacement + Chromatic Split</div>
+      <div class="glass-refract" id="glass-1">
+        <div class="glass-refract-backdrop"></div>
+        <div class="glass-refract-edge"></div>
+        <div class="glass-refract-surface"></div>
+        <div class="glass-refract-content">
+          <h3>Refraction at Edges</h3>
+          <p>Background displacement near borders simulates thick glass bending light. Red shifts toward light source, blue shifts away.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 2: Multi-layer lens -->
+    <div style="position: relative;">
+      <div class="panel-label">Layered Lens + Chromatic Ring</div>
+      <div class="glass-lens" id="glass-2">
+        <div class="glass-lens-layer glass-lens-layer-1"></div>
+        <div class="glass-lens-layer glass-lens-layer-2"></div>
+        <div class="glass-lens-layer glass-lens-layer-core"></div>
+        <div class="glass-lens-chroma"></div>
+        <div class="glass-lens-border"></div>
+        <div class="glass-lens-content">
+          <h3>Thick Glass Lens</h3>
+          <p>Outer layers magnify slightly (scale >1), creating visible displacement that increases toward edges. Center stays sharp.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Interactive: mouse-tracked -->
+  <div class="glass-interactive" id="glass-interactive">
+    <div class="glass-interactive-backdrop"></div>
+    <div class="glass-interactive-refract" id="interactive-refract"></div>
+    <div class="glass-interactive-glow" id="interactive-glow"></div>
+    <div class="glass-interactive-content">
+      <h3>Mouse-Tracked Light Refraction</h3>
+      <p>Move your cursor over this panel. The refraction highlight follows the "light source" (your cursor), simulating how glass catches light from different angles.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <button class="ctrl-btn active" id="btn-grid" onclick="toggleGrid()">Grid overlay</button>
+  <button class="ctrl-btn active" id="btn-animate" onclick="toggleAnimation()">Animate BG</button>
+  <button class="ctrl-btn" id="btn-slow" onclick="toggleSlow()">Slow motion</button>
+</div>
+
+<script>
+// ===== Mouse tracking for interactive panel =====
+const interactiveEl = document.getElementById('glass-interactive');
+const refractEl = document.getElementById('interactive-refract');
+const glowEl = document.getElementById('interactive-glow');
+
+interactiveEl.addEventListener('mousemove', (e) => {
+  const rect = interactiveEl.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(1) + '%';
+  const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(1) + '%';
+
+  interactiveEl.style.setProperty('--mouse-x', x);
+  interactiveEl.style.setProperty('--mouse-y', y);
+});
+
+interactiveEl.addEventListener('mouseleave', () => {
+  interactiveEl.style.setProperty('--mouse-x', '50%');
+  interactiveEl.style.setProperty('--mouse-y', '50%');
+});
+
+// ===== Parallax: subtle glass movement relative to BG =====
+const scene = document.getElementById('scene');
+const glass1 = document.getElementById('glass-1');
+const glass2 = document.getElementById('glass-2');
+
+scene.addEventListener('mousemove', (e) => {
+  const cx = (e.clientX / window.innerWidth - 0.5) * 2;  // -1 to 1
+  const cy = (e.clientY / window.innerHeight - 0.5) * 2;
+
+  // Subtle parallax offset — glass panels shift slightly less than BG
+  // This creates relative motion that reveals the refraction effect
+  glass1.style.transform = `translate(${cx * -3}px, ${cy * -3}px)`;
+  glass2.style.transform = `translate(${cx * -3}px, ${cy * -3}px)`;
+});
+
+// ===== Controls =====
+function toggleGrid() {
+  const grid = document.getElementById('bg-grid');
+  const btn = document.getElementById('btn-grid');
+  const visible = grid.style.display !== 'none';
+  grid.style.display = visible ? 'none' : 'block';
+  btn.classList.toggle('active', !visible);
+}
+
+function toggleAnimation() {
+  const bg = document.getElementById('bg-layer');
+  const btn = document.getElementById('btn-animate');
+  const paused = bg.style.animationPlayState === 'paused';
+  const state = paused ? 'running' : 'paused';
+  bg.style.animationPlayState = state;
+  btn.classList.toggle('active', paused);
+}
+
+function toggleSlow() {
+  const bg = document.getElementById('bg-layer');
+  const btn = document.getElementById('btn-slow');
+  const slow = bg.style.animationDuration === '80s';
+  const dur = slow ? '20s' : '80s';
+  bg.style.animationDuration = dur;
+  btn.classList.toggle('active', !slow);
+}
+</script>
+
+</body>
+</html>

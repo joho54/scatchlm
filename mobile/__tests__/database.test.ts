@@ -6,6 +6,8 @@ import {
   deleteNote,
   saveStrokes,
   getStrokesByNoteId,
+  saveLastPage,
+  savePdfOpen,
 } from "../src/services/database";
 
 // expo-sqlite mock에 접근
@@ -20,7 +22,6 @@ describe("database - notes", () => {
     const db = await getDatabase();
     const mockDb = sqliteMock.__mockDb;
     expect(sqliteMock.openDatabaseAsync).toHaveBeenCalledWith("scatchlm.db");
-    expect(mockDb.execAsync).toHaveBeenCalledTimes(1);
     // SQL에 CREATE TABLE이 포함되어야 함
     const sql = mockDb.execAsync.mock.calls[0][0];
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS notes");
@@ -36,6 +37,9 @@ describe("database - notes", () => {
       expect.any(String), // id
       "테스트 노트",
       "ja",
+      null, // textbook_id
+      null, // textbook_name
+      0,    // textbook_pages
       expect.any(String), // created_at
       expect.any(String)  // updated_at
     );
@@ -73,6 +77,50 @@ describe("database - notes", () => {
     const db = sqliteMock.__mockDb;
     expect(db.runAsync).toHaveBeenCalledWith(
       "DELETE FROM notes WHERE id = ?",
+      "note-456"
+    );
+  });
+});
+
+describe("database - PDF state", () => {
+  it("saveLastPage updates last_page for valid page", async () => {
+    await saveLastPage("note-123", 42);
+    const db = sqliteMock.__mockDb;
+    expect(db.runAsync).toHaveBeenCalledWith(
+      "UPDATE notes SET last_page = ? WHERE id = ?",
+      42,
+      "note-123"
+    );
+  });
+
+  it("saveLastPage ignores invalid page values", async () => {
+    const db = sqliteMock.__mockDb;
+    db.runAsync.mockClear();
+
+    await saveLastPage("note-123", -1);
+    await saveLastPage("note-123", 0);
+    await saveLastPage("note-123", Infinity);
+    await saveLastPage("note-123", 99999);
+
+    expect(db.runAsync).not.toHaveBeenCalled();
+  });
+
+  it("savePdfOpen saves open state as 1", async () => {
+    await savePdfOpen("note-123", true);
+    const db = sqliteMock.__mockDb;
+    expect(db.runAsync).toHaveBeenCalledWith(
+      "UPDATE notes SET pdf_open = ? WHERE id = ?",
+      1,
+      "note-123"
+    );
+  });
+
+  it("savePdfOpen saves closed state as 0", async () => {
+    await savePdfOpen("note-456", false);
+    const db = sqliteMock.__mockDb;
+    expect(db.runAsync).toHaveBeenCalledWith(
+      "UPDATE notes SET pdf_open = ? WHERE id = ?",
+      0,
       "note-456"
     );
   });

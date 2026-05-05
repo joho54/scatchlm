@@ -111,7 +111,7 @@ export async function createNote(
     now,
     now
   );
-  return { id, title, language, textbook_id: tbId, textbook_name: tbName, textbook_pages: tbPages, drawing_data: null, created_at: now, updated_at: now };
+  return { id, title, language, textbook_id: tbId, textbook_name: tbName, textbook_pages: tbPages, drawing_data: null, last_page: 1, pdf_open: 0, created_at: now, updated_at: now };
 }
 
 export async function updateNoteTitle(

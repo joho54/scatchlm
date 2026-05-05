@@ -86,6 +86,7 @@ async def get_recognition(image_bytes: bytes, language: str = "en") -> str | Non
 async def get_feedback(
     image_bytes: bytes,
     language: str = "en",
+    response_language: str = "English",
     textbook_context: str | None = None,
     previous_context: str | None = None,
     task_type: str = "complex",
@@ -109,7 +110,7 @@ async def get_feedback(
         "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
     })
 
-    prompt_parts = [f"Language: {language}."]
+    prompt_parts = [f"Language: {language}. Respond in {response_language}."]
     if textbook_context:
         prompt_parts.append(f"Textbook reference:\n{textbook_context}")
     if previous_context:

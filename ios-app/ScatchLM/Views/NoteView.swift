@@ -1,0 +1,441 @@
+import SwiftUI
+import PencilKit
+import PDFKit
+import UniformTypeIdentifiers
+
+struct NoteView: View {
+    let noteId: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var note: Note?
+    @State private var canvasView = PKCanvasView()
+    @State private var feedbacks: [FeedbackRecord] = []
+    @State private var loading = false
+    @State private var pdfOpen = false
+    @State private var currentPage: Int = 1
+    @State private var lastFeedbackStrokeCount: Int = 0
+
+    private let db = DatabaseService.shared
+
+    var body: some View {
+        GeometryReader { geo in
+            let isLandscape = geo.size.width > geo.size.height
+
+            ZStack {
+                if let note {
+                    // Split view: Canvas + PDF
+                    if isLandscape && pdfOpen {
+                        HStack(spacing: 0) {
+                            pdfPanel(note: note)
+                                .frame(width: geo.size.width * 0.4)
+                            Divider()
+                            canvasPanel(note: note)
+                        }
+                    } else if pdfOpen {
+                        VStack(spacing: 0) {
+                            pdfPanel(note: note)
+                                .frame(height: geo.size.height * 0.4)
+                            Divider()
+                            canvasPanel(note: note)
+                        }
+                    } else {
+                        canvasPanel(note: note)
+                    }
+
+                    // Loading indicator
+                    if loading {
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Analyzing handwriting...")
+                                    .font(.subheadline)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                            .padding(.bottom, 100)
+                        }
+                    }
+
+                    // Back button — glass style
+                    VStack {
+                        HStack {
+                            Button {
+                                saveDrawing()
+                                dismiss()
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 36, height: 36)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                            }
+                            .padding(.leading, 12)
+                            .padding(.top, 12)
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+
+                    // FAB
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            fabPill(note: note)
+                                .padding(.trailing, 20)
+                                .padding(.bottom, 32)
+                        }
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .ignoresSafeArea(.container, edges: .bottom)
+        .task { await loadNote() }
+        .onDisappear { saveDrawing() }
+    }
+
+    // MARK: - Canvas Panel
+
+    @ViewBuilder
+    private func canvasPanel(note: Note) -> some View {
+        PencilKitCanvasView(
+            canvasView: $canvasView,
+            onDrawingChanged: saveDrawing,
+            initialDrawingData: note.drawingData,
+            feedbacks: feedbacks
+        )
+        .clipped()
+    }
+
+    // MARK: - PDF Panel
+
+    @ViewBuilder
+    private func pdfPanel(note: Note) -> some View {
+        if let textbookId = note.textbookId {
+            PdfViewerView(
+                textbookId: textbookId,
+                totalPages: note.textbookPages,
+                initialPage: note.lastPage,
+                onPageChanged: { page in
+                    currentPage = page
+                    try? db.updateLastPage(noteId: noteId, page: page)
+                },
+                onClose: {
+                    pdfOpen = false
+                    try? db.updatePdfOpen(noteId: noteId, open: false)
+                }
+            )
+        }
+    }
+
+    // MARK: - FAB Pill
+
+    @ViewBuilder
+    private func fabPill(note: Note) -> some View {
+        HStack(spacing: 2) {
+            // PDF toggle
+            Button {
+                if note.textbookId != nil {
+                    pdfOpen.toggle()
+                    try? db.updatePdfOpen(noteId: noteId, open: pdfOpen)
+                }
+            } label: {
+                Image(systemName: pdfOpen ? "book.fill" : "book")
+                    .font(.system(size: 22))
+                    .foregroundStyle(pdfOpen ? .white : .secondary)
+                    .frame(width: 48, height: 48)
+                    .background(pdfOpen ? Color(white: 0, opacity: 0.7) : .clear)
+                    .clipShape(Circle())
+            }
+
+            Rectangle()
+                .fill(Color.black.opacity(0.08))
+                .frame(width: 1, height: 24)
+
+            // Feedback request
+            Button {
+                requestFeedback()
+            } label: {
+                if loading {
+                    ProgressView()
+                        .frame(width: 48, height: 48)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.primary)
+                        .frame(width: 48, height: 48)
+                }
+            }
+            .disabled(loading)
+        }
+        .padding(4)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
+    }
+
+    // MARK: - Data
+
+    private func loadNote() async {
+        do {
+            note = try db.note(id: noteId)
+            feedbacks = try db.feedbacks(noteId: noteId)
+
+            if let note, note.pdfOpen, note.textbookId != nil {
+                pdfOpen = true
+            }
+            currentPage = note?.lastPage ?? 1
+
+            appLog("note", "loaded", [
+                "id": noteId,
+                "hasPdf": "\(note?.textbookId != nil)",
+                "feedbacks": "\(feedbacks.count)",
+            ])
+        } catch {
+            appLogError("note", "load failed", ["error": "\(error)"])
+        }
+    }
+
+    private func saveDrawing() {
+        guard !canvasView.drawing.strokes.isEmpty else { return }
+        let data = canvasView.drawing.dataRepresentation()
+        try? db.updateDrawingData(noteId: noteId, data: data)
+    }
+
+    private func requestFeedback() {
+        guard !loading else { return }
+        loading = true
+
+        Task {
+            do {
+                let allStrokes = canvasView.drawing.strokes
+                let newStrokes = Array(allStrokes.dropFirst(lastFeedbackStrokeCount))
+                guard !newStrokes.isEmpty else {
+                    loading = false
+                    return
+                }
+
+                // 새 스트로크만으로 드로잉 생성하여 캡처
+                let newDrawing = PKDrawing(strokes: newStrokes)
+                let bounds = newDrawing.bounds
+                guard !bounds.isEmpty else {
+                    loading = false
+                    return
+                }
+
+                let image = newDrawing.image(from: bounds, scale: UIScreen.main.scale)
+                guard let pngData = image.pngData() else {
+                    loading = false
+                    return
+                }
+
+                var fields: [String: String] = [
+                    "note_id": noteId,
+                    "language": note?.language ?? "en",
+                    "response_language": Config.responseLanguage,
+                ]
+                if let textbookId = note?.textbookId {
+                    fields["textbook_id"] = textbookId
+                    fields["current_page"] = "\(currentPage)"
+                }
+
+                // Build previous context
+                if let lastFeedback = feedbacks.last,
+                   let data = lastFeedback.content.data(using: .utf8),
+                   let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
+                    let ctx = "Previous: \(parsed.recognizedText)\nFeedback: \(parsed.feedback)\nSummary: \(parsed.summary)"
+                    fields["previous_context"] = String(ctx.prefix(1500))
+                }
+
+                let response: AIResponse = try await APIClient.shared.postMultipart(
+                    "/feedback",
+                    fields: fields,
+                    fileField: "image",
+                    fileData: pngData,
+                    fileName: "canvas.png",
+                    mimeType: "image/png"
+                )
+
+                let y = bounds.maxY + 24
+                let width = canvasView.bounds.width - 32
+                let jsonData = try JSONEncoder().encode(response)
+
+                var record = FeedbackRecord(
+                    id: UUID().uuidString,
+                    noteId: noteId,
+                    content: String(data: jsonData, encoding: .utf8) ?? "{}",
+                    positionX: 16,
+                    positionY: y,
+                    bboxX: 16,
+                    bboxY: y,
+                    bboxWidth: width,
+                    bboxHeight: 200,
+                    createdAt: Date()
+                )
+                try db.saveFeedback(&record)
+                feedbacks.append(record)
+
+                // Mark feedback point
+                lastFeedbackStrokeCount = allStrokes.count
+
+                // Extend canvas if needed
+                let requiredHeight = y + 400
+                if requiredHeight > canvasView.contentSize.height {
+                    canvasView.contentSize.height = requiredHeight
+                }
+
+                appLog("note", "feedback received", ["recognizedText": response.recognizedText.prefix(50)])
+            } catch {
+                appLogError("note", "feedback failed", ["error": "\(error)"])
+            }
+            loading = false
+        }
+    }
+}
+
+// MARK: - PencilKit UIViewRepresentable
+
+struct PencilKitCanvasView: UIViewRepresentable {
+    @Binding var canvasView: PKCanvasView
+    var onDrawingChanged: () -> Void
+    var initialDrawingData: Data?
+    var feedbacks: [FeedbackRecord]
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvasView.drawingPolicy = .pencilOnly
+        canvasView.backgroundColor = .white
+        canvasView.isScrollEnabled = true
+        canvasView.alwaysBounceVertical = true
+        canvasView.isOpaque = true
+        canvasView.tool = PKInkingTool(.pen, color: .black, width: 3)
+        canvasView.delegate = context.coordinator
+
+        // Load saved drawing
+        if let data = initialDrawingData, let drawing = try? PKDrawing(data: data) {
+            canvasView.drawing = drawing
+        }
+
+        appLog("canvas", "makeUIView", [
+            "bounds": "\(canvasView.bounds)",
+            "drawingPolicy": "\(canvasView.drawingPolicy.rawValue)",
+            "hasDrawing": "\(initialDrawingData != nil)",
+        ])
+
+        // Tool picker setup after view is in window
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let toolPicker = PKToolPicker()
+            toolPicker.setVisible(true, forFirstResponder: canvasView)
+            toolPicker.addObserver(canvasView)
+            context.coordinator.toolPicker = toolPicker
+            let became = canvasView.becomeFirstResponder()
+            appLog("canvas", "toolPicker setup", [
+                "becameFirstResponder": "\(became)",
+                "window": "\(canvasView.window != nil)",
+                "bounds": "\(canvasView.bounds)",
+                "contentSize": "\(canvasView.contentSize)",
+                "isUserInteractionEnabled": "\(canvasView.isUserInteractionEnabled)",
+            ])
+        }
+
+        return canvasView
+    }
+
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {
+        if uiView.bounds.width > 0 && uiView.contentSize.width == 0 {
+            uiView.contentSize = CGSize(
+                width: uiView.bounds.width,
+                height: max(uiView.bounds.height * 5, uiView.contentSize.height)
+            )
+        }
+        if uiView.bounds.height > 0 && uiView.contentSize.height <= uiView.bounds.height {
+            uiView.contentSize = CGSize(
+                width: uiView.bounds.width,
+                height: uiView.bounds.height * 5
+            )
+        }
+
+        // Render feedback cards as subviews
+        // Remove old cards
+        uiView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
+
+        let cardWidth = uiView.bounds.width - 32
+        for fb in feedbacks {
+            let parsed = try? JSONDecoder().decode(AIResponse.self, from: fb.content.data(using: .utf8) ?? Data())
+
+            let card = UIView()
+            card.tag = 9999
+            card.backgroundColor = UIColor.systemBackground
+            card.layer.cornerRadius = 12
+            card.layer.shadowColor = UIColor.black.cgColor
+            card.layer.shadowOpacity = 0.1
+            card.layer.shadowRadius = 4
+            card.layer.shadowOffset = CGSize(width: 0, height: 2)
+            card.isUserInteractionEnabled = false
+
+            let label = UILabel()
+            label.numberOfLines = 0
+            label.font = .systemFont(ofSize: 14)
+            label.textColor = .label
+
+            if let p = parsed {
+                label.text = "📝 \(p.recognizedText)\n\n\(p.feedback)\n\n💡 \(p.summary)"
+            } else {
+                label.text = fb.content
+            }
+
+            card.addSubview(label)
+            label.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+                label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+                label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+                label.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+            ])
+
+            let labelSize = label.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
+            let cardHeight = labelSize.height + 24
+
+            card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
+            uiView.addSubview(card)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onDrawingChanged: onDrawingChanged)
+    }
+
+    class Coordinator: NSObject, PKCanvasViewDelegate {
+        let onDrawingChanged: () -> Void
+        var toolPicker: PKToolPicker?
+        private var saveTimer: Timer?
+
+        init(onDrawingChanged: @escaping () -> Void) {
+            self.onDrawingChanged = onDrawingChanged
+        }
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            // Auto-expand content size
+            let drawingBottom = canvasView.drawing.strokes.isEmpty
+                ? canvasView.bounds.height
+                : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
+            let requiredHeight = drawingBottom + canvasView.bounds.height * 2
+            if requiredHeight > canvasView.contentSize.height {
+                canvasView.contentSize.height = requiredHeight
+            }
+
+            saveTimer?.invalidate()
+            saveTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                self?.onDrawingChanged()
+            }
+        }
+    }
+}

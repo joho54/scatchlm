@@ -30,6 +30,7 @@ async def request_feedback(
     image: UploadFile = File(...),
     note_id: str = Form(...),
     language: str = Form("en"),
+    response_language: str = Form("English"),
     task_type: str = Form("complex"),
     textbook_id: str | None = Form(None),
     current_page: int | None = Form(None),
@@ -90,6 +91,7 @@ async def request_feedback(
         result = await get_feedback(
             image_bytes=image_bytes,
             language=language,
+            response_language=response_language,
             textbook_context=textbook_context,
             previous_context=previous_context,
             task_type=task_type,

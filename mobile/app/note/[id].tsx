@@ -19,7 +19,7 @@ import { usePencilKitDrawing } from "../../src/hooks/usePencilKitDrawing";
 import { requestFeedback } from "../../src/services/feedback";
 import { saveFeedback, getFeedbacksByNoteId } from "../../src/services/database";
 import { buildPreviousContext } from "../../src/services/contextBuilder";
-import { getNoteById, linkTextbook, saveLastPage } from "../../src/services/database";
+import { getNoteById, linkTextbook, saveLastPage, savePdfOpen } from "../../src/services/database";
 import { pickAndUploadPdf } from "../../src/services/textbook";
 import Svg, { Path } from "react-native-svg";
 import type { AIResponse, FeedbackResponse, FeedbackRenderItem } from "../../src/types";
@@ -61,6 +61,7 @@ export default function NoteScreen() {
         const validPage = lp && lp >= 1 && lp <= (note.textbook_pages || 9999) ? lp : 1;
         setPdfInitialPage(validPage);
         currentPageRef.current = validPage;
+        if (note.pdf_open) setPdfOpen(true);
         logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name, pages: note.textbook_pages, lastPage: note.last_page });
       }
     })();
@@ -217,8 +218,12 @@ export default function NoteScreen() {
       handleAttachTextbook();
       return;
     }
-    setPdfOpen((prev) => !prev);
-  }, [textbookId, handleAttachTextbook]);
+    setPdfOpen((prev) => {
+      const next = !prev;
+      savePdfOpen(id, next);
+      return next;
+    });
+  }, [id, textbookId, handleAttachTextbook]);
 
   return (
     <View style={styles.container}>
@@ -234,7 +239,7 @@ export default function NoteScreen() {
                 currentPageRef.current = page;
                 saveLastPage(id, page);
               }}
-              onClose={() => setPdfOpen(false)}
+              onClose={() => { setPdfOpen(false); savePdfOpen(id, false); }}
             />
           </View>
         )}

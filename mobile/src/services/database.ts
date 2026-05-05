@@ -58,6 +58,10 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   try {
     await db.execAsync(`ALTER TABLE notes ADD COLUMN last_page INTEGER DEFAULT 1;`);
   } catch {}
+  // 마이그레이션: PDF 뷰어 열림 상태
+  try {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN pdf_open INTEGER DEFAULT 0;`);
+  } catch {}
 
   return db;
 }
@@ -73,6 +77,7 @@ export interface NoteRow {
   textbook_pages: number;
   drawing_data: string | null;
   last_page: number;
+  pdf_open: number;
   created_at: string;
   updated_at: string;
 }
@@ -173,6 +178,15 @@ export async function saveLastPage(noteId: string, page: number): Promise<void> 
   await db.runAsync(
     "UPDATE notes SET last_page = ? WHERE id = ?",
     page,
+    noteId
+  );
+}
+
+export async function savePdfOpen(noteId: string, open: boolean): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    "UPDATE notes SET pdf_open = ? WHERE id = ?",
+    open ? 1 : 0,
     noteId
   );
 }

@@ -22,6 +22,13 @@ import { buildPreviousContext } from "../../src/services/contextBuilder";
 import { getNoteById, linkTextbook, saveLastPage, savePdfOpen } from "../../src/services/database";
 import { pickAndUploadPdf } from "../../src/services/textbook";
 import Svg, { Path } from "react-native-svg";
+
+let LiquidGlassView: any = null;
+if (Platform.OS === "ios") {
+  try {
+    LiquidGlassView = require("expo-liquid-glass").default;
+  } catch {}
+}
 import type { AIResponse, FeedbackResponse, FeedbackRenderItem } from "../../src/types";
 import logger from "../../src/services/logger";
 
@@ -267,15 +274,29 @@ export default function NoteScreen() {
       </View>
 
       {/* Floating back button */}
-      <TouchableOpacity
-        style={[styles.backFab, { top: 12 + insets.top }]}
-        onPress={() => router.back()}
-        activeOpacity={0.7}
-      >
-        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-          <Path d="M15 18l-6-6 6-6" />
-        </Svg>
-      </TouchableOpacity>
+      {LiquidGlassView ? (
+        <LiquidGlassView style={[styles.backFab, { top: 12 + insets.top }]} radius={18}>
+          <TouchableOpacity
+            style={styles.backFabInner}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="M15 18l-6-6 6-6" />
+            </Svg>
+          </TouchableOpacity>
+        </LiquidGlassView>
+      ) : (
+        <TouchableOpacity
+          style={[styles.backFab, styles.backFabFallback, { top: 12 + insets.top }]}
+          onPress={() => router.back()}
+          activeOpacity={0.7}
+        >
+          <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <Path d="M15 18l-6-6 6-6" />
+          </Svg>
+        </TouchableOpacity>
+      )}
 
       {/* Loading bar */}
       {loading && (
@@ -311,6 +332,14 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
+  },
+  backFabInner: {
+    width: 36,
+    height: 36,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  backFabFallback: {
     backgroundColor: "rgba(255,255,255,0.85)",
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.08)",

@@ -62,6 +62,17 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   try {
     await db.execAsync(`ALTER TABLE notes ADD COLUMN pdf_open INTEGER DEFAULT 0;`);
   } catch {}
+  // 마이그레이션: PDF 페이지별 필기 저장
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS pdf_drawings (
+      id TEXT PRIMARY KEY,
+      textbook_id TEXT NOT NULL,
+      page INTEGER NOT NULL,
+      drawing_data TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(textbook_id, page)
+    );
+  `);
 
   return db;
 }
@@ -189,6 +200,35 @@ export async function savePdfOpen(noteId: string, open: boolean): Promise<void> 
     open ? 1 : 0,
     noteId
   );
+}
+
+// ── PDF Page Drawings ──
+
+export async function savePdfDrawing(textbookId: string, page: number, base64: string): Promise<void> {
+  const db = await getDatabase();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO pdf_drawings (id, textbook_id, page, drawing_data, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(textbook_id, page) DO UPDATE SET drawing_data = ?, updated_at = ?`,
+    `${textbookId}_${page}`,
+    textbookId,
+    page,
+    base64,
+    now,
+    base64,
+    now,
+  );
+}
+
+export async function loadPdfDrawing(textbookId: string, page: number): Promise<string | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ drawing_data: string }>(
+    "SELECT drawing_data FROM pdf_drawings WHERE textbook_id = ? AND page = ?",
+    textbookId,
+    page,
+  );
+  return row?.drawing_data ?? null;
 }
 
 // ── Drawing Data (PencilKit) ──

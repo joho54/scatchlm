@@ -122,7 +122,7 @@ index 96560bc..2d54461 100644
          guard let canvasView = canvasView else {
              return "FFFFFF" // Default to white
 diff --git a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
-index a011fc1..2d0a229 100644
+index a011fc1..1436abf 100644
 --- a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
 +++ b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
 @@ -16,6 +16,8 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
@@ -134,31 +134,35 @@ index a011fc1..2d0a229 100644
  
      required init(appContext: AppContext? = nil) {
          super.init(appContext: appContext)
-@@ -24,7 +26,7 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+@@ -24,18 +26,19 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
  
      private func setupCanvasView() {
          // Configure canvas view exactly like the working example
 -        canvasView.drawingPolicy = .anyInput
-+        canvasView.drawingPolicy = .default
++        canvasView.drawingPolicy = .pencilOnly
          canvasView.overrideUserInterfaceStyle = .light
          canvasView.isMultipleTouchEnabled = true
-         canvasView.isOpaque = true
-@@ -33,9 +35,10 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+-        canvasView.isOpaque = true
++        canvasView.isOpaque = false
+         canvasView.backgroundColor = UIColor.clear
+         canvasView.delegate = self
          canvasView.isScrollEnabled = true
          canvasView.isUserInteractionEnabled = true
          canvasView.minimumZoomScale = 1.0
 -        canvasView.maximumZoomScale = 4.0
--        canvasView.bounces = false
 +        canvasView.maximumZoomScale = 1.0
-+        canvasView.bounces = true
+         canvasView.bounces = false
          canvasView.bouncesZoom = false
-+        canvasView.alwaysBounceVertical = true
++        canvasView.alwaysBounceVertical = false
  
          // Initialize with empty drawing
          canvasView.drawing = PKDrawing()
-@@ -53,6 +56,16 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+@@ -50,7 +53,17 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+             canvasView.bottomAnchor.constraint(equalTo: bottomAnchor)
+         ])
  
-     }
++    }
++
  
 +    public override func layoutSubviews() {
 +        super.layoutSubviews()
@@ -168,11 +172,9 @@ index a011fc1..2d0a229 100644
 +        if viewHeight > 0 && canvasView.contentSize.height <= viewHeight {
 +            canvasView.contentSize = CGSize(width: viewWidth, height: viewHeight * 5)
 +        }
-+    }
-+
-     public override func didMoveToSuperview() {
-         super.didMoveToSuperview()
+     }
  
+     public override func didMoveToSuperview() {
 @@ -150,10 +163,26 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
              "data": data
          ])

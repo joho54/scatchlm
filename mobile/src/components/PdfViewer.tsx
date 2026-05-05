@@ -7,11 +7,23 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator,
+  Platform,
+  Image,
 } from "react-native";
 import Pdf from "react-native-pdf";
 import Constants from "expo-constants";
 import { supabase } from "../services/supabase";
 import api from "../services/api";
+import { savePdfDrawing, loadPdfDrawing } from "../services/database";
+
+// PencilKit for PDF annotation
+let PencilKitViewComponent: any = null;
+if (Platform.OS === "ios") {
+  try {
+    const mod = require("expo-pencilkit-ui");
+    PencilKitViewComponent = mod.PencilKitView ?? mod.default;
+  } catch {}
+}
 
 const apiHost = Constants.expoConfig?.extra?.apiHost;
 if (!apiHost) throw new Error("apiHost not configured in app.config.js extra");
@@ -71,6 +83,9 @@ export default function PdfViewer({
   const [chapterGuide, setChapterGuide] = useState<ChapterGuide | null>(null);
   const [chapterGuideLoading, setChapterGuideLoading] = useState(false);
   const [chapterGuideVisible, setChapterGuideVisible] = useState(false);
+  const [drawingMode, setDrawingMode] = useState(false);
+  const [drawingImage, setDrawingImage] = useState<string | null>(null);
+  const pencilKitRef = useRef<any>(null);
   const currentPageRef = useRef(initialPage);
   const pdfRef = useRef<any>(null);
 
@@ -81,13 +96,62 @@ export default function PdfViewer({
     })();
   }, []);
 
+
+  // 현재 페이지 필기를 저장
+  const saveCurrentDrawing = useCallback(async () => {
+    if (!pencilKitRef.current) return;
+    try {
+      const base64 = await pencilKitRef.current.getCanvasDataAsBase64();
+      console.log("[pdf-draw] save:", { page: currentPageRef.current, len: base64?.length ?? 0 });
+      if (base64) {
+        await savePdfDrawing(textbookId, currentPageRef.current, base64);
+        setDrawingImage(base64);
+      }
+    } catch (e: any) {
+      console.log("[pdf-draw] save error:", e.message);
+    }
+  }, [textbookId]);
+
+  // 특정 페이지의 필기를 로드
+  const loadDrawingForPage = useCallback(async (page: number) => {
+    const data = await loadPdfDrawing(textbookId, page);
+    console.log("[pdf-draw] load:", { page, hasData: !!data, len: data?.length ?? 0 });
+    setDrawingImage(data);
+    if (pencilKitRef.current) {
+      try {
+        if (data) {
+          await pencilKitRef.current.setCanvasDataFromBase64(data);
+        } else {
+          await pencilKitRef.current.clearDrawing();
+        }
+      } catch (e: any) {
+        console.log("[pdf-draw] load error:", e.message);
+      }
+    }
+  }, [textbookId]);
+
   const handlePageChanged = useCallback(
-    (page: number, numberOfPages: number) => {
+    async (page: number, numberOfPages: number) => {
+      if (drawingMode && currentPageRef.current !== page) {
+        await saveCurrentDrawing();
+      }
       setCurrentPage(page);
       currentPageRef.current = page;
       onPageChanged(page);
+      // 드로잉 모드면 PencilKit에 로드, 아니면 이미지만 업데이트
+      const data = await loadPdfDrawing(textbookId, page);
+      setDrawingImage(data);
+      if (drawingMode && pencilKitRef.current) {
+        try {
+          if (data) {
+            await pencilKitRef.current.loadDrawingData(data);
+          } else {
+            await pencilKitRef.current.clear();
+          }
+        } catch {}
+      }
     },
-    [onPageChanged]
+    [onPageChanged, drawingMode, saveCurrentDrawing, textbookId]
   );
 
   const handleToc = useCallback(async () => {
@@ -163,16 +227,36 @@ export default function PdfViewer({
         </TouchableOpacity>
       </View>
 
-      <Pdf
-        ref={pdfRef}
-        source={{ uri: pdfUrl }}
-        page={initialPage}
-        style={styles.pdf}
-        enablePaging
-        horizontal
-        onPageChanged={(page, numberOfPages) => handlePageChanged(page, numberOfPages)}
-        onError={(error) => console.log("[pdf] error:", error)}
-      />
+      <View style={{ flex: 1 }}>
+        <Pdf
+          ref={pdfRef}
+          source={{ uri: pdfUrl }}
+          page={initialPage}
+          style={styles.pdf}
+          enablePaging
+          horizontal
+          onPageChanged={(page, numberOfPages) => handlePageChanged(page, numberOfPages)}
+          onError={(error) => console.log("[pdf] error:", error)}
+        />
+
+        {/* Drawing mode: PencilKit active */}
+        {drawingMode && PencilKitViewComponent && (
+          <PencilKitViewComponent
+            ref={pencilKitRef}
+            style={styles.drawingOverlay}
+            onDrawEnd={saveCurrentDrawing}
+          />
+        )}
+
+        {/* View mode: show saved drawing as image */}
+        {!drawingMode && drawingImage && (
+          <Image
+            source={{ uri: `data:image/png;base64,${drawingImage}` }}
+            style={styles.drawingOverlay}
+            pointerEvents="none"
+          />
+        )}
+      </View>
 
       <View style={styles.bottomBar}>
         <TouchableOpacity onPress={handleToc} style={styles.bottomBarBtn}>
@@ -180,6 +264,28 @@ export default function PdfViewer({
         </TouchableOpacity>
         <TouchableOpacity onPress={handleGuide} style={styles.bottomBarBtn}>
           <Text style={styles.bottomBarBtnText}>📚 가이드</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={async () => {
+            if (drawingMode) {
+              await saveCurrentDrawing();
+              // 저장 후 최신 이미지 로드 (필기 모드 꺼도 보이게)
+              const data = await loadPdfDrawing(textbookId, currentPageRef.current);
+              setDrawingImage(data);
+            }
+            setDrawingMode((prev) => {
+              const next = !prev;
+              if (next) {
+                setTimeout(() => loadDrawingForPage(currentPageRef.current), 100);
+              }
+              return next;
+            });
+          }}
+          style={[styles.bottomBarBtn, drawingMode && styles.bottomBarBtnActive]}
+        >
+          <Text style={[styles.bottomBarBtnText, drawingMode && styles.bottomBarBtnTextActive]}>
+            ✏️ 필기
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -356,6 +462,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f0f0",
   },
   bottomBarBtnText: { fontSize: 13, color: "#333", fontWeight: "500" },
+  bottomBarBtnActive: { backgroundColor: "#5856d6" },
+  bottomBarBtnTextActive: { color: "#fff" },
+  drawingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
   loadingText: { textAlign: "center", marginTop: 40, color: "#999" },
 
   // Bottom sheet

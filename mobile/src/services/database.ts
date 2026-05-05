@@ -54,6 +54,10 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   try {
     await db.execAsync(`ALTER TABLE notes ADD COLUMN drawing_data TEXT;`);
   } catch {}
+  // 마이그레이션: PDF 마지막 페이지 북마크
+  try {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN last_page INTEGER DEFAULT 1;`);
+  } catch {}
 
   return db;
 }
@@ -68,6 +72,7 @@ export interface NoteRow {
   textbook_name: string | null;
   textbook_pages: number;
   drawing_data: string | null;
+  last_page: number;
   created_at: string;
   updated_at: string;
 }
@@ -158,6 +163,18 @@ export async function getNoteById(noteId: string): Promise<NoteRow | null> {
     noteId
   );
   return rows[0] ?? null;
+}
+
+// ── Last Page (PDF bookmark) ──
+
+export async function saveLastPage(noteId: string, page: number): Promise<void> {
+  if (!Number.isFinite(page) || page < 1 || page > 10000) return;
+  const db = await getDatabase();
+  await db.runAsync(
+    "UPDATE notes SET last_page = ? WHERE id = ?",
+    page,
+    noteId
+  );
 }
 
 // ── Drawing Data (PencilKit) ──

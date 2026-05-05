@@ -19,7 +19,7 @@ import { usePencilKitDrawing } from "../../src/hooks/usePencilKitDrawing";
 import { requestFeedback } from "../../src/services/feedback";
 import { saveFeedback, getFeedbacksByNoteId } from "../../src/services/database";
 import { buildPreviousContext } from "../../src/services/contextBuilder";
-import { getNoteById, linkTextbook } from "../../src/services/database";
+import { getNoteById, linkTextbook, saveLastPage } from "../../src/services/database";
 import { pickAndUploadPdf } from "../../src/services/textbook";
 import Svg, { Path } from "react-native-svg";
 import type { AIResponse, FeedbackResponse, FeedbackRenderItem } from "../../src/types";
@@ -41,7 +41,8 @@ export default function NoteScreen() {
   const [textbookName, setTextbookName] = useState<string | null>(null);
   const [textbookPages, setTextbookPages] = useState<number>(0);
   const [pdfOpen, setPdfOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState<number | null>(null);
+  const [pdfInitialPage, setPdfInitialPage] = useState<number>(1);
+  const currentPageRef = useRef<number | null>(null);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isLandscape = screenWidth > screenHeight;
   const [canvasWidth, setCanvasWidth] = useState(screenWidth);
@@ -56,7 +57,11 @@ export default function NoteScreen() {
         setTextbookId(note.textbook_id);
         setTextbookName(note.textbook_name);
         setTextbookPages(note.textbook_pages ?? 0);
-        logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name, pages: note.textbook_pages });
+        const lp = note.last_page;
+        const validPage = lp && lp >= 1 && lp <= (note.textbook_pages || 9999) ? lp : 1;
+        setPdfInitialPage(validPage);
+        currentPageRef.current = validPage;
+        logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name, pages: note.textbook_pages, lastPage: note.last_page });
       }
     })();
   }, [id]);
@@ -160,7 +165,7 @@ export default function NoteScreen() {
         language: "en",
         previousContext,
         textbookId: textbookId ?? undefined,
-        currentPage: currentPage ?? undefined,
+        currentPage: currentPageRef.current ?? undefined,
       });
 
       const cardsMaxY = feedbackItems.reduce(
@@ -203,7 +208,7 @@ export default function NoteScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, textbookId, currentPage, pk, feedbackItems, canvasWidth]);
+  }, [id, textbookId, pk, feedbackItems, canvasWidth]);
 
   const handleFeedback = handleFeedbackPK;
 
@@ -224,7 +229,11 @@ export default function NoteScreen() {
             <PdfViewer
               textbookId={textbookId}
               totalPages={textbookPages}
-              onPageChanged={setCurrentPage}
+              initialPage={pdfInitialPage}
+              onPageChanged={(page) => {
+                currentPageRef.current = page;
+                saveLastPage(id, page);
+              }}
               onClose={() => setPdfOpen(false)}
             />
           </View>

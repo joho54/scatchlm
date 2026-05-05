@@ -85,7 +85,10 @@ export default function PencilKitCanvas({
       {/* 피드백 카드 오버레이 — Animated.View로 translateY 적용 */}
       {feedbackItems.length > 0 && (
         <Animated.View
-          style={[styles.overlay, { transform: [{ translateY: scrollY }] }]}
+          style={[styles.overlay, {
+            height: Math.max(screenHeight * 5, feedbackItems.reduce((max, item) => Math.max(max, item.y + item.height + 100), 0)),
+            transform: [{ translateY: scrollY }],
+          }]}
           pointerEvents="none"
         >
           {feedbackItems.map((item) => (
@@ -106,7 +109,7 @@ export default function PencilKitCanvas({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", overflow: "hidden" },
+  container: { flex: 1, backgroundColor: "#fff" },
   ruledLinesContainer: {
     ...StyleSheet.absoluteFillObject,
     opacity: 0.5,

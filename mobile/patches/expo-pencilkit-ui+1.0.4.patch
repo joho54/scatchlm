@@ -1,11 +1,21 @@
 diff --git a/node_modules/expo-pencilkit-ui/build/index.js b/node_modules/expo-pencilkit-ui/build/index.js
-index 00e4a92..cceed5a 100644
+index 00e4a92..047995f 100644
 --- a/node_modules/expo-pencilkit-ui/build/index.js
 +++ b/node_modules/expo-pencilkit-ui/build/index.js
-@@ -139,6 +139,39 @@ export const PencilKitView = React.forwardRef((props, ref) => {
+@@ -139,6 +139,49 @@ export const PencilKitView = React.forwardRef((props, ref) => {
                  }
              }
          },
++        setContentHeight: async (height) => {
++            if (Platform.OS === "ios" &&
++                ExpoPencilKit &&
++                viewRef.current) {
++                const viewTag = findNodeHandle(viewRef.current);
++                if (viewTag) {
++                    await ExpoPencilKit.setContentHeight(viewTag, height);
++                }
++            }
++        },
 +        getDrawingBounds: async () => {
 +            if (Platform.OS === "ios" &&
 +                ExpoPencilKit &&
@@ -43,7 +53,7 @@ index 00e4a92..cceed5a 100644
      if (Platform.OS !== "ios" || !ExpoPencilKitViewManager) {
          return null;
 diff --git a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift
-index 96560bc..2d54461 100644
+index 96560bc..411bc90 100644
 --- a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift
 +++ b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitModule.swift
 @@ -25,7 +25,7 @@ public class ExpoPencilKitModule: Module {
@@ -55,10 +65,21 @@ index 96560bc..2d54461 100644
  
              Prop("imagePath") { (view: ExpoPencilKitView, imagePath: [String: Any]?) in
                  view.setImagePath(imagePath)
-@@ -115,6 +115,43 @@ public class ExpoPencilKitModule: Module {
+@@ -115,6 +115,54 @@ public class ExpoPencilKitModule: Module {
                  return self.getCanvasBackgroundColor()
              }
          }
++
++        // Set content height (for extending canvas when feedback cards are added)
++        AsyncFunction("setContentHeight") { (viewTag: Int, height: Double) in
++            await MainActor.run {
++                guard let canvasView = self.canvasView else { return }
++                let currentSize = canvasView.contentSize
++                if height > Double(currentSize.height) {
++                    canvasView.contentSize = CGSize(width: currentSize.width, height: height)
++                }
++            }
++        }
 +
 +        // Get stroke count
 +        AsyncFunction("getStrokeCount") { (viewTag: Int) -> Int in
@@ -99,7 +120,7 @@ index 96560bc..2d54461 100644
      }
  
      // MARK: - Canvas Registration
-@@ -264,6 +301,21 @@ public class ExpoPencilKitModule: Module {
+@@ -264,6 +312,21 @@ public class ExpoPencilKitModule: Module {
          canvasView?.backgroundColor = color
      }
  
@@ -122,7 +143,7 @@ index 96560bc..2d54461 100644
          guard let canvasView = canvasView else {
              return "FFFFFF" // Default to white
 diff --git a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
-index a011fc1..1436abf 100644
+index a011fc1..be24f83 100644
 --- a/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
 +++ b/node_modules/expo-pencilkit-ui/ios/ExpoPencilKitView.swift
 @@ -16,6 +16,8 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
@@ -175,7 +196,21 @@ index a011fc1..1436abf 100644
      }
  
      public override func didMoveToSuperview() {
-@@ -150,10 +163,26 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+@@ -61,9 +74,11 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
+             ExpoPencilKitView.moduleInstance?.registerCanvasView(canvasView)
+ 
+         } else {
+-            // Unregister when removed from superview
++            // Clean up delegate to prevent callbacks during unmount
++            canvasView.delegate = nil
++            // Remove all gesture recognizers to prevent dangling references
++            canvasView.gestureRecognizers?.forEach { canvasView.removeGestureRecognizer($0) }
+             ExpoPencilKitView.moduleInstance?.unregisterCanvasView()
+-
+         }
+     }
+ 
+@@ -150,10 +165,36 @@ public class ExpoPencilKitView: ExpoView, PKCanvasViewDelegate, PKToolPickerObse
              "data": data
          ])
          emitUndoRedoStateChanges()
@@ -189,11 +224,21 @@ index a011fc1..1436abf 100644
 +    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
 +        let offset = scrollView.contentOffset
 +        let size = scrollView.contentSize
++
++        // 필기 영역 하단 + 여유분까지만 contentSize 확장
++        let drawingBottom = canvasView.drawing.strokes.isEmpty
++            ? scrollView.bounds.height
++            : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
++        let requiredHeight = drawingBottom + scrollView.bounds.height * 2
++        if requiredHeight > size.height {
++            scrollView.contentSize = CGSize(width: size.width, height: requiredHeight)
++        }
++
 +        onScroll([
 +            "contentOffsetX": offset.x,
 +            "contentOffsetY": offset.y,
-+            "contentSizeWidth": size.width,
-+            "contentSizeHeight": size.height,
++            "contentSizeWidth": scrollView.contentSize.width,
++            "contentSizeHeight": scrollView.contentSize.height,
 +            "visibleWidth": scrollView.bounds.width,
 +            "visibleHeight": scrollView.bounds.height
 +        ])

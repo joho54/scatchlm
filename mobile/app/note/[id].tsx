@@ -122,18 +122,39 @@ export default function NoteScreen() {
         };
       });
       if (items.length > 0) {
-        logger.info("feedback", "loaded from SQLite", { count: items.length });
+        logger.info("feedback", "loaded from SQLite", {
+          count: items.length,
+          items: items.map(i => ({ id: i.id, y: i.y, height: i.height, width: i.width })),
+        });
         setFeedbackItems(items);
+
+        // 기존 피드백 위치에 맞춰 캔버스 확장
+        const maxBottom = items.reduce((max, item) => Math.max(max, item.y + item.height + 200), 0);
+        setTimeout(() => {
+          const hasMethod = !!pk.pencilKitRef.current?.setContentHeight;
+          logger.info("feedback", "setContentHeight", { maxBottom, hasMethod });
+          if (hasMethod) {
+            pk.pencilKitRef.current.setContentHeight(maxBottom);
+          }
+        }, 1000);
       }
     })();
   }, [id]);
 
+  const [unmounting, setUnmounting] = useState(false);
+
   useEffect(() => {
-    const unsubscribe = navigation.addListener("beforeRemove", () => {
-      pk.saveNow();
+    const unsubscribe = navigation.addListener("beforeRemove", (e) => {
+      if (!unmounting) {
+        e.preventDefault();
+        pk.saveNow();
+        setUnmounting(true);
+        // PencilKit을 먼저 언마운트 후 네비게이션
+        setTimeout(() => navigation.dispatch(e.data.action), 100);
+      }
     });
     return unsubscribe;
-  }, [navigation, pk.saveNow]);
+  }, [navigation, pk.saveNow, unmounting]);
 
   const handleAttachTextbook = useCallback(async () => {
     try {
@@ -210,6 +231,12 @@ export default function NoteScreen() {
 
       setFeedbackItems((prev) => [...prev, newItem]);
 
+      // 피드백 카드 끝까지 캔버스 확장
+      const requiredHeight = newItem.y + cardHeight + 200;
+      if (pk.pencilKitRef.current?.setContentHeight) {
+        await pk.pencilKitRef.current.setContentHeight(requiredHeight);
+      }
+
       await saveFeedback(id!, JSON.stringify(result), { x: 16, y: newItem.y }, {
         x: 16, y: newItem.y, width: cardWidth, height: cardHeight,
       });
@@ -255,21 +282,23 @@ export default function NoteScreen() {
           </View>
         )}
         <View
-          style={pdfOpen ? styles.canvasSplit : styles.canvasFull}
+          style={[pdfOpen ? styles.canvasSplit : styles.canvasFull, { overflow: "hidden" }]}
           onLayout={(e) => {
             setCanvasWidth(e.nativeEvent.layout.width);
             setCanvasHeight(e.nativeEvent.layout.height);
           }}
         >
-          <PencilKitCanvas
-            pencilKitRef={pk.pencilKitRef}
-            feedbackItems={feedbackItems}
-            onDrawEnd={pk.onDrawEnd}
-            onCanUndoChanged={pk.onCanUndoChanged}
-            onCanRedoChanged={pk.onCanRedoChanged}
-            onScroll={pk.onScroll}
-            onStrokeCountChanged={pk.onStrokeCountChanged}
-          />
+          {!unmounting && (
+            <PencilKitCanvas
+              pencilKitRef={pk.pencilKitRef}
+              feedbackItems={feedbackItems}
+              onDrawEnd={pk.onDrawEnd}
+              onCanUndoChanged={pk.onCanUndoChanged}
+              onCanRedoChanged={pk.onCanRedoChanged}
+              onScroll={pk.onScroll}
+              onStrokeCountChanged={pk.onStrokeCountChanged}
+            />
+          )}
         </View>
       </View>
 
@@ -298,13 +327,7 @@ export default function NoteScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Loading bar */}
-      {loading && (
-        <View style={styles.loadingBar}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.loadingText}>Analyzing handwriting...</Text>
-        </View>
-      )}
+      {/* Loading state is shown in FAB pill spinner */}
 
       {/* Floating action pill */}
       <FloatingActionPill

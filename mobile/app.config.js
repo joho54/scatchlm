@@ -41,7 +41,10 @@ module.exports = {
       favicon: "./assets/favicon.png",
     },
     scheme: "scatchlm",
-    plugins: ["expo-sqlite", "expo-router"],
+    plugins: [
+      "expo-sqlite",
+      "expo-router",
+    ],
     extra: {
       apiHost: getLocalIP(),
     },

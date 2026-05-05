@@ -1,9 +1,11 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   TouchableOpacity,
   StyleSheet,
   Platform,
+  Animated,
+  Easing,
 } from "react-native";
 import Svg, { Path, Defs, LinearGradient, Stop } from "react-native-svg";
 
@@ -53,7 +55,29 @@ function SparkleIcon() {
 }
 
 function LoadingSpinner() {
-  return <View style={styles.spinner} />;
+  const rotation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.timing(rotation, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.bezier(0.4, 0.15, 0.6, 0.85),
+        useNativeDriver: true,
+      })
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [rotation]);
+
+  const spin = rotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+
+  return (
+    <Animated.View style={[styles.spinner, { transform: [{ rotate: spin }] }]} />
+  );
 }
 
 export default function FloatingActionPill({

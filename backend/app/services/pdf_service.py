@@ -44,6 +44,39 @@ async def save_pdf(file: UploadFile, user_id: str) -> tuple[str, str, int, int, 
     return server_path, file.filename, total_pages, file_size, content_hash
 
 
+def extract_toc(server_path: str) -> list[dict]:
+    """PDF에서 TOC(목차)를 추출한다. 없으면 빈 리스트 반환.
+
+    Returns:
+        [{"level": 1, "title": "Chapter 1", "page": 5}, ...]
+    """
+    doc = fitz.open(server_path)
+    toc = doc.get_toc()  # [[level, title, page], ...]
+    doc.close()
+
+    result = [{"level": lvl, "title": title, "page": page} for lvl, title, page in toc]
+    log.info("PDF TOC extracted: %d entries from %s", len(result), server_path)
+    return result
+
+
+def extract_page_headers(server_path: str, lines_per_page: int = 5) -> list[dict]:
+    """각 페이지의 상단 N줄을 추출한다. 챕터 감지용.
+
+    Returns:
+        [{"page": 1, "header": "Chapter 1\\nIntroduction\\n..."}, ...]
+    """
+    doc = fitz.open(server_path)
+    results = []
+    for i in range(len(doc)):
+        text = doc[i].get_text()
+        header_lines = text.strip().split("\n")[:lines_per_page]
+        header = "\n".join(header_lines).strip()
+        if header:
+            results.append({"page": i + 1, "header": header})
+    doc.close()
+    return results
+
+
 def extract_text(server_path: str, page_start: int, page_end: int) -> str:
     """PDF에서 지정 페이지 범위의 텍스트를 추출한다. (1-indexed)"""
     t0 = time.monotonic()

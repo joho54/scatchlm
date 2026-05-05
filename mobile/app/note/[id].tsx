@@ -39,6 +39,7 @@ export default function NoteScreen() {
   const [loading, setLoading] = useState(false);
   const [textbookId, setTextbookId] = useState<string | null>(null);
   const [textbookName, setTextbookName] = useState<string | null>(null);
+  const [noteLanguage, setNoteLanguage] = useState("en");
   const [textbookPages, setTextbookPages] = useState<number>(0);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfInitialPage, setPdfInitialPage] = useState<number>(1);
@@ -53,16 +54,19 @@ export default function NoteScreen() {
     if (!id) return;
     (async () => {
       const note = await getNoteById(id);
-      if (note?.textbook_id) {
-        setTextbookId(note.textbook_id);
-        setTextbookName(note.textbook_name);
-        setTextbookPages(note.textbook_pages ?? 0);
-        const lp = note.last_page;
-        const validPage = lp && lp >= 1 && lp <= (note.textbook_pages || 9999) ? lp : 1;
-        setPdfInitialPage(validPage);
-        currentPageRef.current = validPage;
-        if (note.pdf_open) setPdfOpen(true);
-        logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name, pages: note.textbook_pages, lastPage: note.last_page });
+      if (note) {
+        setNoteLanguage(note.language || "en");
+        if (note.textbook_id) {
+          setTextbookId(note.textbook_id);
+          setTextbookName(note.textbook_name);
+          setTextbookPages(note.textbook_pages ?? 0);
+          const lp = note.last_page;
+          const validPage = lp && lp >= 1 && lp <= (note.textbook_pages || 9999) ? lp : 1;
+          setPdfInitialPage(validPage);
+          currentPageRef.current = validPage;
+          if (note.pdf_open) setPdfOpen(true);
+          logger.info("textbook", "loaded", { id: note.textbook_id, name: note.textbook_name, pages: note.textbook_pages, lastPage: note.last_page });
+        }
       }
     })();
   }, [id]);
@@ -163,7 +167,7 @@ export default function NoteScreen() {
       const result = await requestFeedback({
         imageBase64,
         noteId: id!,
-        language: "en",
+        language: noteLanguage,
         previousContext,
         textbookId: textbookId ?? undefined,
         currentPage: currentPageRef.current ?? undefined,

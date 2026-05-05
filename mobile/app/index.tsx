@@ -44,10 +44,12 @@ export default function HomeScreen() {
     ? notes.filter((n) => n.title.toLowerCase().includes(search.toLowerCase()))
     : notes;
 
+  const recentLanguages = [...new Set(notes.map((n) => n.language).filter(Boolean))];
+
   const handleCreate = useCallback(
-    async (title: string, textbook?: { id: string; name: string; pages: number }) => {
+    async (title: string, language: string, textbook?: { id: string; name: string; pages: number }) => {
       setModalVisible(false);
-      const note = await createNote(title, "en", textbook);
+      const note = await createNote(title, language, textbook);
       logger.info("nav", "push /note", { noteId: note.id });
       router.push(`/note/${note.id}`);
     },
@@ -86,6 +88,9 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Notes</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => router.push("/poc-liquid-glass")}>
+            <Text style={{ fontSize: 14, color: "#8e8e93" }}>🔬</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerBtn} onPress={() => router.push("/settings")}>
             <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#8e8e93" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <Circle cx={12} cy={12} r={3} />
@@ -164,6 +169,7 @@ export default function HomeScreen() {
       {/* Create Modal */}
       <CreateNoteModal
         visible={modalVisible}
+        recentLanguages={recentLanguages}
         onClose={() => setModalVisible(false)}
         onCreate={handleCreate}
       />

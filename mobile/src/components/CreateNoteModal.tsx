@@ -16,12 +16,14 @@ import type { TextbookListItem } from "../services/textbook";
 
 interface CreateNoteModalProps {
   visible: boolean;
+  recentLanguages: string[];
   onClose: () => void;
-  onCreate: (title: string, textbook?: { id: string; name: string; pages: number }) => void;
+  onCreate: (title: string, language: string, textbook?: { id: string; name: string; pages: number }) => void;
 }
 
-export default function CreateNoteModal({ visible, onClose, onCreate }: CreateNoteModalProps) {
+export default function CreateNoteModal({ visible, recentLanguages, onClose, onCreate }: CreateNoteModalProps) {
   const [title, setTitle] = useState("");
+  const [language, setLanguage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { textbooks, loading, loadTextbooks, uploadTextbook } = useTextbookStore();
   const [uploading, setUploading] = useState(false);
@@ -30,6 +32,7 @@ export default function CreateNoteModal({ visible, onClose, onCreate }: CreateNo
     if (visible) {
       loadTextbooks();
       setTitle("");
+      setLanguage(recentLanguages[0] ?? "");
       setSelectedId(null);
     }
   }, [visible]);
@@ -38,6 +41,7 @@ export default function CreateNoteModal({ visible, onClose, onCreate }: CreateNo
     const selected = textbooks.find((t) => t.id === selectedId);
     onCreate(
       title.trim() || "Untitled note",
+      language.trim() || "en",
       selected ? { id: selected.id, name: selected.fileName, pages: selected.totalPages } : undefined,
     );
   };
@@ -74,6 +78,33 @@ export default function CreateNoteModal({ visible, onClose, onCreate }: CreateNo
                 onChangeText={setTitle}
                 autoFocus
               />
+            </View>
+
+            {/* Target Language */}
+            <View style={styles.field}>
+              <Text style={styles.label}>Target language</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Japanese, Ancient Greek"
+                placeholderTextColor="#aeaeb2"
+                value={language}
+                onChangeText={setLanguage}
+              />
+              {recentLanguages.length > 0 && (
+                <View style={styles.langChips}>
+                  {recentLanguages.map((lang) => (
+                    <TouchableOpacity
+                      key={lang}
+                      style={[styles.langChip, language === lang && styles.langChipSelected]}
+                      onPress={() => setLanguage(lang)}
+                    >
+                      <Text style={[styles.langChipText, language === lang && styles.langChipTextSelected]}>
+                        {lang}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* Textbook */}
@@ -186,6 +217,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: "rgba(255,255,255,0.6)",
     color: "#1c1c1e",
+  },
+  langChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  langChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.05)",
+  },
+  langChipSelected: {
+    backgroundColor: "#5856d6",
+  },
+  langChipText: {
+    fontSize: 12,
+    color: "#636366",
+  },
+  langChipTextSelected: {
+    color: "#fff",
   },
   textbookList: {
     maxHeight: 200,

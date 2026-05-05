@@ -142,7 +142,59 @@ ScatchLM은 펜 드로잉 기반 입력을 활용한 외국어 학습 보조 모
 - "채점"과 "일반 피드백"을 코드로 구분하지 않는다. 교재 컨텍스트가 있으면 LLM이 알아서 대조 채점하고, 없으면 일반 교정을 한다.
 - 교재마다 연습문제 형식이 다르다. 의도 판별이나 타입 라우팅을 코드로 만들지 않는다. Vision API가 이미지에서 문제 구조를 읽고, 교재 텍스트와 대조하여 평가한다. 비정형성은 LLM이 흡수한다.
 
-### 3.3 부가 기능 (이후 버전)
+### 3.3 다크모드 + PDF 뷰어 테마
+
+#### F7. 다크모드
+
+앱 전체에 다크모드를 지원한다. 시스템 설정을 따르되, 앱 내 수동 전환도 가능.
+
+**앱 UI 다크모드**:
+- 배경: `#000000` (OLED true black) 또는 `#1c1c1e` (elevated)
+- 카드/패널: `#2c2c2e` (elevated surface)
+- 텍스트: `#ffffff` (primary), `#8e8e93` (secondary)
+- 캔버스 배경: `#1c1c1e`, 노트 줄: `rgba(255,255,255,0.06)`
+- 피드백 카드: frosted dark glass (`rgba(40,40,45,0.65)` + blur)
+- 플로팅 버튼: dark glass 유지 (liquid glass 효과 동일, tint만 변경)
+
+**전환 방식**:
+- 시스템 설정 추종 (기본값)
+- 설정 화면에서 수동 선택: 라이트 / 다크 / 시스템
+
+#### F7-1. PDF 뷰어 테마
+
+다크모드에서 PDF 원본(흰 배경)이 눈을 자극하는 문제를 해결한다. PDF 뷰어에 독립적인 테마를 적용.
+
+**3단계 PDF 테마** (다크모드 활성 시 표시):
+
+| 테마 | 네이티브 구현 | 용도 |
+|------|-------------|------|
+| Original | 없음 | 원본 그대로. 색상 정확도 필요 시 |
+| Dim | `PDFView.layer.opacity = 0.75` 또는 반투명 dark overlay | 밝기만 줄임. 이미지/컬러 보존. 기본값(dark mode) |
+| Dark | `CIColorInvert` + `CIHueAdjust(angle: π)` on CALayer | 완전 다크 배경. 텍스트 중심 PDF에 최적 |
+
+**동작 규칙**:
+- 라이트모드: PDF 테마 선택 UI 숨김 (항상 Original)
+- 다크모드 진입 시: 자동으로 Dim 적용 (기본값)
+- 사용자가 Dark 또는 Original로 변경 가능 (선택 기억)
+- PDF 뷰어 헤더 또는 하단에 3-segment 컨트롤 배치
+
+**구현 참고**:
+- Apple PDFKit (`PDFView`) 사용 — 네이티브 렌더링
+- `CIColorInvert` + `CIHueAdjust(angle: π)`는 색상을 원래대로 복원하되 밝기만 반전하는 트릭 (CSS `invert(1) hue-rotate(180deg)`의 네이티브 등가)
+- `CALayer.compositingFilter` 또는 `PDFView`의 서브레이어에 `CIFilter` 적용
+- 이미지가 포함된 PDF에서 Dark 모드 사용 시 이미지가 반전되는 한계 존재 → 사용자 선택에 위임
+- React Native 브릿지: Expo Module 또는 네이티브 모듈로 PDFKit 래핑, 테마 prop 노출
+
+```
+[라이트모드]
+PDF: Original (고정)
+
+[다크모드]
+PDF: ○ Original  ● Dim  ○ Dark
+     └── 3-segment picker ──┘
+```
+
+### 3.4 부가 기능 (이후 버전)
 - 학습 이력 추적
 - 오답 노트 자동 생성
 - 음성 입력 보조
@@ -520,9 +572,10 @@ class AIResponse(BaseModel):
 - [x] 교재 PDF 연동 (업로드, 텍스트 추출, 페이지 범위 수동 지정)
 
 ### 제외 (이후 버전)
-- [ ] 교재 챕터 자동 분할 + 선택 UI
+- [x] 교재 챕터 자동 분할 + 선택 UI (TOC 추출 + LLM fallback) → M10
 - [x] RAG 기반 교재 컨텍스트 자동 검색 (임베딩 기반, PDF 뷰어 미사용 시 fallback) → M7
 - [x] PDF 뷰어 + 페이지 컨텍스트 자동 주입 → M8
+- [x] 페이지/챕터 학습 가이드 (LLM 생성, lazy 캐싱) → M10
 - [ ] 음성 입력
 - [ ] 클라우드 동기화
 - [ ] 학습 이력/통계
@@ -541,7 +594,8 @@ class AIResponse(BaseModel):
 | M5 | 노트 관리 | 노트 CRUD, 로컬 저장 (SQLite) | ✅ 완료 |
 | M7 | RAG 기반 교재 컨텍스트 자동 검색 | 임베딩 파이프라인, 벡터 검색, 자동 컨텍스트 주입 | ✅ 완료 |
 | M8 | PDF 뷰어 + 페이지 컨텍스트 | F5 PDF 뷰어, F6 페이지 컨텍스트 자동 주입, 컨텍스트 우선순위 로직 | ✅ 완료 |
-| M9 | Apple PencilKit 마이그레이션 | 네이티브 필기 엔진, PKDrawing 저장, 피드백 오버레이 | 미착수 |
+| M9 | Apple PencilKit 마이그레이션 | 네이티브 필기 엔진, PKDrawing 저장, 피드백 오버레이 | ✅ 완료 |
+| M10 | PDF 스마트 기능 | 네이티브 PDF 뷰어, TOC 추출/LLM 감지, 페이지/챕터 학습 가이드 | ✅ 완료 |
 | M6 | 폴리싱 | UX 개선, 에러 처리, 설정 화면 | 🔶 진행 중 |
 
 ### 10.2 M3 상세 스펙: 무한 스크롤 캔버스 + 피드백 인라인 렌더링
@@ -1012,6 +1066,242 @@ iPad가 1차 타겟이므로 Android Skia 엔진은 현재 수준 유지. 향후
 - PencilKit 도입은 iOS 전용 네이티브 의존성을 추가한다. Expo Go 사용 불가가 확정되므로 개발 워크플로우가 `expo run:ios` 기반으로 고정됨.
 - PKDrawing 포맷은 Apple 독점. 향후 크로스플랫폼 렌더링이나 웹 뷰어가 필요하면 별도 래스터라이즈 파이프라인이 필요.
 
+### 10.6 M10 상세 스펙: PDF 스마트 기능
+
+#### 목표
+- PDF 뷰어를 네이티브(react-native-pdf, iOS PDFKit)로 교체하여 깜빡임/핀치줌 문제 해결
+- 교재 챕터 구조 자동 추출 (TOC + LLM fallback)
+- 페이지/챕터별 학습 가이드 생성 (lazy 캐싱)
+
+#### 구현 완료 항목
+
+| 기능 | 설명 |
+|------|------|
+| 네이티브 PDF 뷰어 | `react-native-pdf` (iOS PDFKit). 페이징, 핀치줌, 스와이프 네이티브 처리 |
+| 페이지 북마크 | `last_page` 컬럼 — 마지막 본 페이지 자동 저장/복원 |
+| PDF 열림 상태 저장 | `pdf_open` 컬럼 — 뷰어 토글 상태 유지 |
+| TOC 추출 | PDF 업로드 시 `PyMuPDF get_toc()` → chapters 테이블 저장 |
+| LLM 챕터 감지 | TOC 없는 PDF에서 페이지 헤더 분석으로 챕터 구조 자동 판별 |
+| 목차 UI | ☰ 버튼 → 바텀시트에 챕터 목록, 탭으로 페이지 이동 |
+| 페이지 가이드 | 📚 버튼 → 현재 페이지의 학습 가이드 (핵심 암기, 연습 과제, 연결) |
+| 챕터 가이드 | 목차에서 📚 → 챕터 전체 요약 (핵심 개념, 학습 순서, 자주 하는 실수) |
+| 가이드 캐싱 | `page_guides` 테이블에 lazy 캐싱. 두 번째 조회부터 즉시 반환 |
+
+#### API 엔드포인트
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/pdf/{id}/guide?page=N` | 페이지 학습 가이드 |
+| GET | `/api/pdf/{id}/chapter-guide?chapter_id=X` | 챕터 학습 가이드 |
+| GET | `/api/pdf/{id}/chapters` | 챕터 목록 조회 |
+
+#### DB 테이블
+
+- `chapters` — textbook_id, level, title, page_start, page_end
+- `page_guides` — textbook_id, page, content (JSON), 캐시용
+
+### 10.7 Liquid Glass 네이티브 구현
+
+#### 목표
+플로팅 UI 요소(FAB pill, back 버튼, 피드백 카드)에 Apple Liquid Glass 스타일의 경계면 빛 굴절 효과를 네이티브로 구현한다.
+
+#### 배경
+- 디자인 프로토타입(HTML)에서 SVG `feDisplacementMap` 기반으로 효과 검증 완료
+- 웹 기술(SVG filter)은 RN/네이티브에서 사용 불가
+- iOS 네이티브 CIFilter 체인으로 동일 효과를 GPU 가속으로 구현
+
+#### 아키텍처
+
+```
+React Native (TypeScript)
+  │
+  └─ <LiquidGlassView style={...} radius={28} bezelWidth={18} thickness={80}>
+       {children}  ← 버튼 콘텐츠
+     </LiquidGlassView>
+  │
+  └─ Expo Module (Swift) — "expo-liquid-glass"
+       │
+       └─ LiquidGlassView: UIView
+            ├─ backgroundCapture()     ← 뒤 콘텐츠 스냅샷
+            ├─ generateDisplacementMap() ← Snell's law 기반 (Canvas → CIImage)
+            ├─ applyRefraction()       ← CIFilter 체인
+            └─ compositeSpecular()     ← 경계면 하이라이트 합성
+```
+
+#### CIFilter 파이프라인
+
+```swift
+// 1. 배경 캡처 → CIImage
+let background = CIImage(image: captureBackground())
+
+// 2. Displacement map 생성 (Snell's law, 1회 생성 후 캐시)
+let displacementMap = generateDisplacementMap(
+    width: bounds.width,
+    height: bounds.height,
+    radius: radius,
+    bezelWidth: bezelWidth,
+    glassThickness: glassThickness,
+    refractiveIndex: 1.5
+)
+
+// 3. CIDisplacementDistortion — 경계면 굴절
+let displaced = background.applyingFilter("CIDisplacementDistortion", parameters: [
+    kCIInputDisplacementImageKey: displacementMap,
+    kCIInputScaleKey: refractionScale
+])
+
+// 4. 채도 부스트 (유리 통과 시 색감 강조)
+let saturated = displaced.applyingFilter("CIColorControls", parameters: [
+    kCIInputSaturationKey: 1.4
+])
+
+// 5. Specular highlight 합성
+let specular = generateSpecularHighlight(...)
+let final = saturated.applyingFilter("CIAdditionCompositing", parameters: [
+    kCIInputBackgroundImageKey: specular
+])
+```
+
+#### Displacement Map 생성 (Snell's Law)
+
+HTML 데모의 JS 로직을 Swift로 포팅:
+
+```swift
+func generateDisplacementMap(width: CGFloat, height: CGFloat, radius: CGFloat, 
+                              bezelWidth: CGFloat, glassThickness: CGFloat,
+                              refractiveIndex: CGFloat) -> CIImage {
+    // 1D: 반경 방향 변위 계산 (Snell's law)
+    let eta = 1.0 / refractiveIndex
+    var precomputed: [CGFloat] = []
+    for i in 0..<128 {
+        let x = CGFloat(i) / 128.0
+        let surfaceHeight = pow(1 - pow(1 - x, 4), 0.25) // convex_squircle
+        let derivative = /* 수치 미분 */
+        let normal = normalize([-derivative, -1])
+        let refracted = snellRefract(incident: [0, -1], normal: normal, eta: eta)
+        let displacement = refracted.x * (surfaceHeight * bezelWidth + glassThickness) / refracted.y
+        precomputed.append(displacement)
+    }
+    
+    // 2D: 각 픽셀에 대해 경계면까지 거리 → 1D 맵 참조 → R/G 채널 인코딩
+    let bitmap = createBitmap(width: Int(width), height: Int(height))
+    // ... (HTML 데모의 calculateDisplacementMap2D와 동일 로직)
+    
+    return CIImage(cgImage: bitmap.cgImage!)
+}
+```
+
+#### Props (React Native 인터페이스)
+
+```typescript
+interface LiquidGlassProps {
+  // 형상
+  radius: number;           // border-radius (px)
+  bezelWidth: number;       // 굴절이 일어나는 경계 두께 (px)
+  glassThickness: number;   // 유리 두께 → displacement 강도
+
+  // 광학
+  refractiveIndex?: number; // 굴절률 (기본 1.5)
+  refractionScale?: number; // displacement 강도 배수 (기본 1.0)
+  specularOpacity?: number; // 경계 하이라이트 투명도 (0~1, 기본 0.5)
+  
+  // 기타
+  blurRadius?: number;      // 배경 블러 (기본 0, frosted glass 효과 시 사용)
+  saturation?: number;      // 채도 부스트 (기본 1.4)
+  
+  children: React.ReactNode;
+  style?: ViewStyle;
+}
+```
+
+#### 사용 예시
+
+```tsx
+// FAB Pill
+<LiquidGlassView 
+  radius={28} 
+  bezelWidth={18} 
+  glassThickness={80}
+  style={{ position: 'absolute', bottom: 20, right: 20 }}
+>
+  <PillButtons />
+</LiquidGlassView>
+
+// Back button
+<LiquidGlassView 
+  radius={18} 
+  bezelWidth={12} 
+  glassThickness={50}
+  style={{ position: 'absolute', top: 12, left: 12, width: 36, height: 36 }}
+>
+  <BackIcon />
+</LiquidGlassView>
+
+// Feedback card (blur + refraction)
+<LiquidGlassView 
+  radius={14} 
+  bezelWidth={20} 
+  glassThickness={100}
+  blurRadius={30}
+  style={{ margin: 20 }}
+>
+  <FeedbackContent />
+</LiquidGlassView>
+```
+
+#### 배경 캡처 전략
+
+| 방법 | 장점 | 단점 |
+|------|------|------|
+| `UIView.drawHierarchy(in:afterScreenUpdates:)` | 정확 | 메인스레드, 느림 |
+| `UIView.snapshotView(afterScreenUpdates:)` | 빠름 | CIImage 변환 불가 |
+| `CALayer.render(in:)` | GPU 친화적 | 일부 뷰 누락 가능 |
+| **`UIWindowScene` 스크린샷 + crop** | 모든 레이어 포함 | 권한 이슈 없음 (자체 앱) |
+
+**추천**: `drawHierarchy` + 스크롤 시 throttle (16ms). Displacement map은 shape 변경 시에만 재생성 (캐시).
+
+#### 성능 최적화
+
+- **Displacement map 캐시**: shape(radius, bezelWidth, size)가 같으면 재생성 안 함
+- **배경 캡처 throttle**: 스크롤 이벤트에서 `CADisplayLink` 동기화 (60fps 이하로 제한)
+- **CIContext 재사용**: 앱 라이프사이클 동안 하나의 `CIContext(options: [.useSoftwareRenderer: false])` 공유
+- **Metal 가속**: `CIContext(mtlDevice:)` 사용으로 GPU 파이프라인 보장
+- **크기 제한**: 캡처 이미지를 @1x 해상도로 다운샘플 (refraction에 고해상도 불필요)
+
+#### 구현 순서
+
+| 단계 | 내용 | 파일 |
+|------|------|------|
+| 0 | **POC** — CIDisplacementDistortion 단독 테스트, 성능 측정 | 별도 브랜치 |
+| 1 | Expo Module 스캐폴딩 (`expo-liquid-glass`) | `modules/expo-liquid-glass/` |
+| 2 | Displacement map 생성 (Swift, Snell's law 포팅) | `ios/DisplacementMapGenerator.swift` |
+| 3 | Specular highlight 생성 | `ios/SpecularGenerator.swift` |
+| 4 | LiquidGlassView 구현 (배경 캡처 + CIFilter 체인) | `ios/LiquidGlassView.swift` |
+| 5 | React Native Props 바인딩 | `ios/LiquidGlassModule.swift` |
+| 6 | TypeScript 래퍼 + 사용 예시 | `src/components/LiquidGlass.tsx` |
+| 7 | 스크롤 동기화 (배경 업데이트 트리거) | `src/hooks/useLiquidGlass.ts` |
+| 8 | 성능 프로파일링 + 최적화 | — |
+
+#### 선행 조건
+- Expo dev client 환경 ✅
+- iPad 물리 디바이스 ✅
+- M9 (PencilKit) 완료 권장 — 피드백 오버레이 레이어 구조가 확정된 후 glass 효과 적용이 자연스러움
+
+#### 리스크
+
+| 리스크 | 영향 | 대응 |
+|--------|------|------|
+| `CIDisplacementDistortion` 성능 부족 (60fps 미달) | 스크롤 시 끊김 | Metal shader 직접 구현으로 대체 |
+| 배경 캡처 지연 (>16ms) | 글래스 내용이 1프레임 뒤처짐 | 캡처 해상도 낮춤 + predictive offset |
+| PencilKit 레이어와 캡처 충돌 | 필기 내용이 glass에 안 보임 | `afterScreenUpdates: true` 또는 합성 순서 조정 |
+
+#### Fallback (성능 미달 시)
+
+CIFilter 파이프라인이 60fps를 못 맞추면:
+1. **Static refraction**: 스크롤 중에는 단순 blur, 스크롤 멈춤 후 refraction 적용
+2. **Gradient border only**: displacement 없이 spectral gradient border + blur (디자인 HTML의 첫 번째 데모 수준)
+3. **최종 fallback**: `UIVisualEffectView` (.systemUltraThinMaterial) — Apple 기본 글래스
+
 ### 10.1 향후 검토 항목
 
 - **AI 학습 플래너**: 축적된 피드백 데이터(반복 실수 패턴, 노트별 숙련도)를 기반으로 복습 계획을 자동 생성. Spaced repetition 연동 가능. 현재 스펙 범위 완료 및 데이터 축적 후 검토.
@@ -1028,3 +1318,7 @@ iPad가 1차 타겟이므로 Android Skia 엔진은 현재 수준 유지. 향후
 | 노트 목록 UI (생성/삭제/탐색) | ✅ 완료 |
 | 로그인 UI (Supabase Auth) | ✅ 완료 |
 | 스트로크 자동 저장/로드 (SVG path ↔ SQLite) | ✅ 완료 |
+| Docker Compose (pgvector) + Makefile | ✅ 완료 |
+| 동적 API 호스트 (app.config.js getLocalIP) | ✅ 완료 |
+| expo-dev-client (물리 디바이스 Metro 연결) | ✅ 완료 |
+| JIT 유저 프로비저닝 (첫 API 요청 시 자동 생성) | ✅ 완료 |

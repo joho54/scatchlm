@@ -2,15 +2,29 @@ import Foundation
 
 struct AIResponse: Codable {
     let type: String
-    let recognizedText: String
-    let feedback: String
-    let summary: String
+    let content: String?
+    // Legacy fields
+    let recognizedText: String?
+    let feedback: String?
+    let summary: String?
 
     enum CodingKeys: String, CodingKey {
-        case type
+        case type, content
         case recognizedText = "recognized_text"
         case feedback
         case summary
+    }
+
+    /// 표시용 텍스트 — content 우선, legacy fallback
+    var displayText: String {
+        if let content, !content.isEmpty {
+            return content
+        }
+        var parts: [String] = []
+        if let r = recognizedText, !r.isEmpty { parts.append("📝 \(r)") }
+        if let f = feedback, !f.isEmpty { parts.append(f) }
+        if let s = summary, !s.isEmpty { parts.append("💡 \(s)") }
+        return parts.joined(separator: "\n\n")
     }
 }
 

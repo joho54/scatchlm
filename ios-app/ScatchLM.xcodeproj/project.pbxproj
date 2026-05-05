@@ -19,6 +19,7 @@
 		6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */; };
 		6E442C97A76BCDD84A9BBC36 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 0F63CE6E79A14DFB9036D806 /* GRDB */; };
 		6E5F523088581A9AF68C62BE /* LogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52A7F87E1D186E8DDE427CB /* LogService.swift */; };
+		8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9978D4A1B1559395568666 /* ViewExtensions.swift */; };
 		98722C743994C9B3F946C0AE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B229BDBE6FB4105C3256CA5C /* Supabase */; };
 		C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */; };
 		CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37AAE771009E3533316E278 /* PdfViewerView.swift */; };
@@ -27,6 +28,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0C9978D4A1B1559395568666 /* ViewExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewExtensions.swift; sourceTree = "<group>"; };
 		1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		2C56EBDAD48612F30CF2C40B /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
@@ -110,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				E448211B4B38BBC9147A67F8 /* Config.swift */,
+				0C9978D4A1B1559395568666 /* ViewExtensions.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -217,6 +220,7 @@
 				CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */,
 				2E4DE5B39114BE137C2444A3 /* ScatchLMApp.swift in Sources */,
 				3B0456884D1F535FC0CC2692 /* SettingsSheet.swift in Sources */,
+				8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

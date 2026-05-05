@@ -220,6 +220,7 @@ struct NoteView: View {
                 let allStrokes = canvasView.drawing.strokes
                 let newStrokes = Array(allStrokes.dropFirst(lastFeedbackStrokeCount))
                 guard !newStrokes.isEmpty else {
+                    appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "lastFeedback": "\(lastFeedbackStrokeCount)"])
                     loading = false
                     return
                 }
@@ -228,15 +229,44 @@ struct NoteView: View {
                 let newDrawing = PKDrawing(strokes: newStrokes)
                 let bounds = newDrawing.bounds
                 guard !bounds.isEmpty else {
+                    appLog("note", "feedback: empty bounds")
                     loading = false
                     return
                 }
 
-                let image = newDrawing.image(from: bounds, scale: UIScreen.main.scale)
-                guard let pngData = image.pngData() else {
+                // 캡처 — 항상 흰 배경 + 가시적 잉크
+                let scale = UIScreen.main.scale
+                let rawImage = newDrawing.image(from: bounds, scale: scale)
+                let renderer = UIGraphicsImageRenderer(size: rawImage.size)
+                let isDarkMode = UITraitCollection.current.userInterfaceStyle == .dark
+                let finalImage = renderer.image { ctx in
+                    UIColor.white.setFill()
+                    ctx.fill(CGRect(origin: .zero, size: rawImage.size))
+                    if isDarkMode {
+                        // 다크모드: 투명 배경에 흰 잉크 → 색 반전하여 검정 잉크로
+                        guard let cgImage = rawImage.cgImage,
+                              let ciImage = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: CIImage(cgImage: cgImage)])?.outputImage,
+                              let invertedCG = CIContext().createCGImage(ciImage, from: ciImage.extent) else {
+                            rawImage.draw(at: .zero)
+                            return
+                        }
+                        UIImage(cgImage: invertedCG).draw(at: .zero)
+                    } else {
+                        rawImage.draw(at: .zero)
+                    }
+                }
+                guard let pngData = finalImage.pngData() else {
+                    appLog("note", "feedback: pngData nil")
                     loading = false
                     return
                 }
+
+                appLog("note", "feedback: capture", [
+                    "newStrokes": "\(newStrokes.count)",
+                    "bounds": "\(bounds)",
+                    "pngBytes": "\(pngData.count)",
+                    "imageSize": "\(finalImage.size)",
+                ])
 
                 var fields: [String: String] = [
                     "note_id": noteId,
@@ -252,7 +282,7 @@ struct NoteView: View {
                 if let lastFeedback = feedbacks.last,
                    let data = lastFeedback.content.data(using: .utf8),
                    let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
-                    let ctx = "Previous: \(parsed.recognizedText)\nFeedback: \(parsed.feedback)\nSummary: \(parsed.summary)"
+                    let ctx = "Previous feedback:\n\(parsed.displayText)"
                     fields["previous_context"] = String(ctx.prefix(1500))
                 }
 
@@ -293,7 +323,7 @@ struct NoteView: View {
                     canvasView.contentSize.height = requiredHeight
                 }
 
-                appLog("note", "feedback received", ["recognizedText": response.recognizedText.prefix(50)])
+                appLog("note", "feedback received", ["content": String((response.content ?? response.displayText).prefix(80))])
             } catch {
                 appLogError("note", "feedback failed", ["error": "\(error)"])
             }
@@ -309,14 +339,16 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var onDrawingChanged: () -> Void
     var initialDrawingData: Data?
     var feedbacks: [FeedbackRecord]
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> PKCanvasView {
+        let isDark = colorScheme == .dark
         canvasView.drawingPolicy = .pencilOnly
-        canvasView.backgroundColor = .white
+        canvasView.backgroundColor = isDark ? .black : .white
         canvasView.isScrollEnabled = true
         canvasView.alwaysBounceVertical = true
         canvasView.isOpaque = true
-        canvasView.tool = PKInkingTool(.pen, color: .black, width: 3)
+        canvasView.tool = PKInkingTool(.pen, color: isDark ? .white : .black, width: 3)
         canvasView.delegate = context.coordinator
 
         // Load saved drawing
@@ -350,6 +382,15 @@ struct PencilKitCanvasView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
+        // Dark mode: update canvas background + default pen color
+        let isDark = colorScheme == .dark
+        uiView.backgroundColor = isDark ? .black : .white
+        // Only update tool color if user hasn't picked a custom color via tool picker
+        if let inkTool = uiView.tool as? PKInkingTool,
+           inkTool.color == .black || inkTool.color == .white {
+            uiView.tool = PKInkingTool(inkTool.inkType, color: isDark ? .white : .black, width: inkTool.width)
+        }
+
         if uiView.bounds.width > 0 && uiView.contentSize.width == 0 {
             uiView.contentSize = CGSize(
                 width: uiView.bounds.width,
@@ -381,15 +422,28 @@ struct PencilKitCanvasView: UIViewRepresentable {
             card.layer.shadowOffset = CGSize(width: 0, height: 2)
             card.isUserInteractionEnabled = false
 
-            let label = UILabel()
-            label.numberOfLines = 0
-            label.font = .systemFont(ofSize: 14)
-            label.textColor = .label
+            let label = UITextView()
+            label.isEditable = false
+            label.isScrollEnabled = false
+            label.backgroundColor = .clear
+            label.textContainerInset = .zero
+            label.textContainer.lineFragmentPadding = 0
 
-            if let p = parsed {
-                label.text = "📝 \(p.recognizedText)\n\n\(p.feedback)\n\n💡 \(p.summary)"
+            let rawText = parsed?.displayText ?? fb.content
+            if let attrStr = try? NSAttributedString(
+                markdown: rawText,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            ) {
+                let mutable = NSMutableAttributedString(attributedString: attrStr)
+                mutable.addAttributes([
+                    .font: UIFont.systemFont(ofSize: 14),
+                    .foregroundColor: UIColor.label,
+                ], range: NSRange(location: 0, length: mutable.length))
+                label.attributedText = mutable
             } else {
-                label.text = fb.content
+                label.text = rawText
+                label.font = .systemFont(ofSize: 14)
+                label.textColor = .label
             }
 
             card.addSubview(label)

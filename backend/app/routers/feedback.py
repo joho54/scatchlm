@@ -20,9 +20,11 @@ router = APIRouter(prefix="/api", tags=["feedback"])
 
 class FeedbackResponse(BaseModel):
     type: str = "feedback"
-    recognized_text: str
-    feedback: str
-    summary: str
+    content: str = ""
+    # Legacy fields (optional, for backward compat)
+    recognized_text: str = ""
+    feedback: str = ""
+    summary: str = ""
 
 
 @router.post("/feedback", response_model=FeedbackResponse)

@@ -289,6 +289,7 @@ class PageGuideResponse(BaseModel):
 async def get_page_guide(
     textbook_id: str,
     page: int,
+    response_language: str = "Korean",
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -330,7 +331,7 @@ async def get_page_guide(
     if not page_text.strip():
         raise HTTPException(status_code=400, detail="Page has no extractable text")
 
-    data = await generate_page_guide(page_text)
+    data = await generate_page_guide(page_text, response_language=response_language)
     if isinstance(data.get("connections"), dict):
         data["connections"] = json.dumps(data["connections"], ensure_ascii=False)
 
@@ -365,6 +366,7 @@ class ChapterGuideResponse(BaseModel):
 async def get_chapter_guide(
     textbook_id: str,
     chapter_id: str,
+    response_language: str = "Korean",
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -421,7 +423,7 @@ async def get_chapter_guide(
     if not chapter_text.strip():
         raise HTTPException(status_code=400, detail="Chapter has no extractable text")
 
-    data = await generate_chapter_guide(chapter_text)
+    data = await generate_chapter_guide(chapter_text, response_language=response_language)
 
     # 캐시 저장
     guide = PageGuide(

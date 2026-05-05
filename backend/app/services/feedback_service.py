@@ -12,18 +12,23 @@ log = logging.getLogger(__name__)
 
 client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-SYSTEM_PROMPT = (
-    "You are a foreign language learning assistant. "
-    "The user submits handwritten notes as images, sometimes with textbook reference text.\n"
-    "Recognize the handwriting, compare with textbook content if provided, and give feedback.\n"
-    "Respond ONLY with valid JSON in this format:\n"
-    '{"type":"feedback","recognized_text":"...","feedback":"...","summary":"..."}\n'
-    "- recognized_text: the exact text you read from the handwriting\n"
-    "- feedback: your evaluation and corrections in free-form text. "
-    "If textbook content is provided, grade the user's answers against it. "
-    "Be specific about what is correct and what needs fixing.\n"
-    "- summary: a brief summary in Korean\n"
-)
+def _build_system_prompt(response_language: str) -> str:
+    return (
+        "You are a foreign language learning assistant. "
+        "The user submits handwritten notes as images, sometimes with textbook reference text.\n\n"
+        "The image may contain text in MULTIPLE languages — the target language "
+        "AND the student's native language (translations, annotations, notes). "
+        "Recognize ALL text in the image and analyze the entire content holistically.\n\n"
+        "If the student wrote original text + translation, evaluate BOTH. "
+        "Check translations for accuracy, original text for correctness, "
+        "and compare with textbook content if provided.\n\n"
+        f"Respond naturally in {response_language} as a helpful tutor. "
+        "Be specific about what is correct and what needs fixing. "
+        "Use markdown formatting (bold, strikethrough) freely.\n\n"
+        "Respond ONLY with valid JSON: "
+        '{"type":"feedback","content":"your full response here"}\n'
+        "Put your ENTIRE response in the content field as a single string."
+    )
 
 # 모델별 토큰 단가 (USD per 1M tokens)
 MODEL_PRICING = {
@@ -122,8 +127,8 @@ async def get_feedback(
     start = time.monotonic()
     response = await client.messages.create(
         model=model,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
+        max_tokens=4096,
+        system=_build_system_prompt(response_language),
         messages=[{"role": "user", "content": user_content}],
     )
     latency_ms = int((time.monotonic() - start) * 1000)
@@ -149,8 +154,24 @@ async def get_feedback(
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError as e:
-        log.error("LLM JSON parse failed: %s | raw=%s", e, raw_text[:200])
-        raise
+        log.warning("LLM JSON parse failed, retrying: %s | raw=%s", e, raw_text[:200])
+        # 재시도: LLM에게 JSON 수정 요청
+        retry_response = await client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system="Fix the following malformed JSON. Return ONLY valid JSON, nothing else.",
+            messages=[{"role": "user", "content": raw_text}],
+        )
+        retry_text = retry_response.content[0].text.strip()
+        if retry_text.startswith("```"):
+            retry_lines = retry_text.split("\n")
+            retry_text = "\n".join(retry_lines[1:-1])
+        try:
+            data = json.loads(retry_text)
+            log.info("LLM JSON retry succeeded")
+        except json.JSONDecodeError:
+            log.error("LLM JSON retry also failed: raw=%s", retry_text[:200])
+            raise
 
     return FeedbackResult(
         data=data,

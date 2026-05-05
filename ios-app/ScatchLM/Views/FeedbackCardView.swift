@@ -9,48 +9,10 @@ struct FeedbackCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let parsed {
-                // Recognized text
-                if !parsed.recognizedText.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "text.viewfinder")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(parsed.recognizedText)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.primary)
-                    }
-
-                    Rectangle()
-                        .fill(Color(hex: 0xe8ecf0))
-                        .frame(height: 1)
-                }
-
-                // Feedback
-                Text(parsed.feedback)
-                    .font(.system(size: 14))
-                    .lineSpacing(4)
-
-                // Summary
-                if !parsed.summary.isEmpty {
-                    Rectangle()
-                        .fill(Color(hex: 0xe8ecf0))
-                        .frame(height: 1)
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "lightbulb.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                        Text(parsed.summary)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else {
-                Text(feedback.content)
-                    .font(.system(size: 14))
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(parsed?.displayText ?? feedback.content)
+                .font(.system(size: 14))
+                .lineSpacing(4)
         }
         .padding(14)
         .frame(width: feedback.bboxWidth)
@@ -64,7 +26,6 @@ struct FeedbackCardView: View {
     }
 }
 
-// Color hex convenience
 extension Color {
     init(hex: UInt, alpha: Double = 1.0) {
         self.init(

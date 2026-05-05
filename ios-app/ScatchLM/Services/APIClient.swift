@@ -3,9 +3,13 @@ import Foundation
 final class APIClient {
     static let shared = APIClient()
 
-    private let session = URLSession.shared
+    private let session: URLSession
 
-    private init() {}
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        session = URLSession(configuration: config)
+    }
 
     private var baseURL: String { Config.apiBaseURL }
 

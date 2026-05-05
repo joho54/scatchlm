@@ -8,6 +8,7 @@ struct PdfViewerView: View {
     let onPageChanged: (Int) -> Void
     let onClose: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
     @State private var pdfView: PDFView?
     @State private var showToc = false
@@ -30,18 +31,8 @@ struct PdfViewerView: View {
 
     var body: some View {
         ZStack {
-            // PDF content — full area
-            NativePdfView(
-                textbookId: textbookId,
-                initialPage: initialPage,
-                onPageChanged: { page in
-                    currentPage = page
-                    onPageChanged(page)
-                },
-                onPdfViewReady: { view in
-                    pdfView = view
-                }
-            )
+            // PDF content — full area, inverted in dark mode
+            pdfContentView
 
             // Floating top bar — page indicator + close
             VStack {
@@ -226,6 +217,29 @@ struct PdfViewerView: View {
         .presentationDetents([.medium, .large])
     }
 
+    // MARK: - PDF Content
+
+    @ViewBuilder
+    private var pdfContentView: some View {
+        let pdf = NativePdfView(
+            textbookId: textbookId,
+            initialPage: initialPage,
+            onPageChanged: { page in
+                currentPage = page
+                onPageChanged(page)
+            },
+            onPdfViewReady: { view in
+                pdfView = view
+            }
+        )
+
+        if colorScheme == .dark {
+            pdf.colorInvert()
+        } else {
+            pdf
+        }
+    }
+
     // MARK: - Navigation
 
     private func goToPage(_ page: Int) {
@@ -257,7 +271,7 @@ struct PdfViewerView: View {
             do {
                 pageGuide = try await APIClient.shared.get(
                     "/pdf/\(textbookId)/guide",
-                    query: ["page": "\(currentPage)"]
+                    query: ["page": "\(currentPage)", "response_language": Config.responseLanguage]
                 )
             } catch {
                 appLogError("pdf", "loadGuide failed", ["error": "\(error)"])
@@ -274,7 +288,7 @@ struct PdfViewerView: View {
             do {
                 chapterGuide = try await APIClient.shared.get(
                     "/pdf/\(textbookId)/chapter-guide",
-                    query: ["chapter_id": chapterId]
+                    query: ["chapter_id": chapterId, "response_language": Config.responseLanguage]
                 )
             } catch {
                 appLogError("pdf", "loadChapterGuide failed", ["error": "\(error)"])
@@ -332,7 +346,12 @@ struct NativePdfView: UIViewRepresentable {
         return pdfView
     }
 
-    func updateUIView(_ uiView: PDFView, context: Context) {}
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        // In dark mode, colorInvert() is applied at SwiftUI level,
+        // so set white bg here → gets inverted to black visually
+        let isDark = uiView.traitCollection.userInterfaceStyle == .dark
+        uiView.backgroundColor = isDark ? .white : .systemGray6
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onPageChanged: onPageChanged)

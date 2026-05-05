@@ -1,4 +1,8 @@
-const LOG_SERVER = "http://192.168.0.27:8000/api/dev/log";
+import Constants from "expo-constants";
+
+const apiHost = Constants.expoConfig?.extra?.apiHost;
+if (!apiHost) throw new Error("apiHost not configured in app.config.js extra");
+const LOG_SERVER = `http://${apiHost}:8000/api/dev/log`;
 const BATCH_INTERVAL = 2000;
 const MAX_QUEUE = 50;
 

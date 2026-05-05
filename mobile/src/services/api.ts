@@ -1,9 +1,13 @@
 import axios from "axios";
+import Constants from "expo-constants";
 import { supabase } from "./supabase";
 import logger from "./logger";
 
+const apiHost = Constants.expoConfig?.extra?.apiHost;
+if (!apiHost) throw new Error("apiHost not configured in app.config.js extra");
+
 const api = axios.create({
-  baseURL: "http://192.168.0.27:8000/api",
+  baseURL: `http://${apiHost}:8000/api`,
   timeout: 30000,
 });
 

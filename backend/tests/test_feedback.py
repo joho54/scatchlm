@@ -127,3 +127,69 @@ async def test_feedback_records_usage(client: AsyncClient, auth_header: dict):
     data = res.json()
     assert data["summary"]["total_requests"] >= 1
     assert data["summary"]["total_tokens"] >= 950
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_success(client: AsyncClient, auth_header: dict):
+    """피드백 채팅이 LLM 응답을 반환하는지 확인."""
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="완료형은 과거의 행동이 현재까지 영향을 미침을 나타냅니다.")]
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "완료형이 뭐야?",
+                "history": [],
+                "response_language": "Korean",
+            },
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert "content" in data
+    assert len(data["content"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_requires_auth(client: AsyncClient):
+    """인증 없이 채팅 요청 시 401 반환."""
+    res = await client.post(
+        "/api/feedback/chat",
+        json={"message": "test"},
+    )
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_with_response_language(client: AsyncClient, auth_header: dict):
+    """response_language가 시스템 프롬프트에 반영되는지 확인."""
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="test response")]
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "explain this",
+                "history": [],
+                "response_language": "Japanese",
+            },
+        )
+
+    assert res.status_code == 200
+    # system prompt에 Japanese가 포함되었는지 확인
+    call_kwargs = mock_client.messages.create.call_args.kwargs
+    assert "Japanese" in call_kwargs["system"]

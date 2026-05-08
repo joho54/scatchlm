@@ -66,12 +66,27 @@ async def request_feedback(
             context_parts.append(f"[페이지 {page_start}-{page_end}]\n{page_text}")
             log.info("Context: manual page range p.%d-%d", page_start, page_end)
 
-    # 2. 현재 보고 있는 페이지 (PDF 뷰어)
+    # 2. 현재 보고 있는 챕터 전체 (PDF 뷰어)
     elif source and current_page:
-        page_text = extract_pdf_text(source.server_path, current_page, current_page)
-        if page_text:
-            context_parts.append(f"[현재 페이지 {current_page}]\n{page_text}")
-            log.info("Context: current page p.%d", current_page)
+        from app.models.chapter import Chapter
+        chapter_result = await db.execute(
+            select(Chapter).where(
+                Chapter.textbook_id == textbook_id,
+                Chapter.page_start <= current_page,
+                Chapter.page_end >= current_page,
+            )
+        )
+        chapter = chapter_result.scalar_one_or_none()
+        if chapter:
+            page_text = extract_pdf_text(source.server_path, chapter.page_start, chapter.page_end or current_page)
+            if page_text:
+                context_parts.append(f"[{chapter.title} p.{chapter.page_start}-{chapter.page_end}]\n{page_text}")
+                log.info("Context: chapter '%s' p.%d-%d", chapter.title, chapter.page_start, chapter.page_end or 0)
+        else:
+            page_text = extract_pdf_text(source.server_path, current_page, current_page)
+            if page_text:
+                context_parts.append(f"[현재 페이지 {current_page}]\n{page_text}")
+                log.info("Context: current page p.%d (no chapter match)", current_page)
 
     # 3. RAG 자동 검색 (교재 연결 시 항상 실행)
     if textbook_id:
@@ -225,7 +240,10 @@ async def feedback_chat(
             "2. When your answer uses knowledge NOT found in the references above, clearly mark it as: 📖 교재 외 참고:\n"
             "3. Always prefer textbook content over general knowledge when both are available.\n"
             "4. Quote relevant textbook passages directly when helpful.\n"
-            "5. If the references don't contain relevant information for the question, say so and provide general knowledge with the 📖 marker."
+            "5. If the references don't contain relevant information for the question, say so and provide general knowledge with the 📖 marker.\n"
+            "6. If the student asks about content from a DIFFERENT chapter than what's provided, tell them: "
+            "\"해당 내용은 현재 보고 계신 챕터에 없습니다. 관련 챕터로 이동한 후 다시 질문해 주세요.\" "
+            "and suggest which chapter/page they should navigate to if you can infer it."
         )
     else:
         system_parts.append(

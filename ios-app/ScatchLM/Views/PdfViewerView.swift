@@ -318,26 +318,39 @@ struct NativePdfView: UIViewRepresentable {
             onPdfViewReady?(pdfView)
         }
 
-        // Load PDF — cached locally after first download
-        let startTime = CFAbsoluteTimeGetCurrent()
-        Task {
-            let data = await Self.loadPdfData(textbookId: textbookId)
-            guard let data else { return }
-            await MainActor.run {
-                if let document = PDFDocument(data: data) {
-                    pdfView.document = document
-                    if initialPage > 1, let page = document.page(at: initialPage - 1) {
-                        pdfView.go(to: page)
+        let coordinator = context.coordinator
+
+        // Reuse cached document if available (survives rotation/app switch)
+        if let cachedDoc = coordinator.cachedDocument {
+            pdfView.document = cachedDoc
+            let targetPage = coordinator.lastPage
+            if targetPage > 0, let page = cachedDoc.page(at: targetPage - 1) {
+                pdfView.go(to: page)
+            }
+        } else {
+            let startTime = CFAbsoluteTimeGetCurrent()
+            let page = initialPage
+            Task {
+                let data = await Self.loadPdfData(textbookId: textbookId)
+                guard let data else { return }
+                await MainActor.run {
+                    if let document = PDFDocument(data: data) {
+                        pdfView.document = document
+                        coordinator.cachedDocument = document
+                        coordinator.lastPage = page
+                        if page > 1, let p = document.page(at: page - 1) {
+                            pdfView.go(to: p)
+                        }
+                        let totalTime = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
+                        appLog("pdf", "ready", ["pages": "\(document.pageCount)", "ms": "\(totalTime)"])
                     }
-                    let totalTime = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
-                    appLog("pdf", "ready", ["pages": "\(document.pageCount)", "ms": "\(totalTime)"])
                 }
             }
         }
 
         // Page change notification
         NotificationCenter.default.addObserver(
-            context.coordinator,
+            coordinator,
             selector: #selector(Coordinator.pageChanged),
             name: .PDFViewPageChanged,
             object: pdfView
@@ -385,6 +398,8 @@ struct NativePdfView: UIViewRepresentable {
 
     class Coordinator: NSObject {
         let onPageChanged: (Int) -> Void
+        var cachedDocument: PDFDocument?
+        var lastPage: Int = 1
 
         init(onPageChanged: @escaping (Int) -> Void) {
             self.onPageChanged = onPageChanged
@@ -395,7 +410,9 @@ struct NativePdfView: UIViewRepresentable {
                   let currentPage = pdfView.currentPage,
                   let document = pdfView.document else { return }
             let pageIndex = document.index(for: currentPage)
-            onPageChanged(pageIndex + 1) // 1-indexed
+            let page = pageIndex + 1
+            lastPage = page
+            onPageChanged(page)
         }
     }
 }

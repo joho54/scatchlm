@@ -62,6 +62,56 @@ final class DatabaseService {
                 t.column("updated_at", .datetime).notNull()
                 t.uniqueKey(["textbook_id", "page"])
             }
+
+        }
+
+        migrator.registerMigration("v2_feedback_chats") { db in
+            try db.create(table: "feedback_chats", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("feedback_id", .text).notNull().references("feedbacks", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("content", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+            }
+        }
+
+        migrator.registerMigration("v3_note_pages") { db in
+            // 1. Create note_pages table
+            try db.create(table: "note_pages", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("note_id", .text).notNull().references("notes", onDelete: .cascade)
+                t.column("page_index", .integer).notNull()
+                t.column("drawing_data", .blob)
+                t.column("created_at", .datetime).notNull()
+                t.uniqueKey(["note_id", "page_index"])
+            }
+
+            // 2. Add page_id to feedbacks
+            try db.alter(table: "feedbacks") { t in
+                t.add(column: "page_id", .text)
+            }
+
+            // 3. Add current_page_index to notes
+            try db.alter(table: "notes") { t in
+                t.add(column: "current_page_index", .integer).defaults(to: 0)
+            }
+
+            // 4. Migrate existing drawing_data to page 0
+            let notes = try Row.fetchAll(db, sql: "SELECT id, drawing_data FROM notes")
+            for note in notes {
+                let noteId: String = note["id"]
+                let drawingData: Data? = note["drawing_data"]
+                let pageId = UUID().uuidString
+                try db.execute(
+                    sql: "INSERT INTO note_pages (id, note_id, page_index, drawing_data, created_at) VALUES (?, ?, 0, ?, ?)",
+                    arguments: [pageId, noteId, drawingData, Date()]
+                )
+                // Link existing feedbacks to this page
+                try db.execute(
+                    sql: "UPDATE feedbacks SET page_id = ? WHERE note_id = ?",
+                    arguments: [pageId, noteId]
+                )
+            }
         }
 
         try migrator.migrate(dbQueue)
@@ -168,6 +218,83 @@ final class DatabaseService {
                 updatedAt: Date()
             )
             try drawing.save(db)
+        }
+    }
+
+    // MARK: - Note Pages
+
+    func pages(noteId: String) throws -> [NotePage] {
+        try dbQueue.read { db in
+            try NotePage
+                .filter(NotePage.Columns.noteId == noteId)
+                .order(NotePage.Columns.pageIndex.asc)
+                .fetchAll(db)
+        }
+    }
+
+    func page(noteId: String, pageIndex: Int) throws -> NotePage? {
+        try dbQueue.read { db in
+            try NotePage
+                .filter(NotePage.Columns.noteId == noteId && NotePage.Columns.pageIndex == pageIndex)
+                .fetchOne(db)
+        }
+    }
+
+    func createPage(noteId: String, pageIndex: Int) throws -> NotePage {
+        var page = NotePage(
+            id: UUID().uuidString,
+            noteId: noteId,
+            pageIndex: pageIndex,
+            drawingData: nil,
+            createdAt: Date()
+        )
+        try dbQueue.write { db in
+            try page.save(db)
+        }
+        return page
+    }
+
+    func savePageDrawing(pageId: String, data: Data) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE note_pages SET drawing_data = ? WHERE id = ?",
+                arguments: [data, pageId]
+            )
+        }
+    }
+
+    func updateCurrentPageIndex(noteId: String, index: Int) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE notes SET current_page_index = ? WHERE id = ?",
+                arguments: [index, noteId]
+            )
+        }
+    }
+
+    func feedbacks(pageId: String) throws -> [FeedbackRecord] {
+        try dbQueue.read { db in
+            try FeedbackRecord
+                .filter(sql: "page_id = ?", arguments: [pageId])
+                .order(FeedbackRecord.Columns.createdAt.asc)
+                .fetchAll(db)
+        }
+    }
+
+    // MARK: - Feedback Chats
+
+    func chatMessages(feedbackId: String) throws -> [ChatMessageRecord] {
+        try dbQueue.read { db in
+            try ChatMessageRecord
+                .filter(ChatMessageRecord.Columns.feedbackId == feedbackId)
+                .order(ChatMessageRecord.Columns.createdAt.asc)
+                .fetchAll(db)
+        }
+    }
+
+    func saveChatMessage(_ msg: inout ChatMessageRecord) throws {
+        try dbQueue.write { db in
+            try msg.save(db)
         }
     }
 }

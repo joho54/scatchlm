@@ -133,3 +133,122 @@ async def request_feedback(
     await db.commit()
 
     return FeedbackResponse(**result.data)
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+    response_language: str = "Korean"
+    textbook_id: str | None = None
+    current_page: int | None = None
+
+class ChatResponse(BaseModel):
+    content: str
+    sources: list[dict] = []  # [{"page_start": 33, "page_end": 34, "preview": "..."}]
+
+
+@router.post("/feedback/chat", response_model=ChatResponse)
+async def feedback_chat(
+    req: ChatRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """피드백 후속 채팅 — RAG 지원."""
+    from anthropic import AsyncAnthropic
+    from app.core.config import settings
+
+    log.info("Feedback chat: user=%s history=%d msg=%s textbook=%s",
+             user_id, len(req.history), req.message[:50], req.textbook_id)
+
+    # 현재 챕터의 전체 텍스트를 컨텍스트로 주입
+    textbook_context = ""
+    sources = []
+    if req.textbook_id and req.current_page:
+        try:
+            from app.models.chapter import Chapter
+
+            # 현재 페이지가 속한 챕터 찾기
+            chapter_result = await db.execute(
+                select(Chapter).where(
+                    Chapter.textbook_id == req.textbook_id,
+                    Chapter.page_start <= req.current_page,
+                    Chapter.page_end >= req.current_page,
+                )
+            )
+            chapter = chapter_result.scalar_one_or_none()
+
+            if chapter:
+                # 챕터 전체 텍스트 추출
+                page_text = extract_pdf_text(
+                    (await db.execute(
+                        select(TextbookSource).where(TextbookSource.id == req.textbook_id)
+                    )).scalar_one().server_path,
+                    chapter.page_start,
+                    chapter.page_end or chapter.page_start + 10,
+                )
+                textbook_context = f"--- {chapter.title} (p.{chapter.page_start}-{chapter.page_end}) ---\n{page_text}"
+                sources.append({
+                    "page_start": chapter.page_start,
+                    "page_end": chapter.page_end,
+                    "preview": chapter.title,
+                })
+                log.info("Chat context: chapter='%s' pages=%d-%d chars=%d",
+                         chapter.title, chapter.page_start, chapter.page_end or 0, len(page_text))
+            else:
+                # 챕터 매칭 안 되면 현재 페이지만
+                source = (await db.execute(
+                    select(TextbookSource).where(TextbookSource.id == req.textbook_id)
+                )).scalar_one_or_none()
+                if source:
+                    page_text = extract_pdf_text(source.server_path, req.current_page, req.current_page)
+                    textbook_context = f"--- p.{req.current_page} ---\n{page_text}"
+                    log.info("Chat context: single page %d, chars=%d", req.current_page, len(page_text))
+        except Exception:
+            log.exception("Chat context extraction failed")
+
+    # 시스템 프롬프트 구성
+    system_parts = [
+        f"You are a language learning tutor helping a student study with their textbook.",
+        f"Respond in {req.response_language}. Use markdown formatting freely.",
+    ]
+
+    if textbook_context:
+        system_parts.append(
+            "\nTEXTBOOK REFERENCES (from the student's textbook):\n"
+            + textbook_context
+            + "\n\nRULES:\n"
+            "1. When your answer is based on the textbook references above, cite the page number inline: [p.33]\n"
+            "2. When your answer uses knowledge NOT found in the references above, clearly mark it as: 📖 교재 외 참고:\n"
+            "3. Always prefer textbook content over general knowledge when both are available.\n"
+            "4. Quote relevant textbook passages directly when helpful.\n"
+            "5. If the references don't contain relevant information for the question, say so and provide general knowledge with the 📖 marker."
+        )
+    else:
+        system_parts.append(
+            "No textbook is connected. Answer based on your general knowledge."
+        )
+
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    messages = []
+    for msg in req.history:
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": req.message})
+
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system="\n".join(system_parts),
+        messages=messages,
+    )
+
+    content = response.content[0].text
+    log.info("Feedback chat response: tokens=%d (in=%d out=%d) content=%s",
+             response.usage.input_tokens + response.usage.output_tokens,
+             response.usage.input_tokens, response.usage.output_tokens,
+             content[:800])
+    return ChatResponse(content=content, sources=sources)

@@ -2,6 +2,12 @@ import SwiftUI
 import PencilKit
 import PDFKit
 import UniformTypeIdentifiers
+import MarkdownUI
+
+// Custom tap gesture that carries a FeedbackRecord
+class FeedbackTapGesture: UITapGestureRecognizer {
+    var feedbackRecord: FeedbackRecord?
+}
 
 struct NoteView: View {
     let noteId: String
@@ -14,12 +20,23 @@ struct NoteView: View {
     @State private var pdfOpen = false
     @State private var currentPage: Int = 1
     @State private var lastFeedbackStrokeCount: Int = 0
+    @State private var chatFeedback: FeedbackRecord?
+    // Page system
+    @State private var notePages: [NotePage] = []
+    @State private var currentPageIndex: Int = 0
+    @State private var currentNotePage: NotePage?
 
     private let db = DatabaseService.shared
 
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
+
+    private var isLandscape: Bool {
+        vSizeClass == .compact || (hSizeClass == .regular && vSizeClass == .regular && UIScreen.main.bounds.width > UIScreen.main.bounds.height)
+    }
+
     var body: some View {
         GeometryReader { geo in
-            let isLandscape = geo.size.width > geo.size.height
 
             ZStack {
                 if let note {
@@ -99,6 +116,9 @@ struct NoteView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.container, edges: .bottom)
+        .sheet(item: $chatFeedback) { fb in
+            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage)
+        }
         .task { await loadNote() }
         .onDisappear { saveDrawing() }
     }
@@ -110,8 +130,11 @@ struct NoteView: View {
         PencilKitCanvasView(
             canvasView: $canvasView,
             onDrawingChanged: saveDrawing,
-            initialDrawingData: note.drawingData,
-            feedbacks: feedbacks
+            initialDrawingData: currentNotePage?.drawingData ?? note.drawingData,
+            feedbacks: feedbacks,
+            onFeedbackTapped: { fb in
+                chatFeedback = fb
+            }
         )
         .clipped()
     }
@@ -124,7 +147,7 @@ struct NoteView: View {
             PdfViewerView(
                 textbookId: textbookId,
                 totalPages: note.textbookPages,
-                initialPage: note.lastPage,
+                initialPage: currentPage,
                 onPageChanged: { page in
                     currentPage = page
                     try? db.updateLastPage(noteId: noteId, page: page)
@@ -141,46 +164,88 @@ struct NoteView: View {
 
     @ViewBuilder
     private func fabPill(note: Note) -> some View {
-        HStack(spacing: 2) {
-            // PDF toggle
-            Button {
-                if note.textbookId != nil {
-                    pdfOpen.toggle()
-                    try? db.updatePdfOpen(noteId: noteId, open: pdfOpen)
+        VStack(spacing: 8) {
+            // Page navigation
+            if notePages.count > 1 {
+                HStack(spacing: 4) {
+                    Button { goToPage(index: currentPageIndex - 1) } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 28, height: 28)
+                    }
+                    .disabled(currentPageIndex <= 0)
+
+                    Text("\(currentPageIndex + 1)/\(notePages.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Button { goToPage(index: currentPageIndex + 1) } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 28, height: 28)
+                    }
+                    .disabled(currentPageIndex >= notePages.count - 1)
                 }
-            } label: {
-                Image(systemName: pdfOpen ? "book.fill" : "book")
-                    .font(.system(size: 22))
-                    .foregroundStyle(pdfOpen ? .white : .secondary)
-                    .frame(width: 48, height: 48)
-                    .background(pdfOpen ? Color(white: 0, opacity: 0.7) : .clear)
-                    .clipShape(Circle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
             }
 
-            Rectangle()
-                .fill(Color.black.opacity(0.08))
-                .frame(width: 1, height: 24)
-
-            // Feedback request
-            Button {
-                requestFeedback()
-            } label: {
-                if loading {
-                    ProgressView()
+            // Main FAB
+            HStack(spacing: 2) {
+                // PDF toggle
+                Button {
+                    if note.textbookId != nil {
+                        pdfOpen.toggle()
+                        try? db.updatePdfOpen(noteId: noteId, open: pdfOpen)
+                    }
+                } label: {
+                    Image(systemName: pdfOpen ? "book.fill" : "book")
+                        .font(.system(size: 22))
+                        .foregroundStyle(pdfOpen ? .white : .secondary)
                         .frame(width: 48, height: 48)
-                } else {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 26))
-                        .foregroundStyle(.primary)
+                        .background(pdfOpen ? Color(white: 0, opacity: 0.7) : .clear)
+                        .clipShape(Circle())
+                }
+
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(width: 1, height: 24)
+
+                // New page
+                Button { newPage() } label: {
+                    Image(systemName: "plus.rectangle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
                         .frame(width: 48, height: 48)
                 }
+
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(width: 1, height: 24)
+
+                // Feedback request
+                Button {
+                    requestFeedback()
+                } label: {
+                    if loading {
+                        ProgressView()
+                            .frame(width: 48, height: 48)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.primary)
+                            .frame(width: 48, height: 48)
+                    }
+                }
+                .disabled(loading)
             }
-            .disabled(loading)
+            .padding(4)
+            .background(.ultraThinMaterial)
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
         }
-        .padding(4)
-        .background(.ultraThinMaterial)
-        .clipShape(Capsule())
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
     }
 
     // MARK: - Data
@@ -188,27 +253,89 @@ struct NoteView: View {
     private func loadNote() async {
         do {
             note = try db.note(id: noteId)
-            feedbacks = try db.feedbacks(noteId: noteId)
 
             if let note, note.pdfOpen, note.textbookId != nil {
                 pdfOpen = true
             }
             currentPage = note?.lastPage ?? 1
+            currentPageIndex = note?.currentPageIndex ?? 0
+
+            // Load pages
+            notePages = try db.pages(noteId: noteId)
+            if notePages.isEmpty {
+                // First time — create page 0
+                let page = try db.createPage(noteId: noteId, pageIndex: 0)
+                notePages = [page]
+            }
+
+            // Load current page
+            loadPage(index: currentPageIndex)
 
             appLog("note", "loaded", [
                 "id": noteId,
                 "hasPdf": "\(note?.textbookId != nil)",
-                "feedbacks": "\(feedbacks.count)",
+                "pages": "\(notePages.count)",
+                "currentPage": "\(currentPageIndex)",
             ])
         } catch {
             appLogError("note", "load failed", ["error": "\(error)"])
         }
     }
 
+    private func loadPage(index: Int) {
+        guard index >= 0, index < notePages.count else { return }
+        let page = notePages[index]
+        currentNotePage = page
+        currentPageIndex = index
+        lastFeedbackStrokeCount = 0
+
+        // Load feedbacks for this page
+        if let pageId = page.id as String? {
+            feedbacks = (try? db.feedbacks(pageId: pageId)) ?? []
+        }
+
+        appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
+    }
+
     private func saveDrawing() {
-        guard !canvasView.drawing.strokes.isEmpty else { return }
+        guard !canvasView.drawing.strokes.isEmpty, let page = currentNotePage else { return }
         let data = canvasView.drawing.dataRepresentation()
-        try? db.updateDrawingData(noteId: noteId, data: data)
+        try? db.savePageDrawing(pageId: page.id, data: data)
+    }
+
+    private func newPage() {
+        // Save current page
+        saveDrawing()
+
+        // Create new page
+        let newIndex = notePages.count
+        guard let page = try? db.createPage(noteId: noteId, pageIndex: newIndex) else { return }
+        notePages.append(page)
+        currentPageIndex = newIndex
+        try? db.updateCurrentPageIndex(noteId: noteId, index: newIndex)
+
+        // Clear canvas
+        canvasView.drawing = PKDrawing()
+        loadPage(index: newIndex)
+
+        appLog("note", "newPage", ["index": "\(newIndex)"])
+    }
+
+    private func goToPage(index: Int) {
+        guard index >= 0, index < notePages.count, index != currentPageIndex else { return }
+        // Save current
+        saveDrawing()
+        try? db.updateCurrentPageIndex(noteId: noteId, index: index)
+
+        // Load target page drawing
+        let targetPage = notePages[index]
+        if let drawingData = targetPage.drawingData, let drawing = try? PKDrawing(data: drawingData) {
+            canvasView.drawing = drawing
+        } else {
+            canvasView.drawing = PKDrawing()
+        }
+
+        loadPage(index: index)
     }
 
     private func requestFeedback() {
@@ -309,13 +436,14 @@ struct NoteView: View {
                 var record = FeedbackRecord(
                     id: UUID().uuidString,
                     noteId: noteId,
+                    pageId: currentNotePage?.id,
                     content: String(data: jsonData, encoding: .utf8) ?? "{}",
                     positionX: 16,
                     positionY: y,
                     bboxX: 16,
                     bboxY: y,
                     bboxWidth: width,
-                    bboxHeight: 200,
+                    bboxHeight: 400,
                     createdAt: Date()
                 )
                 try db.saveFeedback(&record)
@@ -346,6 +474,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var onDrawingChanged: () -> Void
     var initialDrawingData: Data?
     var feedbacks: [FeedbackRecord]
+    var onFeedbackTapped: ((FeedbackRecord) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> PKCanvasView {
@@ -353,13 +482,17 @@ struct PencilKitCanvasView: UIViewRepresentable {
         canvasView.drawingPolicy = .pencilOnly
         canvasView.backgroundColor = isDark ? .black : .white
         canvasView.isScrollEnabled = true
-        canvasView.alwaysBounceVertical = true
+        canvasView.alwaysBounceVertical = false
+        canvasView.bounces = true
+        canvasView.contentInsetAdjustmentBehavior = .never
         canvasView.isOpaque = true
         canvasView.tool = PKInkingTool(.pen, color: isDark ? .white : .black, width: 3)
         canvasView.delegate = context.coordinator
 
-        // Load saved drawing
-        if let data = initialDrawingData, let drawing = try? PKDrawing(data: data) {
+        // Load saved drawing — only if canvas is empty (avoid overwriting on rotation)
+        if canvasView.drawing.strokes.isEmpty,
+           let data = initialDrawingData,
+           let drawing = try? PKDrawing(data: data) {
             canvasView.drawing = drawing
         }
 
@@ -428,7 +561,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
             card.layer.shadowOpacity = 0.1
             card.layer.shadowRadius = 4
             card.layer.shadowOffset = CGSize(width: 0, height: 2)
-            card.isUserInteractionEnabled = false
+            card.isUserInteractionEnabled = true
+
+            let tapGesture = FeedbackTapGesture(target: context.coordinator, action: #selector(Coordinator.feedbackCardTapped(_:)))
+            tapGesture.feedbackRecord = fb
+            card.addGestureRecognizer(tapGesture)
 
             let label = UITextView()
             label.isEditable = false
@@ -472,11 +609,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onDrawingChanged: onDrawingChanged)
+        let c = Coordinator(onDrawingChanged: onDrawingChanged)
+        c.onFeedbackTapped = onFeedbackTapped
+        return c
     }
 
     class Coordinator: NSObject, PKCanvasViewDelegate {
         let onDrawingChanged: () -> Void
+        var onFeedbackTapped: ((FeedbackRecord) -> Void)?
         var toolPicker: PKToolPicker?
         private var saveTimer: Timer?
 
@@ -484,8 +624,19 @@ struct PencilKitCanvasView: UIViewRepresentable {
             self.onDrawingChanged = onDrawingChanged
         }
 
+        @objc func feedbackCardTapped(_ gesture: FeedbackTapGesture) {
+            if let fb = gesture.feedbackRecord {
+                onFeedbackTapped?(fb)
+            }
+        }
+
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            // Auto-expand content size
+            // Prevent upward expansion — clamp contentOffset to >= 0
+            if canvasView.contentOffset.y < 0 {
+                canvasView.contentOffset.y = 0
+            }
+
+            // Auto-expand content size (downward only)
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? canvasView.bounds.height
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
@@ -499,5 +650,24 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 self?.onDrawingChanged()
             }
         }
+    }
+}
+
+// MARK: - Markdown Feedback Card (SwiftUI, hosted in UIKit)
+
+struct MarkdownFeedbackCard: View {
+    let content: String
+    let width: CGFloat
+
+    var body: some View {
+        Markdown(content)
+            .markdownTextStyle {
+                FontSize(14)
+            }
+            .padding(14)
+            .frame(width: width, alignment: .leading)
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
     }
 }

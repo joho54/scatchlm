@@ -1,112 +1,148 @@
 # ScatchLM
 
-펜 드로잉 기반 외국어 학습 보조 모바일 앱. 손글씨 입력을 Claude Vision API로 인식하고, 피드백을 캔버스 위에 렌더링한다.
+펜 드로잉 기반 외국어 학습 보조 iPad 앱. Apple Pencil 손글씨를 Claude Vision API로 인식하고, AI 피드백을 제공한다.
 
 ## 프로젝트 구조
 
 ```
 scatchlm/
-├── backend/          # FastAPI 백엔드
+├── backend/              # FastAPI 백엔드
 │   ├── app/
-│   │   ├── core/     # config, auth (Supabase JWT 검증)
-│   │   ├── models/   # SQLAlchemy 모델
-│   │   ├── routers/  # API 엔드포인트 (feedback, pdf)
-│   │   └── services/ # 비즈니스 로직
+│   │   ├── core/         # config, auth, database
+│   │   ├── models/       # SQLAlchemy 모델 (user, textbook, document, guide, chapter, usage)
+│   │   ├── routers/      # API 엔드포인트 (feedback, pdf, admin, devlog)
+│   │   └── services/     # 비즈니스 로직 (feedback, guide, retrieval, embedding, indexing, pdf, chapter)
 │   ├── tests/
-│   └── uploads/      # PDF 업로드 저장소
-├── mobile/           # React Native (Expo) 모바일 앱
-│   ├── app/          # expo-router 페이지
-│   └── src/
-│       ├── components/
-│       ├── hooks/
-│       ├── services/  # API 클라이언트, Supabase
-│       ├── stores/    # Zustand 상태 관리
-│       └── types/
-└── SPEC.md           # 전체 명세서
+│   ├── scripts/          # 마이그레이션 스크립트 (backfill_toc.py)
+│   ├── docker-compose.yml
+│   ├── Makefile
+│   └── uploads/          # PDF 업로드 저장소
+├── ios-app/              # Swift/SwiftUI 네이티브 앱 (현재 활성)
+│   ├── ScatchLM/
+│   │   ├── App/          # ScatchLMApp.swift
+│   │   ├── Views/        # SwiftUI 뷰 (Login, Home, Note, PdfViewer, FeedbackChat, Settings 등)
+│   │   ├── Models/       # GRDB 모델 (Note, NotePage, FeedbackRecord, ChatMessageRecord 등)
+│   │   ├── Services/     # DatabaseService, AuthService, APIClient, LogService
+│   │   └── Utilities/    # Config
+│   ├── project.yml       # XcodeGen 프로젝트 설정
+│   └── ScatchLM.xcodeproj
+├── mobile/               # React Native (Expo) — 레거시, 참조용
+└── SPEC.md               # 전체 명세서
 ```
 
 ## 기술 스택
 
 ### Backend (Python)
 - **프레임워크**: FastAPI + uvicorn
-- **DB**: PostgreSQL + SQLAlchemy (async) + asyncpg
-- **인증**: Supabase Auth (JWT 검증)
+- **DB**: PostgreSQL + pgvector + SQLAlchemy (async) + asyncpg
+- **인증**: Supabase Auth (JWT 검증, JIT 유저 프로비저닝)
 - **LLM**: anthropic Python SDK (Claude Vision API, async)
+- **임베딩**: Voyage AI (voyage-3-lite, 512차원)
 - **PDF**: PyMuPDF (fitz)
-- **마이그레이션**: Alembic (async, autogenerate)
-- **테스트**: pytest + pytest-asyncio
+- **컨테이너**: Docker Compose (pgvector/pgvector:pg16, 포트 5433)
 
-### Mobile (TypeScript)
-- **프레임워크**: React Native (Expo SDK 54) + expo-router
-- **드로잉**: @shopify/react-native-skia
-- **상태관리**: Zustand
-- **로컬DB**: expo-sqlite
-- **인증**: @supabase/supabase-js
-- **HTTP**: axios
+### iOS App (Swift)
+- **UI**: SwiftUI
+- **드로잉**: PencilKit (PKCanvasView, UIViewRepresentable)
+- **PDF**: PDFKit (PDFView, UIViewRepresentable)
+- **로컬DB**: GRDB.swift (SQLite)
+- **인증**: supabase-swift
+- **HTTP**: URLSession (async/await)
+- **마크다운**: MarkdownUI (채팅 시트)
+- **상태관리**: @Observable, @State
+- **프로젝트**: XcodeGen (project.yml → .xcodeproj)
 
 ## 개발 커맨드
 
 ### Backend
 ```bash
 cd backend
-source venv/bin/activate
-uvicorn app.main:app --reload          # 개발 서버 (localhost:8000)
-pytest                                  # 테스트 실행
-pytest tests/test_auth.py -v           # 특정 테스트
+make db-up                              # PostgreSQL Docker 시작 (포트 5433)
+make serve                              # uvicorn --reload --host 0.0.0.0 (포트 8000)
+make migrate                            # alembic upgrade head
+make test                               # pytest
 ```
 
-### Mobile
+### iOS App
 ```bash
-cd mobile
-metro                                    # Expo 개발 서버 (alias, 로그 → mobile/logs/metro.log)
-npm run ios                             # iOS 시뮬레이터
-npm run android                         # Android 에뮬레이터
+cd ios-app
+xcodegen generate                       # project.yml → .xcodeproj 생성
+xcodebuild -project ScatchLM.xcodeproj -scheme ScatchLM \
+  -destination 'id=00008103-000C65D43AEB001E' \
+  -allowProvisioningUpdates build       # iPad 빌드
+xcrun devicectl device install app \
+  --device 00008103-000C65D43AEB001E \
+  ~/Library/Developer/Xcode/DerivedData/ScatchLM-*/Build/Products/Debug-iphoneos/ScatchLM.app  # 설치
 ```
 
-- Metro 로그 파일: `mobile/logs/metro.log` — `console.log` 출력이 여기에 파이프됨 (`~/.zshrc` alias)
+### 로그 확인
+
+**Backend 로그**: `backend/logs/uvicorn.log` — `make serve`가 `tee`로 파이프
+```bash
+tail -f backend/logs/uvicorn.log
+grep "FE" backend/logs/uvicorn.log       # iOS 앱 로그 (LogService → POST /api/dev/log/batch)
+grep "LLM response" backend/logs/uvicorn.log  # LLM 호출 결과
+grep "RAG\|Query rewrite" backend/logs/uvicorn.log  # RAG 검색 로그
+```
+
+**iOS 앱 로그**: `LogService`가 2초마다 `POST /api/dev/log/batch`로 백엔드에 전송
+- 백엔드 로그에서 `[fe]` 또는 `FE` 태그로 필터링
+- `appLog("tag", "message", ["key": "value"])` / `appLogError(...)` 사용
 
 ### DB 마이그레이션 (Alembic)
 
-모델(`app/models/`) 변경 시 반드시 마이그레이션을 생성하고 적용할 것. 수동 ALTER TABLE 금지.
+모델(`app/models/`) 변경 시 반드시 마이그레이션을 생성하고 적용할 것.
 
 ```bash
-cd backend
-source venv/bin/activate
-alembic revision --autogenerate -m "설명"   # 마이그레이션 자동 생성
-alembic upgrade head                        # DB에 적용
-alembic current                             # 현재 revision 확인
-alembic downgrade -1                        # 롤백
+cd backend && source venv/bin/activate
+alembic revision --autogenerate -m "설명"
+alembic upgrade head
 ```
 
-- `env.py`가 `app.core.config.settings.DATABASE_URL`을 사용하므로 `alembic.ini`에 DB URL 설정 불필요
-- 새 모델 파일 추가 시 `alembic/env.py`에 import 추가 필요
+### iOS DB 마이그레이션 (GRDB)
 
-## 코드 컨벤션
-
-- Backend: Python 3.11+, async/await 패턴, Pydantic 모델로 요청/응답 정의
-- Mobile: TypeScript strict, 함수형 컴포넌트, Zustand 스토어로 전역 상태 관리
-- API 응답은 JSON 형식으로 통일
-- 환경변수는 `.env` 파일로 관리 (커밋 금지)
+`DatabaseService.swift`에서 `DatabaseMigrator`에 새 마이그레이션 등록:
+```swift
+migrator.registerMigration("v3_new_feature") { db in
+    // 기존 마이그레이션 안에 추가하면 안 됨 — 이미 실행된 것은 스킵됨
+}
+```
 
 ## 주요 API 엔드포인트
 
-- `POST /api/feedback` — 캔버스 이미지 → Claude Vision → 피드백 JSON
-- `POST /api/pdf/upload` — 교재 PDF 업로드
-- `GET /api/pdf/{id}/extract` — PDF 텍스트 추출 (페이지 범위 지정)
+- `POST /api/feedback` — 캔버스 이미지 → Claude Vision → 피드백 (response_language 지원)
+- `POST /api/feedback/chat` — 피드백 후속 채팅 (RAG 지원, textbook_id로 교재 검색)
+- `POST /api/pdf/upload` — 교재 PDF 업로드 (TOC 추출, LLM 챕터 감지, 임베딩 인덱싱)
+- `GET /api/pdf/{id}/file` — PDF 파일 서빙
+- `GET /api/pdf/{id}/chapters` — 챕터 목록
+- `GET /api/pdf/{id}/guide` — 페이지 학습 가이드 (lazy 캐싱)
+- `GET /api/pdf/{id}/chapter-guide` — 챕터 학습 가이드
+- `GET /api/pdf/textbooks` — 교재 목록
+- `POST /api/dev/log/batch` — 클라이언트 로그 수신
+
+## RAG 파이프라인
+
+1. **쿼리 리라이트**: Haiku로 사용자 질문을 검색 최적화 쿼리로 변환
+2. **임베딩 검색**: Voyage AI 임베딩 → pgvector 코사인 유사도 (top_k=5)
+3. **컨텍스트 주입**: 검색된 청크를 시스템 프롬프트에 포함
+4. **출처 표기**: `[p.33]` 인라인 출처, `📖 교재 외 참고:` 구분
+
+## 코드 컨벤션
+
+- Backend: Python 3.11+, async/await 패턴, Pydantic 모델
+- iOS: Swift 5.9+, SwiftUI, GRDB CodingKeys로 snake_case DB 컬럼 매핑
+- 환경변수는 `.env` 파일로 관리 (커밋 금지)
+- iOS 설정값은 `Config.swift` + `UserDefaults`
 
 ## 응답 원칙
 
 - 회의주의적 시니어 엔지니어 태도로 대답할 것. 추측으로 행동하지 말고 확인 먼저.
-- 문제 분석 시 아래 형식으로 응답:
-  1. **문제 상황**: 관찰된 사실만 기술
-  2. **예상 원인 후보**: 가능성 높은 순서대로 나열, 각각 근거 포함
-  3. **다음 절차**: 원인을 좁히기 위한 구체적 행동
-
-## 디버깅 행동지침
-
+- 디버깅 시 로그 기반으로 분석. BE 로그: `backend/logs/uvicorn.log`, FE 로그: 같은 파일에서 `FE` 필터.
 - 구현에 어려움을 겪을 때 사용자에게 사과하는 대신, 명세나 문제에 대한 합의에 먼저 도달한 후 표준적인 솔루션을 제공할 것.
 
 ## 참고
 
-- 상세 명세는 `SPEC.md` 참조
-- 인증은 Supabase Auth 사용 (backend에서 JWT 검증만 수행)
+- 상세 명세: `SPEC.md`
+- iOS 개발환경 셋업: `mobile/README.md` (레거시 RN), `ios-app/project.yml`
+- 인증: Supabase Auth (backend에서 JWT 검증, iOS에서 supabase-swift)
+- API 호스트: `ios-app/ScatchLM/Utilities/Config.swift`에서 관리 (개발 시 로컬 IP)

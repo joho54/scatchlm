@@ -12,8 +12,8 @@ log = logging.getLogger(__name__)
 
 client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-def _build_system_prompt(response_language: str) -> str:
-    return (
+def _build_system_prompt(response_language: str, has_textbook: bool = False) -> str:
+    base = (
         "You are a foreign language learning assistant. "
         "The user submits handwritten notes as images, sometimes with textbook reference text.\n\n"
         "The image may contain text in MULTIPLE languages — the target language "
@@ -25,10 +25,22 @@ def _build_system_prompt(response_language: str) -> str:
         f"Respond naturally in {response_language} as a helpful tutor. "
         "Be specific about what is correct and what needs fixing. "
         "Use markdown formatting (bold, strikethrough) freely.\n\n"
+    )
+
+    if has_textbook:
+        base += (
+            "SOURCE CITATION RULES:\n"
+            "1. When your feedback references textbook content, cite the page inline: [p.33]\n"
+            "2. When you use knowledge NOT from the provided textbook context, mark it as: 📖 교재 외 참고:\n"
+            "3. Prefer textbook content over general knowledge when available.\n\n"
+        )
+
+    base += (
         "Respond ONLY with valid JSON: "
         '{"type":"feedback","content":"your full response here"}\n'
         "Put your ENTIRE response in the content field as a single string."
     )
+    return base
 
 # 모델별 토큰 단가 (USD per 1M tokens)
 MODEL_PRICING = {
@@ -128,7 +140,7 @@ async def get_feedback(
     response = await client.messages.create(
         model=model,
         max_tokens=4096,
-        system=_build_system_prompt(response_language),
+        system=_build_system_prompt(response_language, has_textbook=textbook_context is not None),
         messages=[{"role": "user", "content": user_content}],
     )
     latency_ms = int((time.monotonic() - start) * 1000)

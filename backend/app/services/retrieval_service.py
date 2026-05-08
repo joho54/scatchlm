@@ -1,14 +1,213 @@
 import logging
+import re
 
-from sqlalchemy import select, text
+from anthropic import AsyncAnthropic
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.document import DocumentChunk
+from app.models.chapter import Chapter
 from app.services.embedding_service import embed_query
 
 log = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 3
+
+
+async def rewrite_query_for_search(
+    user_query: str,
+    db: AsyncSession | None = None,
+    textbook_id: str | None = None,
+) -> str:
+    """LLM으로 사용자 질문을 검색에 최적화된 쿼리로 변환한다. (Haiku, 저비용)"""
+    try:
+        # 교재 목차를 컨텍스트로 제공
+        toc_context = ""
+        if db and textbook_id:
+            result = await db.execute(
+                select(Chapter)
+                .where(Chapter.textbook_id == textbook_id)
+                .order_by(Chapter.page_start)
+            )
+            chapters = result.scalars().all()
+            if chapters:
+                toc_lines = [f"- {ch.title} (p.{ch.page_start}-{ch.page_end or '?'})" for ch in chapters]
+                toc_context = "TEXTBOOK TABLE OF CONTENTS:\n" + "\n".join(toc_lines)
+
+        client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        system_prompt = (
+            "Rewrite the user's question into an optimal search query for finding relevant sections "
+            "in a language learning textbook. Output ONLY the search query, nothing else.\n"
+            "Use the table of contents below to map section/chapter numbers to actual topics.\n"
+            "Translate to English if needed for better embedding match. "
+            "Keep it concise (under 30 words)."
+        )
+        if toc_context:
+            system_prompt += "\n\n" + toc_context
+
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_query}],
+        )
+        rewritten = response.content[0].text.strip()
+        log.info("Query rewrite: '%s' → '%s'", user_query[:50], rewritten[:50])
+        return rewritten
+    except Exception:
+        log.exception("Query rewrite failed, using original")
+        return user_query
+
+
+def _detect_chapter_reference(query: str) -> str | None:
+    """쿼리에서 챕터/과 번호를 감지한다. 예: '23과', 'chapter 3', 'lesson 5'"""
+    patterns = [
+        r'(\d+)\s*과',
+        r'(\d+)\s*장',
+        r'(?:chapter|ch\.?|lesson|unit)\s*(\d+)',
+        r'제\s*(\d+)\s*(?:과|장|단원)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            # 마지막 그룹 (일부 패턴은 group(2)에 숫자가 있음)
+            return match.group(match.lastindex)
+    return None
+
+
+def _detect_page_or_section(query: str) -> int | None:
+    """쿼리에서 페이지/섹션 번호를 감지한다. 예: '179 섹션', 'p.93', '§179'"""
+    patterns = [
+        r'(\d+)\s*(?:섹션|절|section|sec)',
+        r'(?:§|p\.?|페이지|page)\s*(\d+)',
+        r'(\d+)\s*페이지',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            return int(match.group(match.lastindex))
+    return None
+
+
+async def search_by_chapter(
+    db: AsyncSession,
+    textbook_id: str,
+    chapter_number: str,
+) -> list[DocumentChunk]:
+    """챕터 번호로 해당 페이지 범위의 청크를 검색한다."""
+    # chapters 테이블에서 해당 챕터 찾기
+    result = await db.execute(
+        select(Chapter).where(
+            Chapter.textbook_id == textbook_id,
+            Chapter.title.ilike(f"%{chapter_number}%"),
+        )
+    )
+    chapters = result.scalars().all()
+
+    if not chapters:
+        log.info("Chapter search: no chapter found for '%s'", chapter_number)
+        return []
+
+    # 첫 번째 매칭 챕터의 페이지 범위로 청크 가져오기
+    chapter = chapters[0]
+    page_end = chapter.page_end or 9999
+
+    chunk_result = await db.execute(
+        select(DocumentChunk)
+        .where(
+            DocumentChunk.textbook_id == textbook_id,
+            DocumentChunk.page_start >= chapter.page_start,
+            DocumentChunk.page_start <= page_end,
+        )
+        .order_by(DocumentChunk.page_start, DocumentChunk.chunk_index)
+    )
+    chunks = chunk_result.scalars().all()
+
+    log.info(
+        "Chapter search: chapter='%s' pages=%d-%d chunks=%d",
+        chapter.title, chapter.page_start, page_end, len(chunks),
+    )
+    return chunks
+
+
+async def search_by_page(
+    db: AsyncSession,
+    textbook_id: str,
+    page_num: int,
+) -> list[DocumentChunk]:
+    """특정 페이지 번호를 포함하는 청크를 검색한다."""
+    result = await db.execute(
+        select(DocumentChunk)
+        .where(
+            DocumentChunk.textbook_id == textbook_id,
+            DocumentChunk.page_start <= page_num,
+            DocumentChunk.page_end >= page_num,
+        )
+        .order_by(DocumentChunk.chunk_index)
+    )
+    chunks = result.scalars().all()
+
+    # 정확한 매칭이 없으면 인접 페이지도 검색
+    if not chunks:
+        result = await db.execute(
+            select(DocumentChunk)
+            .where(
+                DocumentChunk.textbook_id == textbook_id,
+                DocumentChunk.page_start >= page_num - 1,
+                DocumentChunk.page_start <= page_num + 1,
+            )
+            .order_by(DocumentChunk.page_start, DocumentChunk.chunk_index)
+        )
+        chunks = result.scalars().all()
+
+    log.info("Page search: page=%d chunks=%d", page_num, len(chunks))
+    return chunks
+
+
+async def search_by_text(
+    db: AsyncSession,
+    textbook_id: str,
+    query_text: str,
+    limit: int = 5,
+) -> list[DocumentChunk]:
+    """청크 본문에서 키워드/숫자를 직접 검색한다."""
+    # 숫자 추출 (섹션 번호 등)
+    numbers = re.findall(r'\d+', query_text)
+    if not numbers:
+        return []
+
+    chunks = []
+    for num in numbers:
+        if int(num) < 10:
+            continue  # 너무 작은 숫자는 스킵
+        # 섹션 번호 패턴: §179, 179., (179), "179 " 등
+        patterns = [f"§{num}", f"{num}.", f"({num})", f" {num} "]
+        for pat in patterns:
+            result = await db.execute(
+                select(DocumentChunk)
+                .where(
+                    DocumentChunk.textbook_id == textbook_id,
+                    DocumentChunk.content.contains(pat),
+                )
+                .order_by(DocumentChunk.page_start)
+                .limit(limit)
+            )
+            found = result.scalars().all()
+            if found:
+                chunks.extend(found)
+                log.info("Text search: pattern='%s' found %d chunks", pat, len(found))
+                break  # 첫 매칭 패턴에서 중단
+
+    # 중복 제거
+    seen = set()
+    unique = []
+    for c in chunks:
+        if c.id not in seen:
+            seen.add(c.id)
+            unique.append(c)
+
+    return unique[:limit]
 
 
 async def search_relevant_chunks(
@@ -17,8 +216,10 @@ async def search_relevant_chunks(
     query_text: str,
     top_k: int = DEFAULT_TOP_K,
 ) -> list[DocumentChunk]:
-    """쿼리 텍스트와 가장 유사한 청크를 검색한다."""
-    query_embedding = await embed_query(query_text)
+    """하이브리드 검색: 챕터 → 페이지/섹션 → 의미 유사도."""
+    # LLM 쿼리 리라이트 (목차 컨텍스트 포함) + 의미 유사도 검색
+    rewritten = await rewrite_query_for_search(query_text, db=db, textbook_id=textbook_id)
+    query_embedding = await embed_query(rewritten)
 
     result = await db.execute(
         select(DocumentChunk)
@@ -32,8 +233,8 @@ async def search_relevant_chunks(
     chunks = result.scalars().all()
 
     log.info(
-        "RAG search: textbook=%s query='%s' results=%d",
-        textbook_id, query_text[:50], len(chunks),
+        "RAG semantic search: textbook=%s original='%s' rewritten='%s' results=%d",
+        textbook_id, query_text[:30], rewritten[:30], len(chunks),
     )
     return chunks
 

@@ -35,3 +35,4 @@ mobile/*.tsbuildinfo
 *.key
 *.mobileprovision
 *.jks
+ios-app/.build/

@@ -9,9 +9,7 @@ from app.services.feedback_service import FeedbackResult
 MOCK_RESULT = FeedbackResult(
     data={
         "type": "feedback",
-        "recognized_text": "こんにちは",
-        "feedback": "こんにちわ → こんにちは (助詞の誤り). 인사말 표기에 주의하세요.",
-        "summary": "1/1 오답. 인사말 표기를 복습하세요.",
+        "content": "こんにちわ → こんにちは (助詞の誤り). 인사말 표기에 주의하세요.\n\n1/1 오답. 인사말 표기를 복습하세요.",
     },
     model="claude-sonnet-4-6",
     input_tokens=800,
@@ -38,9 +36,8 @@ async def test_feedback_success(client: AsyncClient, auth_header: dict):
     assert res.status_code == 200
     data = res.json()
     assert data["type"] == "feedback"
-    assert data["recognized_text"] == "こんにちは"
-    assert "こんにちは" in data["feedback"]
-    assert "오답" in data["summary"]
+    assert "content" in data
+    assert "こんにちは" in data["content"]
 
 
 @pytest.mark.asyncio

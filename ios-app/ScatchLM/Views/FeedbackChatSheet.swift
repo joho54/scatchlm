@@ -5,6 +5,7 @@ struct FeedbackChatSheet: View {
     let feedback: FeedbackRecord
     var textbookId: String?
     var currentPage: Int?
+    var onPin: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var messages: [ChatMessageRecord] = []
     @State private var input = ""
@@ -95,13 +96,26 @@ struct FeedbackChatSheet: View {
                     .background(Color.blue.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
-                Markdown(content)
-                    .markdownTextStyle {
-                        FontSize(14)
+                VStack(alignment: .leading, spacing: 4) {
+                    Markdown(content)
+                        .markdownTextStyle {
+                            FontSize(14)
+                        }
+                    if onPin != nil {
+                        Divider()
+                        Button {
+                            onPin?(content)
+                            dismiss()
+                        } label: {
+                            Label("캔버스에 박제", systemImage: "pin.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .padding(12)
-                    .background(Color(.systemGray6))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(12)
+                .background(Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
 
             if !isUser { Spacer(minLength: 60) }
@@ -167,13 +181,15 @@ struct FeedbackChatSheet: View {
                 var request = URLRequest(url: URL(string: "\(Config.apiBaseURL)/feedback/chat")!)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = 120
                 if let token = AuthService.shared.accessToken {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 }
                 request.httpBody = jsonData
 
-                let (data, _) = try await URLSession.shared.data(for: request)
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 45
+                config.waitsForConnectivity = true
+                let (data, _) = try await URLSession(configuration: config).data(for: request)
                 let res = try JSONDecoder().decode(ChatRes.self, from: data)
 
                 // Save assistant message

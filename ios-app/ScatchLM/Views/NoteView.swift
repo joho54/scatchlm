@@ -25,6 +25,8 @@ struct NoteView: View {
     @State private var notePages: [NotePage] = []
     @State private var currentPageIndex: Int = 0
     @State private var currentNotePage: NotePage?
+    // 다음 카드가 배치될 Y 위치 — 모든 카드/피드백 추가 시 갱신
+    @State private var nextCardY: CGFloat = 100
 
     private let db = DatabaseService.shared
 
@@ -117,7 +119,9 @@ struct NoteView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(item: $chatFeedback) { fb in
-            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage)
+            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, onPin: { content in
+                pinToCanvas(content: content)
+            })
         }
         .task { await loadNote() }
         .onDisappear { saveDrawing() }
@@ -155,6 +159,9 @@ struct NoteView: View {
                 onClose: {
                     pdfOpen = false
                     try? db.updatePdfOpen(noteId: noteId, open: false)
+                },
+                onPin: { content in
+                    pinToCanvas(content: content)
                 }
             )
         }
@@ -194,6 +201,27 @@ struct NoteView: View {
 
             // Main FAB
             HStack(spacing: 2) {
+                // Tool picker toggle
+                Button {
+                    if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator,
+                       let picker = delegate.toolPicker {
+                        delegate.toolPickerVisible.toggle()
+                        picker.setVisible(delegate.toolPickerVisible, forFirstResponder: canvasView)
+                        if delegate.toolPickerVisible {
+                            canvasView.becomeFirstResponder()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "pencil.tip")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, height: 48)
+                }
+
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(width: 1, height: 24)
+
                 // PDF toggle
                 Button {
                     if note.textbookId != nil {
@@ -294,7 +322,65 @@ struct NoteView: View {
             feedbacks = (try? db.feedbacks(pageId: pageId)) ?? []
         }
 
-        appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
+        // nextCardY 초기화 — 정확한 값은 updateUIView 렌더링 후 lastRenderedBottom에서 갱신됨
+        nextCardY = 100
+
+        appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)", "nextCardY": "\(nextCardY)"])
+    }
+
+    /// nextCardY를 재계산 — 필기 최하단 기준 (카드 높이는 렌더링 후 lastRenderedBottom에서 갱신)
+    private func recalcNextCardY() {
+        let drawingBottom = canvasView.drawing.strokes.isEmpty
+            ? CGFloat(100)
+            : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
+        nextCardY = max(drawingBottom, nextCardY) + 24
+    }
+
+    /// 피드백/박제 카드를 캔버스에 추가하는 공통 함수
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400) {
+        // coordinator의 실제 렌더링 높이 반영
+        if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
+            let renderedBottom = delegate.lastRenderedBottom
+            if renderedBottom + 24 > nextCardY {
+                nextCardY = renderedBottom + 24
+            }
+        }
+        // 초기값이면 recalc
+        if nextCardY <= 100 {
+            recalcNextCardY()
+        }
+
+        let width = canvasView.bounds.width - 32
+        var record = FeedbackRecord(
+            id: UUID().uuidString,
+            noteId: noteId,
+            pageId: currentNotePage?.id,
+            content: content,
+            positionX: 16,
+            positionY: nextCardY,
+            bboxX: 16,
+            bboxY: nextCardY,
+            bboxWidth: width,
+            bboxHeight: estimatedHeight,
+            createdAt: Date()
+        )
+        try? db.saveFeedback(&record)
+        feedbacks.append(record)
+
+        // nextCardY 갱신
+        nextCardY += estimatedHeight + 24
+
+        // 캔버스 확장
+        if nextCardY + 200 > canvasView.contentSize.height {
+            canvasView.contentSize.height = nextCardY + 200
+        }
+
+        appLog("note", "card appended", ["y": "\(record.positionY)", "nextY": "\(nextCardY)", "contentLen": "\(content.count)"])
+    }
+
+    private func pinToCanvas(content: String) {
+        let jsonContent = "{\"type\":\"feedback\",\"content\":\(String(data: (try? JSONEncoder().encode(content)) ?? Data(), encoding: .utf8) ?? "\"\"")}"
+        appendFeedbackCard(content: jsonContent)
     }
 
     private func saveDrawing() {
@@ -342,9 +428,13 @@ struct NoteView: View {
         guard !loading else { return }
         loading = true
 
-        Task {
+        let requestId = String(UUID().uuidString.prefix(8))
+        appLog("note", "feedback: start", ["requestId": requestId])
+        Task { @MainActor in
             do {
+                appLog("note", "feedback: task entered", ["requestId": requestId])
                 let allStrokes = canvasView.drawing.strokes
+                appLog("note", "feedback: strokes read", ["requestId": requestId, "count": "\(allStrokes.count)"])
                 let newStrokes = Array(allStrokes.dropFirst(lastFeedbackStrokeCount))
                 guard !newStrokes.isEmpty else {
                     appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "lastFeedback": "\(lastFeedbackStrokeCount)"])
@@ -364,8 +454,8 @@ struct NoteView: View {
                 // 캡처 — 항상 흰 배경 + 가시적 잉크
                 // Claude API 최대 8000px — 초과 시 리사이즈
                 let rawImage = newDrawing.image(from: bounds, scale: 1.0)
-                // 최대 4000px로 리사이즈
-                let maxDim: CGFloat = 4000
+                // 최대 2000px로 리사이즈 (API 속도 + 비용 최적화)
+                let maxDim: CGFloat = 2000
                 let imgSize = rawImage.size
                 let ratio = max(imgSize.width, imgSize.height) > maxDim
                     ? maxDim / max(imgSize.width, imgSize.height)
@@ -389,13 +479,14 @@ struct NoteView: View {
                         rawImage.draw(in: CGRect(origin: .zero, size: targetSize))
                     }
                 }
-                guard let pngData = finalImage.pngData() else {
+                guard let pngData = finalImage.jpegData(compressionQuality: 0.8) else {
                     appLog("note", "feedback: pngData nil")
                     loading = false
                     return
                 }
 
                 appLog("note", "feedback: capture", [
+                    "requestId": "\(requestId)",
                     "newStrokes": "\(newStrokes.count)",
                     "bounds": "\(bounds)",
                     "pngBytes": "\(pngData.count)",
@@ -406,6 +497,7 @@ struct NoteView: View {
                     "note_id": noteId,
                     "language": note?.language ?? "en",
                     "response_language": Config.responseLanguage,
+                    "request_id": "\(requestId)",
                 ]
                 if let textbookId = note?.textbookId {
                     fields["textbook_id"] = textbookId
@@ -425,42 +517,20 @@ struct NoteView: View {
                     fields: fields,
                     fileField: "image",
                     fileData: pngData,
-                    fileName: "canvas.png",
-                    mimeType: "image/png"
+                    fileName: "canvas.jpg",
+                    mimeType: "image/jpeg"
                 )
 
-                let y = bounds.maxY + 24
-                let width = canvasView.bounds.width - 32
                 let jsonData = try JSONEncoder().encode(response)
-
-                var record = FeedbackRecord(
-                    id: UUID().uuidString,
-                    noteId: noteId,
-                    pageId: currentNotePage?.id,
-                    content: String(data: jsonData, encoding: .utf8) ?? "{}",
-                    positionX: 16,
-                    positionY: y,
-                    bboxX: 16,
-                    bboxY: y,
-                    bboxWidth: width,
-                    bboxHeight: 400,
-                    createdAt: Date()
-                )
-                try db.saveFeedback(&record)
-                feedbacks.append(record)
+                let jsonStr = String(data: jsonData, encoding: .utf8) ?? "{}"
+                appendFeedbackCard(content: jsonStr)
 
                 // Mark feedback point
                 lastFeedbackStrokeCount = allStrokes.count
 
-                // Extend canvas if needed
-                let requiredHeight = y + 400
-                if requiredHeight > canvasView.contentSize.height {
-                    canvasView.contentSize.height = requiredHeight
-                }
-
-                appLog("note", "feedback received", ["content": String((response.content ?? response.displayText).prefix(80))])
+                appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80))])
             } catch {
-                appLogError("note", "feedback failed", ["error": "\(error)"])
+                appLogError("note", "feedback failed", ["requestId": "\(requestId)", "error": "\(error)"])
             }
             loading = false
         }
@@ -563,10 +633,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             card.layer.shadowOffset = CGSize(width: 0, height: 2)
             card.isUserInteractionEnabled = true
 
-            let tapGesture = FeedbackTapGesture(target: context.coordinator, action: #selector(Coordinator.feedbackCardTapped(_:)))
-            tapGesture.feedbackRecord = fb
-            card.addGestureRecognizer(tapGesture)
-
+            // Content label
             let label = UITextView()
             label.isEditable = false
             label.isScrollEnabled = false
@@ -591,20 +658,53 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 label.textColor = .label
             }
 
+            // Action buttons bar
+            let buttonBar = UIStackView()
+            buttonBar.axis = .horizontal
+            buttonBar.spacing = 12
+            buttonBar.alignment = .center
+
+            let chatBtn = UIButton(type: .system)
+            chatBtn.setImage(UIImage(systemName: "bubble.left.fill"), for: .normal)
+            chatBtn.setTitle(" 대화", for: .normal)
+            chatBtn.titleLabel?.font = .systemFont(ofSize: 12)
+            chatBtn.tintColor = .secondaryLabel
+            let chatGesture = FeedbackTapGesture(target: context.coordinator, action: #selector(Coordinator.feedbackCardTapped(_:)))
+            chatGesture.feedbackRecord = fb
+            chatBtn.addGestureRecognizer(chatGesture)
+
+            buttonBar.addArrangedSubview(chatBtn)
+            buttonBar.addArrangedSubview(UIView()) // spacer
+
             card.addSubview(label)
+            card.addSubview(buttonBar)
             label.translatesAutoresizingMaskIntoConstraints = false
+            buttonBar.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
                 label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-                label.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+                buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
+                buttonBar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+                buttonBar.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+                buttonBar.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
+                buttonBar.heightAnchor.constraint(equalToConstant: 28),
             ])
 
             let labelSize = label.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
-            let cardHeight = labelSize.height + 24
+            let cardHeight = labelSize.height + 48 // label + buttons + padding
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
             uiView.addSubview(card)
+
+            // 카드 아래까지 캔버스 확장
+            let cardBottom = fb.positionY + cardHeight
+            if cardBottom + 200 > uiView.contentSize.height {
+                uiView.contentSize.height = cardBottom + 200
+            }
+
+            // 실제 렌더링 높이를 coordinator에 기록
+            context.coordinator.lastRenderedBottom = max(context.coordinator.lastRenderedBottom, cardBottom)
         }
     }
 
@@ -618,6 +718,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         let onDrawingChanged: () -> Void
         var onFeedbackTapped: ((FeedbackRecord) -> Void)?
         var toolPicker: PKToolPicker?
+        var toolPickerVisible: Bool = true
+        var lastRenderedBottom: CGFloat = 0
         private var saveTimer: Timer?
 
         init(onDrawingChanged: @escaping () -> Void) {

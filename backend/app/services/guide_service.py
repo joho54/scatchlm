@@ -11,13 +11,12 @@ log = logging.getLogger(__name__)
 GUIDE_MODEL = "claude-haiku-4-5-20251001"
 
 def _page_guide_prompt(response_language: str) -> str:
-    return f"""You are a language learning tutor. Given a textbook page, produce a study guide as JSON with these fields:
-- "topic": One-line summary of what this page covers (in {response_language})
-- "key_points": Array of items the student must memorize, in {response_language}
-- "exercises": Array of practice tasks the student can do, in {response_language}
-- "connections": How this page relates to previous/next content, in {response_language}
-
-Respond ONLY with valid JSON. No markdown, no explanation."""
+    return (
+        f"You are helping a non-English speaker understand an English textbook page. "
+        f"Explain the page content clearly and faithfully in {response_language}. "
+        f"Translate key terms and examples, and make the content accessible. "
+        f"Use markdown formatting freely. Be thorough — cover everything on the page."
+    )
 
 
 async def generate_page_guide(page_text: str, response_language: str = "Korean") -> dict:
@@ -26,25 +25,21 @@ async def generate_page_guide(page_text: str, response_language: str = "Korean")
 
     response = await client.messages.create(
         model=GUIDE_MODEL,
-        max_tokens=1024,
+        max_tokens=4096,
         system=_page_guide_prompt(response_language),
         messages=[
             {"role": "user", "content": page_text},
         ],
     )
 
-    raw = response.content[0].text
-    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-
-    data = json.loads(cleaned)
+    content = response.content[0].text
     log.info(
         "Guide generated: model=%s input=%d output=%d",
         GUIDE_MODEL,
         response.usage.input_tokens,
         response.usage.output_tokens,
     )
-    return data
+    return {"topic": "", "content": content}
 
 
 def _chapter_guide_prompt(response_language: str) -> str:

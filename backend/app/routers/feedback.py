@@ -39,9 +39,13 @@ async def request_feedback(
     page_start: int | None = Form(None),
     page_end: int | None = Form(None),
     previous_context: str | None = Form(None),
+    request_id: str | None = Form(None),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    rid = request_id or "no-id"
+    log.info("Feedback [%s]: start user=%s note=%s page=%s", rid, user_id, note_id, current_page)
+
     image_bytes = await image.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty image")
@@ -88,8 +92,8 @@ async def request_feedback(
                 context_parts.append(f"[현재 페이지 {current_page}]\n{page_text}")
                 log.info("Context: current page p.%d (no chapter match)", current_page)
 
-    # 3. RAG 자동 검색 (교재 연결 시 항상 실행)
-    if textbook_id:
+    # RAG 자동 검색 — 챕터 전체 텍스트가 없는 경우에만 실행
+    if textbook_id and not context_parts:
         try:
             recognized = await get_recognition(image_bytes, language)
             if recognized:
@@ -97,7 +101,7 @@ async def request_feedback(
                 if chunks:
                     rag_context = format_chunks_as_context(chunks)
                     context_parts.append(f"[관련 교재 내용]\n{rag_context}")
-                    log.info("Context: RAG auto-search, %d chunks found", len(chunks))
+                    log.info("Context: RAG fallback, %d chunks found", len(chunks))
         except Exception:
             log.exception("RAG search failed, proceeding without RAG context")
 
@@ -147,6 +151,7 @@ async def request_feedback(
     ))
     await db.commit()
 
+    log.info("Feedback [%s]: done latency=%dms", rid, result.latency_ms)
     return FeedbackResponse(**result.data)
 
 

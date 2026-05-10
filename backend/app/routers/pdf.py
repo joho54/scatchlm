@@ -279,6 +279,8 @@ async def extract_text(
 class PageGuideResponse(BaseModel):
     page: int
     topic: str = ""
+    content: str = ""
+    # Legacy fields (backward compat)
     key_points: list[str] = []
     exercises: list[str] = []
     connections: str = ""

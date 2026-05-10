@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import MarkdownUI
 
 struct PdfViewerView: View {
     let textbookId: String
@@ -7,6 +8,7 @@ struct PdfViewerView: View {
     let initialPage: Int
     let onPageChanged: (Int) -> Void
     let onClose: () -> Void
+    var onPin: ((String) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
@@ -20,12 +22,13 @@ struct PdfViewerView: View {
     @State private var guideLoading = false
     @State private var chapterGuideLoading = false
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String) -> Void)? = nil) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
         self.onPageChanged = onPageChanged
         self.onClose = onClose
+        self.onPin = onPin
         self._currentPage = State(initialValue: initialPage)
     }
 
@@ -113,56 +116,197 @@ struct PdfViewerView: View {
         .presentationDetents([.medium, .large])
     }
 
-    // MARK: - Page Guide Sheet
+    // MARK: - Page Guide Sheet (content explanation + chat)
+
+    @State private var guideChatMessages: [(role: String, content: String)] = []
+    @State private var guideChatInput = ""
+    @State private var guideChatSending = false
 
     private var guideSheet: some View {
         NavigationStack {
-            ScrollView {
-                if guideLoading {
-                    ProgressView().padding(.top, 40)
-                } else if let guide = pageGuide {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(guide.topic)
-                            .font(.headline)
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            if guideLoading {
+                                ProgressView().padding(.top, 40)
+                            } else if let guide = pageGuide {
+                                // Page content explanation — long press to pin
+                                VStack(alignment: .leading, spacing: 8) {
+                                    if !guide.topic.isEmpty {
+                                        Text(guide.topic)
+                                            .font(.headline)
+                                    }
 
-                        Section {
-                            ForEach(guide.keyPoints, id: \.self) { point in
-                                Text("• \(point)").font(.subheadline)
+                                    if let content = guide.content, !content.isEmpty {
+                                        Markdown(content)
+                                            .markdownTextStyle { FontSize(14) }
+                                    }
+                                }
+                                .padding(.horizontal)
+                                .padding(.top)
+
+                                if onPin != nil {
+                                    Button {
+                                        let text = guide.content ?? guide.topic
+                                        onPin?(text)
+                                        showGuide = false
+                                    } label: {
+                                        Label("캔버스에 박제", systemImage: "pin.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal)
+                                }
+
+                                Divider().padding(.vertical, 8)
+
+                                // Chat messages
+                                ForEach(Array(guideChatMessages.enumerated()), id: \.offset) { i, msg in
+                                    HStack {
+                                        if msg.role == "user" { Spacer(minLength: 60) }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Markdown(msg.content)
+                                                .markdownTextStyle { FontSize(14) }
+                                            if msg.role != "user", onPin != nil {
+                                                Divider()
+                                                Button {
+                                                    onPin?(msg.content)
+                                                    showGuide = false
+                                                } label: {
+                                                    Label("캔버스에 박제", systemImage: "pin.fill")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                        }
+                                        .padding(12)
+                                        .background(msg.role == "user" ? Color.blue.opacity(0.1) : Color(.systemGray6))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        if msg.role != "user" { Spacer(minLength: 60) }
+                                    }
+                                    .padding(.horizontal)
+                                    .id(i)
+                                }
+
+                                if guideChatSending {
+                                    HStack {
+                                        ProgressView().padding(.leading, 16)
+                                        Spacer()
+                                    }
+                                    .id("loading")
+                                }
+                            } else {
+                                Text("가이드를 불러올 수 없습니다.")
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 40)
                             }
-                        } header: {
-                            Text("📌 핵심 암기").font(.subheadline.bold())
-                        }
-
-                        Section {
-                            ForEach(guide.exercises, id: \.self) { ex in
-                                Text("• \(ex)").font(.subheadline)
-                            }
-                        } header: {
-                            Text("✏️ 연습 과제").font(.subheadline.bold())
-                        }
-
-                        Section {
-                            Text(guide.connections).font(.subheadline)
-                        } header: {
-                            Text("🔗 연결").font(.subheadline.bold())
                         }
                     }
-                    .padding()
-                } else {
-                    Text("가이드를 불러올 수 없습니다.")
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 40)
+                    .onChange(of: guideChatMessages.count) { _, _ in
+                        withAnimation {
+                            proxy.scrollTo(guideChatMessages.count - 1, anchor: .bottom)
+                        }
+                    }
                 }
+
+                Divider()
+
+                // Chat input
+                HStack(spacing: 8) {
+                    TextField("질문하기...", text: $guideChatInput, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...3)
+
+                    Button {
+                        sendGuideChat()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(guideChatInput.isEmpty || guideChatSending ? .gray : .blue)
+                    }
+                    .disabled(guideChatInput.isEmpty || guideChatSending)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
             .navigationTitle("p.\(currentPage) 가이드")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("닫기") { showGuide = false }
+                    Button("닫기") {
+                        showGuide = false
+                        guideChatMessages = []
+                    }
                 }
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func sendGuideChat() {
+        let text = guideChatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guideChatInput = ""
+        guideChatSending = true
+
+        guideChatMessages.append((role: "user", content: text))
+
+        // Build history: guide content as first assistant message
+        var history: [[String: String]] = []
+        if let guide = pageGuide {
+            let guideText = guide.content ?? guide.topic
+            history.append(["role": "assistant", "content": guideText])
+        }
+        for msg in guideChatMessages.dropLast() {
+            history.append(["role": msg.role, "content": msg.content])
+        }
+
+        Task {
+            do {
+                struct ChatReq: Encodable {
+                    let message: String
+                    let history: [[String: String]]
+                    let response_language: String
+                    let textbook_id: String?
+                    let current_page: Int?
+                }
+                struct ChatRes: Decodable {
+                    let content: String
+                }
+
+                let reqBody = ChatReq(
+                    message: text,
+                    history: history,
+                    response_language: Config.responseLanguage,
+                    textbook_id: textbookId,
+                    current_page: currentPage
+                )
+
+                let jsonData = try JSONEncoder().encode(reqBody)
+                var request = URLRequest(url: URL(string: "\(Config.apiBaseURL)/feedback/chat")!)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if let token = AuthService.shared.accessToken {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                request.httpBody = jsonData
+
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 45
+                config.waitsForConnectivity = true
+                let (data, _) = try await URLSession(configuration: config).data(for: request)
+                let res = try JSONDecoder().decode(ChatRes.self, from: data)
+
+                await MainActor.run {
+                    guideChatMessages.append((role: "assistant", content: res.content))
+                    guideChatSending = false
+                }
+            } catch {
+                appLogError("guide-chat", "send failed", ["error": "\(error)"])
+                await MainActor.run { guideChatSending = false }
+            }
+        }
     }
 
     // MARK: - Chapter Guide Sheet
@@ -269,10 +413,16 @@ struct PdfViewerView: View {
         pageGuide = nil
         Task {
             do {
-                pageGuide = try await APIClient.shared.get(
+                let guide: PageGuide = try await APIClient.shared.get(
                     "/pdf/\(textbookId)/guide",
                     query: ["page": "\(currentPage)", "response_language": Config.responseLanguage]
                 )
+                appLog("pdf", "guide loaded", [
+                    "topic": guide.topic,
+                    "hasContent": "\(guide.content?.isEmpty == false)",
+                    "contentLen": "\(guide.content?.count ?? 0)",
+                ])
+                pageGuide = guide
             } catch {
                 appLogError("pdf", "loadGuide failed", ["error": "\(error)"])
             }

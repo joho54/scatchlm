@@ -6,7 +6,7 @@ enum Config {
         // 개발 시 맥의 IP를 자동 감지하거나 하드코딩
         // 프로덕션에서는 서버 URL로 교체
         #if DEBUG
-        return "192.168.0.28"
+        return "192.168.0.62"
         #else
         return "api.scatchlm.com"
         #endif

@@ -35,11 +35,6 @@ def _build_system_prompt(response_language: str, has_textbook: bool = False) -> 
             "3. Prefer textbook content over general knowledge when available.\n\n"
         )
 
-    base += (
-        "Respond ONLY with valid JSON: "
-        '{"type":"feedback","content":"your full response here"}\n'
-        "Put your ENTIRE response in the content field as a single string."
-    )
     return base
 
 # 모델별 토큰 단가 (USD per 1M tokens)
@@ -83,7 +78,7 @@ async def get_recognition(image_bytes: bytes, language: str = "en") -> str | Non
                 "content": [
                     {
                         "type": "image",
-                        "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
+                        "source": {"type": "base64", "media_type": "image/jpeg" if image_bytes[:2] == b'\xff\xd8' else "image/png", "data": image_b64},
                     },
                     {
                         "type": "text",
@@ -124,7 +119,7 @@ async def get_feedback(
     user_content = []
     user_content.append({
         "type": "image",
-        "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
+        "source": {"type": "base64", "media_type": "image/jpeg" if image_bytes[:2] == b'\xff\xd8' else "image/png", "data": image_b64},
     })
 
     prompt_parts = [f"Language: {language}. Respond in {response_language}."]
@@ -156,34 +151,9 @@ async def get_feedback(
         model, latency_ms, total_tokens, input_tokens, output_tokens, cost,
     )
 
-    raw_text = response.content[0].text.strip()
+    content = response.content[0].text.strip()
 
-    # JSON 블록 추출 (```json ... ``` 감싸진 경우 대응)
-    if raw_text.startswith("```"):
-        lines = raw_text.split("\n")
-        raw_text = "\n".join(lines[1:-1])
-
-    try:
-        data = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        log.warning("LLM JSON parse failed, retrying: %s | raw=%s", e, raw_text[:200])
-        # 재시도: LLM에게 JSON 수정 요청
-        retry_response = await client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system="Fix the following malformed JSON. Return ONLY valid JSON, nothing else.",
-            messages=[{"role": "user", "content": raw_text}],
-        )
-        retry_text = retry_response.content[0].text.strip()
-        if retry_text.startswith("```"):
-            retry_lines = retry_text.split("\n")
-            retry_text = "\n".join(retry_lines[1:-1])
-        try:
-            data = json.loads(retry_text)
-            log.info("LLM JSON retry succeeded")
-        except json.JSONDecodeError:
-            log.error("LLM JSON retry also failed: raw=%s", retry_text[:200])
-            raise
+    data = {"type": "feedback", "content": content}
 
     return FeedbackResult(
         data=data,

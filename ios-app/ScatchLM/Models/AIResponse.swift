@@ -51,13 +51,14 @@ struct ChapterItem: Codable, Identifiable {
 struct PageGuide: Codable {
     let page: Int
     let topic: String
-    let keyPoints: [String]
-    let exercises: [String]
-    let connections: String
+    let content: String?
+    let keyPoints: [String]?
+    let exercises: [String]?
+    let connections: String?
     let cached: Bool
 
     enum CodingKeys: String, CodingKey {
-        case page, topic, exercises, connections, cached
+        case page, topic, content, exercises, connections, cached
         case keyPoints = "key_points"
     }
 }

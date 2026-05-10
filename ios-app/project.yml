@@ -39,3 +39,16 @@ targets:
         product: GRDB
       - package: MarkdownUI
         product: MarkdownUI
+
+  ScatchLMTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ScatchLMTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+    dependencies:
+      - target: ScatchLM
+      - package: GRDB
+        product: GRDB

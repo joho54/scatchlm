@@ -127,7 +127,7 @@ async def get_feedback(
         prompt_parts.append(f"Textbook reference:\n{textbook_context}")
     if previous_context:
         prompt_parts.append(f"Previous context: {previous_context}")
-    prompt_parts.append("Read the handwriting in the image and provide feedback as JSON.")
+    prompt_parts.append("Read the handwriting in the image and provide detailed feedback.")
 
     user_content.append({"type": "text", "text": "\n".join(prompt_parts)})
 

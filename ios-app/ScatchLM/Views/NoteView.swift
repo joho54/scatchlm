@@ -310,6 +310,7 @@ struct NoteView: View {
         }
     }
 
+    /// 초기 로드 시 페이지 설정 (loadNote에서 호출)
     private func loadPage(index: Int) {
         guard index >= 0, index < notePages.count else { return }
         let page = notePages[index]
@@ -317,15 +318,15 @@ struct NoteView: View {
         currentPageIndex = index
         lastFeedbackStrokeCount = 0
 
-        // Load feedbacks for this page
-        if let pageId = page.id as String? {
-            feedbacks = (try? db.feedbacks(pageId: pageId)) ?? []
+        // coordinator의 렌더링 높이 리셋
+        if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
+            delegate.lastRenderedBottom = 0
         }
 
-        // nextCardY 초기화 — 정확한 값은 updateUIView 렌더링 후 lastRenderedBottom에서 갱신됨
+        feedbacks = (try? db.feedbacks(pageId: page.id)) ?? []
         nextCardY = 100
 
-        appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)", "nextCardY": "\(nextCardY)"])
+        appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
     }
 
     /// nextCardY를 재계산 — 필기 최하단 기준 (카드 높이는 렌더링 후 lastRenderedBottom에서 갱신)
@@ -383,45 +384,77 @@ struct NoteView: View {
         appendFeedbackCard(content: jsonContent)
     }
 
+    /// 현재 캔버스를 현재 페이지에 저장 — 빈 캔버스도 저장 (이전 필기 유지 방지)
     private func saveDrawing() {
-        guard !canvasView.drawing.strokes.isEmpty, let page = currentNotePage else { return }
+        guard let page = currentNotePage else { return }
         let data = canvasView.drawing.dataRepresentation()
         try? db.savePageDrawing(pageId: page.id, data: data)
+        // 메모리 배열도 동기화
+        if let idx = notePages.firstIndex(where: { $0.id == page.id }) {
+            notePages[idx].drawingData = data
+        }
+        appLog("note", "saveDrawing", ["pageId": page.id, "strokes": "\(canvasView.drawing.strokes.count)"])
+    }
+
+    /// DB에서 특정 페이지의 드로잉을 로드하여 캔버스에 적용
+    private func loadDrawingFromDB(pageId: String) {
+        if let page = try? db.page(noteId: noteId, pageIndex: currentPageIndex),
+           let data = page.drawingData,
+           let drawing = try? PKDrawing(data: data) {
+            canvasView.drawing = drawing
+            appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "strokes": "\(drawing.strokes.count)"])
+        } else {
+            canvasView.drawing = PKDrawing()
+            appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "empty": "true"])
+        }
     }
 
     private func newPage() {
-        // Save current page
         saveDrawing()
 
-        // Create new page
         let newIndex = notePages.count
         guard let page = try? db.createPage(noteId: noteId, pageIndex: newIndex) else { return }
         notePages.append(page)
         currentPageIndex = newIndex
+        currentNotePage = page
         try? db.updateCurrentPageIndex(noteId: noteId, index: newIndex)
 
-        // Clear canvas
         canvasView.drawing = PKDrawing()
-        loadPage(index: newIndex)
+        lastFeedbackStrokeCount = 0
+        feedbacks = []
+        nextCardY = 100
+        if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
+            delegate.lastRenderedBottom = 0
+        }
 
         appLog("note", "newPage", ["index": "\(newIndex)"])
     }
 
     private func goToPage(index: Int) {
         guard index >= 0, index < notePages.count, index != currentPageIndex else { return }
-        // Save current
+
+        // 1. 현재 페이지 저장
         saveDrawing()
+
+        // 2. 인덱스 전환
+        currentPageIndex = index
+        currentNotePage = notePages[index]
         try? db.updateCurrentPageIndex(noteId: noteId, index: index)
 
-        // Load target page drawing
-        let targetPage = notePages[index]
-        if let drawingData = targetPage.drawingData, let drawing = try? PKDrawing(data: drawingData) {
-            canvasView.drawing = drawing
-        } else {
-            canvasView.drawing = PKDrawing()
+        // 3. coordinator 렌더링 높이 리셋
+        if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
+            delegate.lastRenderedBottom = 0
         }
 
-        loadPage(index: index)
+        // 4. DB에서 드로잉 로드 (메모리 배열이 아닌 DB에서 직접)
+        loadDrawingFromDB(pageId: notePages[index].id)
+
+        // 5. 피드백 로드
+        feedbacks = (try? db.feedbacks(pageId: notePages[index].id)) ?? []
+        lastFeedbackStrokeCount = 0
+        nextCardY = 100
+
+        appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
     }
 
     private func requestFeedback() {

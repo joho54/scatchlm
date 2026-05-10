@@ -16,11 +16,13 @@
 		3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1940235A9FDF08A1E9126 /* NoteView.swift */; };
 		3B0456884D1F535FC0CC2692 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */; };
 		4187D694CFA080FBD91046A2 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B227D5757F08C09540E0A7D3 /* MarkdownUI */; };
+		43A0BB28FF307690169A77C5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A59CE0D34AA9EA1822931AEA /* GRDB */; };
 		4DB709A105BD7E276EC51897 /* AIResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679B23706BB3597C8044006F /* AIResponse.swift */; };
 		60EE77BCF6CA71AFF68B7653 /* Note.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFE523FFC2200C1FC82A2E4 /* Note.swift */; };
 		6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */; };
 		6E442C97A76BCDD84A9BBC36 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 0F63CE6E79A14DFB9036D806 /* GRDB */; };
 		6E5F523088581A9AF68C62BE /* LogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52A7F87E1D186E8DDE427CB /* LogService.swift */; };
+		7A1DE7B290F43F1D32235D42 /* DatabaseServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */; };
 		8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9978D4A1B1559395568666 /* ViewExtensions.swift */; };
 		98722C743994C9B3F946C0AE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B229BDBE6FB4105C3256CA5C /* Supabase */; };
 		C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */; };
@@ -29,16 +31,28 @@
 		FB0EE0DF5E637E7CBE74B613 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = E448211B4B38BBC9147A67F8 /* Config.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0F0EEA6463EFA6AD91C2C346 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4B2121513C41EDDEDB4EE921 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F7DA71B8129950248351EA2C;
+			remoteInfo = ScatchLM;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0C9978D4A1B1559395568666 /* ViewExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewExtensions.swift; sourceTree = "<group>"; };
 		1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		2C56EBDAD48612F30CF2C40B /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		3D5D6094A94114069EE302AF /* ScatchLMTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScatchLMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E694681F7B469459BF1C53F /* ScatchLMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScatchLMApp.swift; sourceTree = "<group>"; };
 		4380787FC7AF195DA35EE153 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		5AFE523FFC2200C1FC82A2E4 /* Note.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Note.swift; sourceTree = "<group>"; };
 		679B23706BB3597C8044006F /* AIResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIResponse.swift; sourceTree = "<group>"; };
+		7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseServiceTests.swift; sourceTree = "<group>"; };
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
 		C37AAE771009E3533316E278 /* PdfViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfViewerView.swift; sourceTree = "<group>"; };
@@ -58,6 +72,14 @@
 				98722C743994C9B3F946C0AE /* Supabase in Frameworks */,
 				6E442C97A76BCDD84A9BBC36 /* GRDB in Frameworks */,
 				4187D694CFA080FBD91046A2 /* MarkdownUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3B8134190D722ACFD36FCB57 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43A0BB28FF307690169A77C5 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,6 +106,14 @@
 			path = Models;
 			sourceTree = "<group>";
 		};
+		3DDFCB91023A86B0414B6FB6 /* ScatchLMTests */ = {
+			isa = PBXGroup;
+			children = (
+				7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */,
+			);
+			path = ScatchLMTests;
+			sourceTree = "<group>";
+		};
 		4C7D0AFFD1402CBF5AAE5CFE /* ScatchLM */ = {
 			isa = PBXGroup;
 			children = (
@@ -100,6 +130,7 @@
 			isa = PBXGroup;
 			children = (
 				883E63AB9BFC90F013ADF722 /* ScatchLM.app */,
+				3D5D6094A94114069EE302AF /* ScatchLMTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,6 +139,7 @@
 			isa = PBXGroup;
 			children = (
 				4C7D0AFFD1402CBF5AAE5CFE /* ScatchLM */,
+				3DDFCB91023A86B0414B6FB6 /* ScatchLMTests */,
 				5ED7ADFF2FAFB4B06703D1ED /* Products */,
 			);
 			sourceTree = "<group>";
@@ -147,6 +179,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		6C793923F3159046F77D7E9A /* ScatchLMTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CA63F9F31C26129A0CCDFEC7 /* Build configuration list for PBXNativeTarget "ScatchLMTests" */;
+			buildPhases = (
+				30F44C9F94B68D1504A9AE03 /* Sources */,
+				3B8134190D722ACFD36FCB57 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BC910D49E3E5F2E22F8563B9 /* PBXTargetDependency */,
+			);
+			name = ScatchLMTests;
+			packageProductDependencies = (
+				A59CE0D34AA9EA1822931AEA /* GRDB */,
+			);
+			productName = ScatchLMTests;
+			productReference = 3D5D6094A94114069EE302AF /* ScatchLMTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		F7DA71B8129950248351EA2C /* ScatchLM */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 4B4828B2142E617080EE8B14 /* Build configuration list for PBXNativeTarget "ScatchLM" */;
@@ -203,11 +255,20 @@
 			projectRoot = "";
 			targets = (
 				F7DA71B8129950248351EA2C /* ScatchLM */,
+				6C793923F3159046F77D7E9A /* ScatchLMTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		30F44C9F94B68D1504A9AE03 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A1DE7B290F43F1D32235D42 /* DatabaseServiceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CE46A5631D783689D5F21D22 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -234,7 +295,32 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		BC910D49E3E5F2E22F8563B9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F7DA71B8129950248351EA2C /* ScatchLM */;
+			targetProxy = 0F0EEA6463EFA6AD91C2C346 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		0C3837E5ACE7469F9C5DB72E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.ScatchLMTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScatchLM.app/ScatchLM";
+			};
+			name = Debug;
+		};
 		4F3C5F70057562E35BBB0451 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -398,6 +484,23 @@
 			};
 			name = Debug;
 		};
+		C286ABE98FC4A7E791064635 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.ScatchLMTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScatchLM.app/ScatchLM";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -415,6 +518,15 @@
 			buildConfigurations = (
 				5AE71A9C8A8947A0491AF5F4 /* Debug */,
 				73082541E595F1D56FF130C1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CA63F9F31C26129A0CCDFEC7 /* Build configuration list for PBXNativeTarget "ScatchLMTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C3837E5ACE7469F9C5DB72E /* Debug */,
+				C286ABE98FC4A7E791064635 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -450,6 +562,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		0F63CE6E79A14DFB9036D806 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CEA901D72E96C92AAB6E3B75 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		A59CE0D34AA9EA1822931AEA /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CEA901D72E96C92AAB6E3B75 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;

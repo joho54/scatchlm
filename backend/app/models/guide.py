@@ -18,6 +18,9 @@ class PageGuide(Base):
     )
     page: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)  # JSON serialized
+    ai_response_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("ai_response.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )

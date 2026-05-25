@@ -12,12 +12,13 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-class AIFeedbackRecord(Base):
-    __tablename__ = "ai_feedback_record"
+class AIResponse(Base):
+    """모든 평가 가능한 AI 응답 — 손글씨 피드백, 채팅 응답, 페이지/챕터 가이드 등을 task_type으로 구분한다."""
+    __tablename__ = "ai_response"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    note_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    note_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String, nullable=False)
     language: Mapped[str] = mapped_column(String, nullable=False, default="en")
     response_language: Mapped[str] = mapped_column(String, nullable=False, default="English")
@@ -32,12 +33,12 @@ class AIFeedbackRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
-class AIFeedbackRating(Base):
-    __tablename__ = "ai_feedback_rating"
+class AIResponseRating(Base):
+    __tablename__ = "ai_response_rating"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    feedback_id: Mapped[str] = mapped_column(
-        String, ForeignKey("ai_feedback_record.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    response_id: Mapped[str] = mapped_column(
+        String, ForeignKey("ai_response.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
     )
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # -1 or 1

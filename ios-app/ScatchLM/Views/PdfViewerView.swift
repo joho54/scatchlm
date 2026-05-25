@@ -8,7 +8,7 @@ struct PdfViewerView: View {
     let initialPage: Int
     let onPageChanged: (Int) -> Void
     let onClose: () -> Void
-    var onPin: ((String) -> Void)?
+    var onPin: ((String, String?) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
@@ -21,8 +21,12 @@ struct PdfViewerView: View {
     @State private var chapterGuide: ChapterGuide?
     @State private var guideLoading = false
     @State private var chapterGuideLoading = false
+    @State private var pageGuideRating: Int? = nil
+    @State private var chapterGuideRating: Int? = nil
+    @State private var pageGuideRatingDetail = false
+    @State private var chapterGuideRatingDetail = false
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String) -> Void)? = nil) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
@@ -77,6 +81,19 @@ struct PdfViewerView: View {
         .sheet(isPresented: $showChapterGuide) { chapterGuideSheet }
     }
 
+    private func submitGuideRatingDetail(serverId: String, rating: Int, tags: [String], comment: String?, isPage: Bool) {
+        if isPage { pageGuideRating = rating } else { chapterGuideRating = rating }
+        Task {
+            do {
+                var body: [String: Any] = ["rating": rating, "reason_tags": tags]
+                if let comment { body["comment"] = comment }
+                try await APIClient.shared.postJSONNoContent("/feedback/\(serverId)/rate", body: body)
+            } catch {
+                appLogError("rating", "guide detail sync failed", ["server": serverId, "error": "\(error)"])
+            }
+        }
+    }
+
     // MARK: - TOC Sheet
 
     private var tocSheet: some View {
@@ -118,7 +135,14 @@ struct PdfViewerView: View {
 
     // MARK: - Page Guide Sheet (content explanation + chat)
 
-    @State private var guideChatMessages: [(role: String, content: String)] = []
+    struct GuideChatMessage: Identifiable {
+        let id = UUID()
+        let role: String
+        let content: String
+        var serverId: String?
+        var rating: Int?
+    }
+    @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
     @State private var guideChatSending = false
 
@@ -146,37 +170,61 @@ struct PdfViewerView: View {
                                 .padding(.horizontal)
                                 .padding(.top)
 
-                                if onPin != nil {
-                                    Button {
-                                        let text = guide.content ?? guide.topic
-                                        onPin?(text)
-                                        showGuide = false
-                                    } label: {
-                                        Label("캔버스에 박제", systemImage: "pin.fill")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                HStack(spacing: 12) {
+                                    if onPin != nil {
+                                        Button {
+                                            let text = guide.content ?? guide.topic
+                                            onPin?(text, guide.feedbackId)
+                                            showGuide = false
+                                        } label: {
+                                            Label("박제", systemImage: "pin.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
-                                    .padding(.horizontal)
+                                    ratingButtons(
+                                        serverId: guide.feedbackId,
+                                        currentRating: pageGuideRating,
+                                        onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: true) },
+                                        onDetail: {
+                                            appLog("guide-detail", "page detail tapped", ["serverId": guide.feedbackId ?? "nil"])
+                                            pageGuideRatingDetail = true
+                                        }
+                                    )
                                 }
+                                .padding(.horizontal)
 
                                 Divider().padding(.vertical, 8)
 
                                 // Chat messages
-                                ForEach(Array(guideChatMessages.enumerated()), id: \.offset) { i, msg in
+                                ForEach(Array(guideChatMessages.enumerated()), id: \.element.id) { i, msg in
                                     HStack {
                                         if msg.role == "user" { Spacer(minLength: 60) }
                                         VStack(alignment: .leading, spacing: 4) {
                                             Markdown(msg.content)
                                                 .markdownTextStyle { FontSize(14) }
-                                            if msg.role != "user", onPin != nil {
+                                            if msg.role != "user" {
                                                 Divider()
-                                                Button {
-                                                    onPin?(msg.content)
-                                                    showGuide = false
-                                                } label: {
-                                                    Label("캔버스에 박제", systemImage: "pin.fill")
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
+                                                HStack(spacing: 12) {
+                                                    if onPin != nil {
+                                                        Button {
+                                                            onPin?(msg.content, msg.serverId)
+                                                            showGuide = false
+                                                        } label: {
+                                                            Label("박제", systemImage: "pin.fill")
+                                                                .font(.caption)
+                                                                .foregroundStyle(.secondary)
+                                                        }
+                                                    }
+                                                    ratingButtons(
+                                                        serverId: msg.serverId,
+                                                        currentRating: msg.rating,
+                                                        onRate: { r in
+                                                            guideChatMessages[i].rating = r
+                                                            submitGuideRating(serverId: msg.serverId, rating: r, isPage: false)
+                                                        },
+                                                        onDetail: nil
+                                                    )
                                                 }
                                             }
                                         }
@@ -240,6 +288,16 @@ struct PdfViewerView: View {
                     }
                 }
             }
+            .navigationDestination(isPresented: $pageGuideRatingDetail) {
+                if let serverId = pageGuide?.feedbackId {
+                    RatingFormView(
+                        feedbackId: serverId,
+                        initialRating: pageGuideRating ?? 1
+                    ) { rating, tags, comment in
+                        submitGuideRatingDetail(serverId: serverId, rating: rating, tags: tags, comment: comment, isPage: true)
+                    }
+                }
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -250,7 +308,7 @@ struct PdfViewerView: View {
         guideChatInput = ""
         guideChatSending = true
 
-        guideChatMessages.append((role: "user", content: text))
+        guideChatMessages.append(GuideChatMessage(role: "user", content: text))
 
         // Build history: guide content as first assistant message
         var history: [[String: String]] = []
@@ -270,9 +328,11 @@ struct PdfViewerView: View {
                     let response_language: String
                     let textbook_id: String?
                     let current_page: Int?
+                    let parent_feedback_id: String?
                 }
                 struct ChatRes: Decodable {
                     let content: String
+                    let feedback_id: String?
                 }
 
                 let reqBody = ChatReq(
@@ -280,7 +340,8 @@ struct PdfViewerView: View {
                     history: history,
                     response_language: Config.responseLanguage,
                     textbook_id: textbookId,
-                    current_page: currentPage
+                    current_page: currentPage,
+                    parent_feedback_id: pageGuide?.feedbackId
                 )
 
                 let jsonData = try JSONEncoder().encode(reqBody)
@@ -299,7 +360,7 @@ struct PdfViewerView: View {
                 let res = try JSONDecoder().decode(ChatRes.self, from: data)
 
                 await MainActor.run {
-                    guideChatMessages.append((role: "assistant", content: res.content))
+                    guideChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
                     guideChatSending = false
                 }
             } catch {
@@ -342,6 +403,19 @@ struct PdfViewerView: View {
                         Section {
                             Text(guide.summary).font(.subheadline)
                         } header: { Text("요약").font(.subheadline.bold()) }
+
+                        Divider()
+                        HStack(spacing: 12) {
+                            ratingButtons(
+                                serverId: guide.feedbackId,
+                                currentRating: chapterGuideRating,
+                                onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: false, isChapter: true) },
+                                onDetail: {
+                                    appLog("guide-detail", "chapter detail tapped", ["serverId": guide.feedbackId ?? "nil"])
+                                    chapterGuideRatingDetail = true
+                                }
+                            )
+                        }
                     }
                     .padding()
                 } else {
@@ -355,6 +429,16 @@ struct PdfViewerView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("닫기") { showChapterGuide = false }
+                }
+            }
+            .navigationDestination(isPresented: $chapterGuideRatingDetail) {
+                if let serverId = chapterGuide?.feedbackId {
+                    RatingFormView(
+                        feedbackId: serverId,
+                        initialRating: chapterGuideRating ?? 1
+                    ) { rating, tags, comment in
+                        submitGuideRatingDetail(serverId: serverId, rating: rating, tags: tags, comment: comment, isPage: false)
+                    }
                 }
             }
         }
@@ -393,6 +477,55 @@ struct PdfViewerView: View {
         pdfView.go(to: pdfPage)
     }
 
+    // MARK: - Rating
+
+    @ViewBuilder
+    private func ratingButtons(serverId: String?, currentRating: Int?, onRate: @escaping (Int) -> Void, onDetail: (() -> Void)?) -> some View {
+        Button {
+            onRate(1)
+        } label: {
+            Image(systemName: currentRating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
+                .foregroundStyle(currentRating == 1 ? Color.green : Color.secondary)
+                .font(.caption)
+        }
+        .disabled(serverId == nil)
+
+        Button {
+            onRate(-1)
+        } label: {
+            Image(systemName: currentRating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                .foregroundStyle(currentRating == -1 ? Color.red : Color.secondary)
+                .font(.caption)
+        }
+        .disabled(serverId == nil)
+
+        if let onDetail {
+            Button {
+                onDetail()
+            } label: {
+                Text("자세히")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(serverId == nil)
+        }
+    }
+
+    private func submitGuideRating(serverId: String?, rating: Int, isPage: Bool, isChapter: Bool = false) {
+        guard let serverId else { return }
+        if isPage { pageGuideRating = rating }
+        if isChapter { chapterGuideRating = rating }
+        Task {
+            do {
+                let body: [String: Any] = ["rating": rating, "reason_tags": []]
+                try await APIClient.shared.postJSONNoContent("/feedback/\(serverId)/rate", body: body)
+                appLog("rating", "guide synced", ["server": serverId, "rating": "\(rating)"])
+            } catch {
+                appLogError("rating", "guide sync failed", ["server": serverId, "error": "\(error)"])
+            }
+        }
+    }
+
     // MARK: - API Calls
 
     private func loadToc() {
@@ -411,6 +544,8 @@ struct PdfViewerView: View {
         showGuide = true
         guideLoading = true
         pageGuide = nil
+        pageGuideRating = nil
+        guideChatMessages = []
         appLog("pdf", "loadGuide start", ["page": "\(currentPage)", "textbookId": textbookId])
         Task {
             do {
@@ -435,6 +570,7 @@ struct PdfViewerView: View {
         showChapterGuide = true
         chapterGuideLoading = true
         chapterGuide = nil
+        chapterGuideRating = nil
         Task {
             do {
                 chapterGuide = try await APIClient.shared.get(

@@ -58,10 +58,12 @@ struct PageGuide: Codable {
     let exercises: [String]?
     let connections: String?
     let cached: Bool
+    let feedbackId: String?
 
     enum CodingKeys: String, CodingKey {
         case page, topic, content, exercises, connections, cached
         case keyPoints = "key_points"
+        case feedbackId = "feedback_id"
     }
 }
 
@@ -74,6 +76,7 @@ struct ChapterGuide: Codable {
     let commonMistakes: [String]
     let summary: String
     let cached: Bool
+    let feedbackId: String?
 
     enum CodingKeys: String, CodingKey {
         case title, topic, summary, cached
@@ -81,5 +84,6 @@ struct ChapterGuide: Codable {
         case keyConcepts = "key_concepts"
         case studyOrder = "study_order"
         case commonMistakes = "common_mistakes"
+        case feedbackId = "feedback_id"
     }
 }

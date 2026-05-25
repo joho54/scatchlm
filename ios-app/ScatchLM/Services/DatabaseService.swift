@@ -129,6 +129,14 @@ final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v6_chat_message_rating") { db in
+            try db.alter(table: "feedback_chats") { t in
+                t.add(column: "server_message_id", .text)
+                t.add(column: "user_rating", .integer)
+                t.add(column: "user_rating_synced_at", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -325,6 +333,15 @@ final class DatabaseService {
     func saveChatMessage(_ msg: inout ChatMessageRecord) throws {
         try dbQueue.write { db in
             try msg.save(db)
+        }
+    }
+
+    func updateChatMessageRating(id: String, rating: Int, syncedAt: Date?) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE feedback_chats SET user_rating = ?, user_rating_synced_at = ? WHERE id = ?",
+                arguments: [rating, syncedAt, id]
+            )
         }
     }
 }

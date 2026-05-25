@@ -1,6 +1,7 @@
 import SwiftUI
 
-struct FeedbackRatingSheet: View {
+/// 평가 입력 폼 — sheet에도, navigation push에도 재사용 가능 (자체 NavigationStack 없음)
+struct RatingFormView: View {
     let feedbackId: String
     let initialRating: Int
     let onSubmit: (Int, [String], String?) -> Void
@@ -29,43 +30,38 @@ struct FeedbackRatingSheet: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("평가") {
-                    Picker("", selection: $rating) {
-                        Text("👍 좋음").tag(1)
-                        Text("👎 아쉬움").tag(-1)
-                    }
-                    .pickerStyle(.segmented)
+        Form {
+            Section("평가") {
+                Picker("", selection: $rating) {
+                    Text("👍 좋음").tag(1)
+                    Text("👎 아쉬움").tag(-1)
                 }
-
-                Section("사유 (복수 선택)") {
-                    let columns = [GridItem(.adaptive(minimum: 100), spacing: 8)]
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                        ForEach(allTags, id: \.key) { tag in
-                            tagChip(key: tag.key, label: tag.label)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section("코멘트 (선택)") {
-                    TextEditor(text: $comment)
-                        .frame(minHeight: 100)
-                }
+                .pickerStyle(.segmented)
             }
-            .navigationTitle("피드백 평가")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("취소") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("제출") {
-                        let trimmed = comment.trimmingCharacters(in: .whitespacesAndNewlines)
-                        onSubmit(rating, Array(selectedTags), trimmed.isEmpty ? nil : trimmed)
-                        dismiss()
+
+            Section("사유 (복수 선택)") {
+                let columns = [GridItem(.adaptive(minimum: 100), spacing: 8)]
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                    ForEach(allTags, id: \.key) { tag in
+                        tagChip(key: tag.key, label: tag.label)
                     }
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("코멘트 (선택)") {
+                TextEditor(text: $comment)
+                    .frame(minHeight: 100)
+            }
+        }
+        .navigationTitle("피드백 평가")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("제출") {
+                    let trimmed = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSubmit(rating, Array(selectedTags), trimmed.isEmpty ? nil : trimmed)
+                    dismiss()
                 }
             }
         }
@@ -86,5 +82,25 @@ struct FeedbackRatingSheet: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Sheet 컨테이너 — NoteView처럼 sheet으로 띄울 때 사용
+struct FeedbackRatingSheet: View {
+    let feedbackId: String
+    let initialRating: Int
+    let onSubmit: (Int, [String], String?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            RatingFormView(feedbackId: feedbackId, initialRating: initialRating, onSubmit: onSubmit)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("취소") { dismiss() }
+                    }
+                }
+        }
     }
 }

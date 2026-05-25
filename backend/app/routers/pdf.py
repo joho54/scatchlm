@@ -7,13 +7,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile,
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.core.auth import get_current_user_id
 from app.core.database import get_db, async_session
 from app.models.textbook import TextbookSource
 from app.models.guide import PageGuide
 from app.models.chapter import Chapter
+from app.models.feedback import AIResponse
+from app.models.document import DocumentChunk
 from app.services.pdf_service import save_pdf, extract_text as extract_pdf_text, extract_toc
 from app.services.indexing_service import index_textbook
 from app.services.guide_service import generate_page_guide, generate_chapter_guide
@@ -94,12 +96,33 @@ async def upload_pdf(
         log.info("PDF duplicate: hash=%s existing_id=%s, reusing", content_hash[:12], existing_source.id)
         # 방금 업로드한 중복본 삭제 (server_path는 이번 업로드의 storage key)
         storage.delete(server_path)
+
+        # 기존 인덱싱이 비어있으면 (이전 백그라운드 인덱싱 실패) 재트리거
+        chunk_count = await db.scalar(
+            select(func.count()).select_from(DocumentChunk).where(
+                DocumentChunk.textbook_id == existing_source.id
+            )
+        )
+        indexing_status = "complete"
+        if not chunk_count:
+            log.warning(
+                "PDF duplicate has 0 chunks, re-triggering indexing: textbook=%s",
+                existing_source.id,
+            )
+            background_tasks.add_task(
+                _background_index,
+                existing_source.id,
+                existing_source.user_id,
+                existing_source.server_path,
+            )
+            indexing_status = "started"
+
         return {
             "id": existing_source.id,
             "fileName": existing_source.file_name,
             "totalPages": existing_source.total_pages,
             "fileSize": existing_source.file_size,
-            "indexing": "complete",
+            "indexing": indexing_status,
         }
 
     log.info("PDF saved: file=%s pages=%d size=%dKB path=%s", file_name, total_pages, file_size // 1024, server_path)
@@ -289,6 +312,7 @@ class PageGuideResponse(BaseModel):
     exercises: list[str] = []
     connections: str = ""
     cached: bool
+    feedback_id: str | None = None  # AIResponse id — 평가 대상
 
 
 @router.get("/{textbook_id}/guide", response_model=PageGuideResponse)
@@ -330,7 +354,7 @@ async def get_page_guide(
         # LLM이 connections를 dict로 반환한 경우 문자열로 변환
         if isinstance(data.get("connections"), dict):
             data["connections"] = json.dumps(data["connections"], ensure_ascii=False)
-        return PageGuideResponse(page=page, cached=True, **data)
+        return PageGuideResponse(page=page, cached=True, feedback_id=cached.ai_response_id, **data)
 
     # 캐시 미스: 페이지 텍스트 추출 → LLM 생성
     page_text = extract_pdf_text(source.server_path, page, page)
@@ -341,18 +365,35 @@ async def get_page_guide(
     if isinstance(data.get("connections"), dict):
         data["connections"] = json.dumps(data["connections"], ensure_ascii=False)
 
+    # AIResponse 적재 — 평가 대상
+    ai_resp = AIResponse(
+        user_id=user_id,
+        note_id=None,
+        task_type="page_guide",
+        language="",
+        response_language=response_language,
+        model="page-guide",
+        textbook_id=textbook_id,
+        current_page=page,
+        has_textbook_context=True,
+        response_content=json.dumps(data, ensure_ascii=False),
+    )
+    db.add(ai_resp)
+    await db.flush()  # ai_resp.id 확보
+
     # 캐시 저장
     guide = PageGuide(
         id=str(uuid.uuid4()),
         textbook_id=textbook_id,
         page=page,
         content=json.dumps(data, ensure_ascii=False),
+        ai_response_id=ai_resp.id,
     )
     db.add(guide)
     await db.commit()
     log.info("Guide generated and cached: textbook=%s page=%d", textbook_id, page)
 
-    return PageGuideResponse(page=page, cached=False, **data)
+    return PageGuideResponse(page=page, cached=False, feedback_id=ai_resp.id, **data)
 
 
 class ChapterGuideResponse(BaseModel):
@@ -366,6 +407,7 @@ class ChapterGuideResponse(BaseModel):
     common_mistakes: list[str]
     summary: str
     cached: bool
+    feedback_id: str | None = None
 
 
 @router.get("/{textbook_id}/chapter-guide")
@@ -419,6 +461,7 @@ async def get_chapter_guide(
             page_start=chapter.page_start,
             page_end=chapter.page_end or source.total_pages,
             cached=True,
+            feedback_id=cached.ai_response_id,
             **data,
         )
 
@@ -431,12 +474,29 @@ async def get_chapter_guide(
 
     data = await generate_chapter_guide(chapter_text, response_language=response_language)
 
+    # AIResponse 적재
+    ai_resp = AIResponse(
+        user_id=user_id,
+        note_id=None,
+        task_type="chapter_guide",
+        language="",
+        response_language=response_language,
+        model="chapter-guide",
+        textbook_id=textbook_id,
+        current_page=chapter.page_start,
+        has_textbook_context=True,
+        response_content=json.dumps(data, ensure_ascii=False),
+    )
+    db.add(ai_resp)
+    await db.flush()
+
     # 캐시 저장
     guide = PageGuide(
         id=str(uuid.uuid4()),
         textbook_id=textbook_id,
         page=cache_key,
         content=json.dumps(data, ensure_ascii=False),
+        ai_response_id=ai_resp.id,
     )
     db.add(guide)
     await db.commit()
@@ -448,5 +508,6 @@ async def get_chapter_guide(
         page_start=chapter.page_start,
         page_end=chapter.page_end or source.total_pages,
         cached=False,
+        feedback_id=ai_resp.id,
         **data,
     )

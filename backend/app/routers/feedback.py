@@ -7,9 +7,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from anthropic import AsyncAnthropic
+
 from app.core.auth import get_current_user_id
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.feedback import AIFeedbackRecord, AIFeedbackRating
+from app.models.feedback import AIResponse, AIResponseRating
 from app.models.textbook import TextbookSource
 from app.models.usage import LLMUsage
 from app.services.feedback_service import get_feedback, get_recognition
@@ -158,7 +161,7 @@ async def request_feedback(
 
     # 사용자 피드백 수집을 위한 레코드 적재
     response_content = result.data.get("content") or ""
-    record = AIFeedbackRecord(
+    record = AIResponse(
         user_id=user_id,
         note_id=note_id,
         task_type=task_type,
@@ -201,7 +204,7 @@ async def rate_feedback(
         raise HTTPException(status_code=400, detail="comment too long (max 2000)")
 
     record = (await db.execute(
-        select(AIFeedbackRecord).where(AIFeedbackRecord.id == feedback_id)
+        select(AIResponse).where(AIResponse.id == feedback_id)
     )).scalar_one_or_none()
     if record is None:
         raise HTTPException(status_code=404, detail="feedback not found")
@@ -209,12 +212,12 @@ async def rate_feedback(
         raise HTTPException(status_code=403, detail="not your feedback")
 
     existing = (await db.execute(
-        select(AIFeedbackRating).where(AIFeedbackRating.feedback_id == feedback_id)
+        select(AIResponseRating).where(AIResponseRating.response_id == feedback_id)
     )).scalar_one_or_none()
 
     if existing is None:
-        db.add(AIFeedbackRating(
-            feedback_id=feedback_id,
+        db.add(AIResponseRating(
+            response_id=feedback_id,
             user_id=user_id,
             rating=body.rating,
             reason_tags=body.reason_tags or [],
@@ -244,10 +247,13 @@ class ChatRequest(BaseModel):
     response_language: str = "Korean"
     textbook_id: str | None = None
     current_page: int | None = None
+    note_id: str | None = None
+    parent_feedback_id: str | None = None  # 부모 피드백/응답 id (rating 분석용 컨텍스트)
 
 class ChatResponse(BaseModel):
     content: str
     sources: list[dict] = []  # [{"page_start": 33, "page_end": 34, "preview": "..."}]
+    feedback_id: str | None = None  # 채팅 응답의 AIResponse id — 평가 대상
 
 
 @router.post("/feedback/chat", response_model=ChatResponse)
@@ -257,9 +263,6 @@ async def feedback_chat(
     db: AsyncSession = Depends(get_db),
 ):
     """피드백 후속 채팅 — RAG 지원."""
-    from anthropic import AsyncAnthropic
-    from app.core.config import settings
-
     log.info("Feedback chat: user=%s history=%d msg=%s textbook=%s",
              user_id, len(req.history), req.message[:50], req.textbook_id)
 
@@ -353,4 +356,24 @@ async def feedback_chat(
              response.usage.input_tokens + response.usage.output_tokens,
              response.usage.input_tokens, response.usage.output_tokens,
              content[:800])
-    return ChatResponse(content=content, sources=sources)
+
+    # AIResponse 적재 — 채팅 응답도 평가 대상으로 관리
+    record = AIResponse(
+        user_id=user_id,
+        note_id=req.note_id,
+        task_type="chat",
+        language="",
+        response_language=req.response_language,
+        model="claude-sonnet-4-6",
+        textbook_id=req.textbook_id,
+        current_page=req.current_page,
+        has_textbook_context=bool(textbook_context),
+        prompt_context_snippet=(textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
+        previous_context=req.parent_feedback_id,
+        response_content=content,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+
+    return ChatResponse(content=content, sources=sources, feedback_id=record.id)

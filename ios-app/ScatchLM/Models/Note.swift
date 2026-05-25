@@ -213,16 +213,25 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     var role: String  // "user" or "assistant"
     var content: String
     var createdAt: Date
+    var serverMessageId: String?
+    var userRating: Int?
+    var userRatingSyncedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id, role, content
         case feedbackId = "feedback_id"
         case createdAt = "created_at"
+        case serverMessageId = "server_message_id"
+        case userRating = "user_rating"
+        case userRatingSyncedAt = "user_rating_synced_at"
     }
 
     enum Columns: String, ColumnExpression {
         case id, role, content
         case feedbackId = "feedback_id"
         case createdAt = "created_at"
+        case serverMessageId = "server_message_id"
+        case userRating = "user_rating"
+        case userRatingSyncedAt = "user_rating_synced_at"
     }
 }

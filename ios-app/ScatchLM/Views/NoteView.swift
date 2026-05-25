@@ -162,8 +162,8 @@ struct NoteView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(item: $chatFeedback) { fb in
-            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, onPin: { content in
-                pinToCanvas(content: content)
+            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, onPin: { content, responseId in
+                pinToCanvas(content: content, serverFeedbackId: responseId)
             })
         }
         .sheet(item: $ratingSheetFeedback) { fb in
@@ -277,8 +277,8 @@ struct NoteView: View {
                     pdfOpen = false
                     try? db.updatePdfOpen(noteId: noteId, open: false)
                 },
-                onPin: { content in
-                    pinToCanvas(content: content)
+                onPin: { content, responseId in
+                    pinToCanvas(content: content, serverFeedbackId: responseId)
                 }
             )
         }
@@ -535,9 +535,9 @@ struct NoteView: View {
         appLog("note", "card appended", ["y": "\(record.positionY)", "nextY": "\(nextCardY)", "contentLen": "\(content.count)"])
     }
 
-    private func pinToCanvas(content: String) {
+    private func pinToCanvas(content: String, serverFeedbackId: String? = nil) {
         let jsonContent = "{\"type\":\"feedback\",\"content\":\(String(data: (try? JSONEncoder().encode(content)) ?? Data(), encoding: .utf8) ?? "\"\"")}"
-        appendFeedbackCard(content: jsonContent)
+        appendFeedbackCard(content: jsonContent, serverFeedbackId: serverFeedbackId)
     }
 
     private func refreshUndoState() {
@@ -1075,35 +1075,36 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
             buttonBar.addArrangedSubview(chatBtn)
 
-            // Rating buttons — only show once server feedback id is known
-            if fb.serverFeedbackId != nil {
-                let upBtn = UIButton(type: .system)
-                let upName = fb.userRating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup"
-                upBtn.setImage(UIImage(systemName: upName), for: .normal)
-                upBtn.tintColor = fb.userRating == 1 ? UIColor.systemGreen : UIColor.secondaryLabel
-                let upGesture = FeedbackTapGesture(target: self, action: #selector(feedbackThumbUpTapped(_:)))
-                upGesture.feedbackRecord = fb
-                upBtn.addGestureRecognizer(upGesture)
-                buttonBar.addArrangedSubview(upBtn)
+            // Rating buttons — 모든 AI 응답 카드에 노출
+            let upBtn = UIButton(type: .system)
+            let upName = fb.userRating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup"
+            upBtn.setImage(UIImage(systemName: upName), for: .normal)
+            upBtn.tintColor = fb.userRating == 1 ? UIColor.systemGreen : UIColor.secondaryLabel
+            upBtn.isEnabled = fb.serverFeedbackId != nil
+            let upGesture = FeedbackTapGesture(target: self, action: #selector(feedbackThumbUpTapped(_:)))
+            upGesture.feedbackRecord = fb
+            upBtn.addGestureRecognizer(upGesture)
+            buttonBar.addArrangedSubview(upBtn)
 
-                let downBtn = UIButton(type: .system)
-                let downName = fb.userRating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown"
-                downBtn.setImage(UIImage(systemName: downName), for: .normal)
-                downBtn.tintColor = fb.userRating == -1 ? UIColor.systemRed : UIColor.secondaryLabel
-                let downGesture = FeedbackTapGesture(target: self, action: #selector(feedbackThumbDownTapped(_:)))
-                downGesture.feedbackRecord = fb
-                downBtn.addGestureRecognizer(downGesture)
-                buttonBar.addArrangedSubview(downBtn)
+            let downBtn = UIButton(type: .system)
+            let downName = fb.userRating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown"
+            downBtn.setImage(UIImage(systemName: downName), for: .normal)
+            downBtn.tintColor = fb.userRating == -1 ? UIColor.systemRed : UIColor.secondaryLabel
+            downBtn.isEnabled = fb.serverFeedbackId != nil
+            let downGesture = FeedbackTapGesture(target: self, action: #selector(feedbackThumbDownTapped(_:)))
+            downGesture.feedbackRecord = fb
+            downBtn.addGestureRecognizer(downGesture)
+            buttonBar.addArrangedSubview(downBtn)
 
-                let detailBtn = UIButton(type: .system)
-                detailBtn.setTitle("자세히", for: .normal)
-                detailBtn.titleLabel?.font = .systemFont(ofSize: 12)
-                detailBtn.tintColor = .secondaryLabel
-                let detailGesture = FeedbackTapGesture(target: self, action: #selector(feedbackRateDetailTapped(_:)))
-                detailGesture.feedbackRecord = fb
-                detailBtn.addGestureRecognizer(detailGesture)
-                buttonBar.addArrangedSubview(detailBtn)
-            }
+            let detailBtn = UIButton(type: .system)
+            detailBtn.setTitle("자세히", for: .normal)
+            detailBtn.titleLabel?.font = .systemFont(ofSize: 12)
+            detailBtn.tintColor = .secondaryLabel
+            detailBtn.isEnabled = fb.serverFeedbackId != nil
+            let detailGesture = FeedbackTapGesture(target: self, action: #selector(feedbackRateDetailTapped(_:)))
+            detailGesture.feedbackRecord = fb
+            detailBtn.addGestureRecognizer(detailGesture)
+            buttonBar.addArrangedSubview(detailBtn)
 
             buttonBar.addArrangedSubview(UIView())
 

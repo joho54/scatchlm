@@ -24,6 +24,7 @@ targets:
       - ScatchLM
     settings:
       base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joho54.scatchlm
         DEVELOPMENT_TEAM: T8HU7SD8CK
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: true

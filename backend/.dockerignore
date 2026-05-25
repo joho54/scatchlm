@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+logs/
+uploads/
+.env
+.env.*
+!.env.prod.example
+*.md
+tests/

@@ -2,18 +2,17 @@ import Foundation
 
 enum Config {
     // MARK: - Backend API
-    static var apiHost: String {
-        // 개발 시 맥의 IP를 자동 감지하거나 하드코딩
-        // 프로덕션에서는 서버 URL로 교체
-        #if DEBUG
-        return "127.0.0.1"
-        #else
-        return "api.scatchlm.com"
-        #endif
+    /// 개발 시 사용할 호스트. UserDefaults `devApiHost`로 덮어쓸 수 있음 (예: 같은 Wi-Fi의 Mac IP).
+    static var devApiHost: String {
+        UserDefaults.standard.string(forKey: "devApiHost") ?? "127.0.0.1"
     }
 
     static var apiBaseURL: String {
-        "http://\(apiHost):18000/api"
+        #if DEBUG
+        return "http://\(devApiHost):18000/api"
+        #else
+        return "https://scatchlm.duckdns.org/api"
+        #endif
     }
 
     // MARK: - Supabase

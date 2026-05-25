@@ -1,0 +1,252 @@
+# ScatchLM 배포 가이드 (Naver Cloud + DuckDNS)
+
+## 현재 운영 정보
+
+- **URL**: https://scatchlm.duckdns.org
+- **VM**: NCP `server-scatchlm-1` (Ubuntu 24.04, s2-g3a, 2vCPU/8GB, 10GB root disk)
+- **공인 IP**: `101.79.20.91`
+- **SSH alias**: `scatchlm` (`User=root`, `IdentityFile=~/.ssh/id_ed25519`)
+- **VPC/Subnet**: `scatchlm` / `scatchlm-subnet-public` (KR-1, Internet Gateway 전용)
+- **운영 파일 위치**: `/opt/scatchlm/` (`docker-compose.prod.yml`, `Caddyfile`, `init.sql`, `.env.prod`)
+- **이미지**: `ghcr.io/joho54/scatchlm-app:latest` (public)
+- **Object Storage 버킷**: `scatchlm-prod` (KR, Private)
+
+## 사전 작업 (수동)
+
+### 1. DuckDNS 서브도메인 등록
+1. https://www.duckdns.org 로그인 (GitHub/Google 등)
+2. `subdomain` 입력란에 `scatchlm` (또는 원하는 이름) 입력 → **add domain**
+3. 페이지 상단의 **token** 복사 (Caddy는 안 쓰지만 IP 갱신용으로 보관)
+4. `current ip`에 NCP VM 공인 IP 입력 → **update ip**
+   - 또는 VM에서 cron으로 자동 갱신:
+     ```
+     */5 * * * * curl -s "https://www.duckdns.org/update?domains=scatchlm&token=<TOKEN>&ip="
+     ```
+
+### 2. NCP 리소스
+- **VPC + Subnet (Public)**: `scatchlm-vpc` / `scatchlm-subnet-public` (KR-1)
+  - Subnet은 **Internet Gateway 전용 = Y (Public)** 으로 만들어야 공인 IP 부여 가능
+- **Server (VM)**: Ubuntu 24.04, 2 vCPU/8GB
+- **공인 IP**: Server 생성 후 **별도 신청 + 서버 연결**. Server 생성 마법사에서 같이 만들지 않으면 비공인 IP만 부여됨
+- **ACG(방화벽)**: 인바운드 룰 — **80/443은 반드시 0.0.0.0/0 으로 열어야 함**. 안 열면 Let's Encrypt 검증 실패
+  - 권장: 22(본인 IP/32), 80(0.0.0.0/0), 443(0.0.0.0/0). 기본 3389(RDP)는 삭제
+- **Object Storage**: 콘솔 → Object Storage → 버킷 생성 (예: `scatchlm-prod`, KR, Private)
+  - **서비스 이용 신청**이 선행돼야 함 (처음 진입 시 배너)
+- **Container Registry**: GitHub Container Registry (ghcr.io) 사용. NCP 리소스 아님
+  - NCP NCR는 사용 안 함 (Object Storage 의존성 활성화 quirk 회피)
+- **API Authentication Key**: 마이페이지 → 인증키 관리 → Access Key/Secret Key 발급 (Object Storage용)
+  - 현재 NCP는 IAM 통합 → `ncp_iam_*` 형식 키만 발급됨. 그래도 메인 계정 키면 Object Storage S3 API 동작
+  - 서브 계정/IAM 사용자 키라면 Object Storage 정책 명시적 연결 필요
+
+### SSH 키 등록 (NCP의 특이한 패턴)
+NCP Ubuntu는 AWS와 달리 `.pem`을 SSH 키로 직접 쓰지 않는다.
+1. 콘솔에서 **관리자 비밀번호 확인** → `.pem` 업로드 → 복호화된 root 비밀번호 표시
+2. 그 비밀번호로 `ssh root@<IP>` 접속 (password 인증)
+3. 들어가서 `~/.ssh/authorized_keys`에 본인 공개키 등록
+4. 이후 키 인증으로 접속
+
+로컬에서 한 방에:
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub root@<VM_IP>
+# 비밀번호 프롬프트에 NCP 관리자 비밀번호 입력
+```
+
+### SSH alias 등록
+```bash
+cat >> ~/.ssh/config << 'EOF'
+
+Host scatchlm
+    HostName scatchlm.duckdns.org
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+EOF
+chmod 600 ~/.ssh/config
+```
+
+### 3. VM 초기 셋업 (Docker 공식 저장소 사용)
+```bash
+ssh scatchlm
+apt-get update -qq && apt-get install -y -qq ca-certificates curl gnupg
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update -qq
+apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+```
+
+> Ubuntu 24.04 기본 저장소의 `docker.io`보다 공식 저장소가 compose v2 호환성이 좋다.
+
+## 배포 순서
+
+### A. 로컬(또는 CI)에서 이미지 빌드 + 푸시
+VM에선 빌드 안 함. 빌드 캐시가 VM 디스크에 쌓이지 않도록 분리.
+
+**사전 준비 (1회)**
+1. GitHub → Settings → Developer settings → **Personal access tokens (classic)**
+2. **Generate new token** → scope: `write:packages`, `read:packages`, `delete:packages`
+3. 토큰을 안전한 곳에 저장
+4. 로컬에서:
+   ```bash
+   echo <GITHUB_PAT> | docker login ghcr.io -u joho54 --password-stdin
+   ```
+5. **첫 푸시 후** https://github.com/users/joho54/packages 에서
+   `scatchlm-app` 패키지 → **Package settings** → **Change visibility** → **Public**
+
+**매 배포**
+```bash
+cd backend
+docker build --platform linux/amd64 \
+  -t ghcr.io/joho54/scatchlm-app:latest .
+docker push ghcr.io/joho54/scatchlm-app:latest
+```
+> Mac(Apple Silicon)에서 빌드하면 `--platform linux/amd64` 필수. 안 그러면 VM에서 못 돌아감.
+
+### B. VM에 설정 파일 배치
+실제 배포에선 git clone 대신 **로컬에서 scp**로 4개 파일만 올린다 (시크릿 포함 `.env.prod`는 git 추적 X):
+
+```bash
+# 로컬에서
+ssh scatchlm 'mkdir -p /opt/scatchlm'
+scp backend/docker-compose.prod.yml backend/Caddyfile backend/init.sql backend/.env.prod \
+    scatchlm:/opt/scatchlm/
+ssh scatchlm 'chmod 600 /opt/scatchlm/.env.prod'
+```
+
+### C. VM에서 pull + 기동
+```bash
+ssh scatchlm
+cd /opt/scatchlm
+
+# 이미지 pull + 기동 (Caddy가 자동으로 Let's Encrypt 인증서 발급)
+# 패키지가 Public이면 ghcr.io 로그인 불필요
+docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+# 로그 확인 (반드시 --env-file 같이)
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f app
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs caddy
+
+# 헬스체크
+curl https://scatchlm.duckdns.org/docs
+```
+
+> **주의**: 모든 `docker compose` 명령에 `--env-file .env.prod` 필수. 빼면 `${APP_IMAGE}`/`${DOMAIN}` 해석 실패로 명령이 거부됨.
+
+## 운영
+
+### 업데이트
+```bash
+# 로컬: 새 이미지 푸시
+docker build --platform linux/amd64 -t ghcr.io/joho54/scatchlm-app:latest backend/
+docker push ghcr.io/joho54/scatchlm-app:latest
+
+# VM: pull + 재기동
+ssh scatchlm
+cd /opt/scatchlm
+docker compose -f docker-compose.prod.yml --env-file .env.prod pull app
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d app
+```
+Alembic 마이그레이션은 컨테이너 시작 시 `alembic upgrade head`로 자동 실행됨.
+
+### 설정 파일만 갱신 (compose / Caddy)
+이미지 재빌드 없이 compose/Caddy 설정만 바뀐 경우:
+```bash
+scp backend/docker-compose.prod.yml backend/Caddyfile scatchlm:/opt/scatchlm/
+ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod up -d'
+# Caddy만 재기동: ... restart caddy
+```
+
+### 이미지 정리 (디스크 관리)
+```bash
+docker image prune -af   # 사용 안 하는 이미지 삭제
+```
+
+### 백업
+```bash
+# Postgres 덤프
+docker exec scatchlm-prod-postgres-1 pg_dump -U postgres scatchlm | gzip > backup-$(date +%F).sql.gz
+```
+Object Storage의 PDF는 NCP에서 라이프사이클/버전 관리.
+
+### iOS Config
+`ios-app/ScatchLM/Utilities/Config.swift`:
+- **DEBUG**: `http://<devApiHost>:18000/api` — `UserDefaults["devApiHost"]`로 Mac LAN IP 주입 가능
+- **RELEASE**: `https://scatchlm.duckdns.org/api`
+
+iPad에 Release 빌드 설치:
+```bash
+cd ios-app
+xcodegen generate
+xcodebuild -project ScatchLM.xcodeproj -scheme ScatchLM -configuration Release \
+  -destination 'id=00008103-000C65D43AEB001E' -allowProvisioningUpdates build
+xcrun devicectl device install app --device 00008103-000C65D43AEB001E \
+  ~/Library/Developer/Xcode/DerivedData/ScatchLM-*/Build/Products/Release-iphoneos/ScatchLM.app
+```
+
+## 로그 / 모니터링
+
+`/check-prod-logs` 슬래시 명령으로 SSH 경유 docker compose logs 조회. 상세는 `.claude/commands/check-prod-logs.md`.
+
+- Caddy access log: Caddyfile에 `log { output stdout; format console }` 활성화돼 있음. 모든 요청이 caddy 로그에 떨어짐
+- iOS FE 로그: `LogService`가 2초 주기로 `POST /api/dev/log/batch` → app 로그에 `[fe]` prefix로 기록
+
+## 트러블슈팅 (실제로 겪었던 것들)
+
+### Let's Encrypt 인증서 발급 실패 — `Timeout during connect`
+ACG에 80/443 인바운드 룰이 없거나 적용 ACG가 다른 것. 콘솔에서:
+- Server → 서버 상세 → 적용 ACG 확인
+- 해당 ACG에 80/443 (0.0.0.0/0) 추가
+
+### `permission_denied: token does not match expected scopes` (GHCR push)
+PAT 종류/권한 문제:
+- **Classic PAT만** GHCR write 지원. Fine-grained PAT는 거부됨
+- scope: `write:packages`, `read:packages` 체크돼 있어야 함
+
+### `error from registry: denied` (GHCR push)
+`docker login ghcr.io -u <github-username> --password-stdin` 안 한 상태. 로그인 후 재시도.
+
+### `error while interpolating services.app.image: required variable APP_IMAGE`
+docker compose 명령에 `--env-file .env.prod`를 빠뜨림.
+
+### `Caddy YAML: mapping values are not allowed in this context`
+compose 파일에서 `image: ${APP_IMAGE:?...:...}` 처럼 값에 `:`이 포함되면 따옴표로 감싸야 함:
+```yaml
+image: "${APP_IMAGE:?APP_IMAGE env required}"
+```
+
+### NCP Object Storage `InvalidAccessKeyId`
+원인 후보:
+1. **버킷 미생성** — Object Storage 콘솔에서 명시적으로 만들어야 함
+2. **서비스 이용 신청 안 함** — 처음 진입 시 배너로 신청
+3. **서브 계정 키에 Object Storage 정책 미연결** — NCP IAM에서 정책 추가
+
+진단:
+```bash
+ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T app python3 -c "
+import os, boto3
+s3 = boto3.client(\"s3\",
+    endpoint_url=os.environ[\"OBJECT_STORAGE_ENDPOINT\"],
+    region_name=os.environ[\"OBJECT_STORAGE_REGION\"],
+    aws_access_key_id=os.environ[\"OBJECT_STORAGE_ACCESS_KEY\"],
+    aws_secret_access_key=os.environ[\"OBJECT_STORAGE_SECRET_KEY\"])
+print(s3.list_buckets())
+"'
+```
+
+### iOS PDF 업로드 침묵 실패
+`fileImporter`의 콜백에서 `defer { url.stopAccessingSecurityScopedResource() }`가 `Task { ... }` 바깥에 있으면, 함수 즉시 리턴 → defer 실행 → Task가 파일 읽을 때 권한 없어 실패. **반드시 Task 내부에서 start/stop**.
+
+### iPad 빌드: Developer Disk Image not mounted
+iPad 잠금 해제 + "이 컴퓨터 신뢰" 탭. iOS 16+는 Settings → Privacy & Security → Developer Mode도 ON.
+
+### iPad 빌드: `The app identifier ... cannot be registered`
+Apple Developer Portal이 해당 bundle ID를 우리 팀에 등록 못 함. project.yml에서 `PRODUCT_BUNDLE_IDENTIFIER`를 다른 유니크 값으로 명시 지정 (예: 소문자 `com.joho54.scatchlm`) 후 `xcodegen generate`.
+
+## NCP 특이점 메모
+
+- pgvector는 NCP Cloud DB for PostgreSQL이 미지원 → **컨테이너로 직접 운영**
+- NCP Container Registry는 Object Storage 백엔드 + 콘솔 UI 활성화 quirk가 있어 GHCR로 우회
+- `.pem`은 root 비밀번호 복호화용. SSH 키 자체가 아님

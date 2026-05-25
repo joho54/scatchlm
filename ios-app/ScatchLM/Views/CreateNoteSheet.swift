@@ -146,29 +146,58 @@ struct CreateNoteSheet: View {
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
+        appLog("pdf-upload", "fileImporter callback")
 
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
+        switch result {
+        case .failure(let err):
+            appLogError("pdf-upload", "picker returned error", ["error": "\(err)"])
+            return
+        case .success(let urls):
+            guard let url = urls.first else {
+                appLogError("pdf-upload", "picker returned empty urls")
+                return
+            }
+            appLog("pdf-upload", "picked file", [
+                "name": url.lastPathComponent,
+                "isFileURL": "\(url.isFileURL)",
+            ])
 
-        uploading = true
-        Task {
-            do {
-                struct UploadResult: Decodable {
-                    let id: String
-                    let fileName: String
-                    let totalPages: Int
+            uploading = true
+            Task {
+                // security-scoped 접근은 Task 안에서 잡고 풀어야 한다.
+                // 함수가 먼저 리턴하면 defer가 즉시 호출돼서 Task가 파일을 못 읽음.
+                let granted = url.startAccessingSecurityScopedResource()
+                defer { if granted { url.stopAccessingSecurityScopedResource() } }
+
+                let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+                appLog("pdf-upload", "starting upload", [
+                    "name": url.lastPathComponent,
+                    "size": "\(fileSize)",
+                    "securityScoped": "\(granted)",
+                ])
+
+                do {
+                    struct UploadResult: Decodable {
+                        let id: String
+                        let fileName: String
+                        let totalPages: Int
+                    }
+                    let res: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
+                    appLog("pdf-upload", "upload OK", [
+                        "id": res.id,
+                        "name": res.fileName,
+                        "pages": "\(res.totalPages)",
+                    ])
+                    let item = TextbookListItem(id: res.id, fileName: res.fileName, totalPages: res.totalPages)
+                    await MainActor.run {
+                        textbooks.append(item)
+                        selectedTextbookId = item.id
+                        uploading = false
+                    }
+                } catch {
+                    appLogError("pdf-upload", "upload failed", ["error": "\(error)"])
+                    await MainActor.run { uploading = false }
                 }
-                let result: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
-                let item = TextbookListItem(id: result.id, fileName: result.fileName, totalPages: result.totalPages)
-                await MainActor.run {
-                    textbooks.append(item)
-                    selectedTextbookId = item.id
-                    uploading = false
-                }
-            } catch {
-                print("[CreateNote] Upload failed: \(error)")
-                await MainActor.run { uploading = false }
             }
         }
     }

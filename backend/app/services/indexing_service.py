@@ -1,10 +1,10 @@
 import logging
 
-import fitz
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import DocumentChunk
 from app.services.embedding_service import chunk_text_by_pages, embed_texts
+from app.services.pdf_service import _open_pdf
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ async def index_textbook(
         생성된 청크 수
     """
     # PDF에서 페이지별 텍스트 추출
-    doc = fitz.open(server_path)
+    doc = _open_pdf(server_path)
     pages = []
     for i in range(len(doc)):
         text = doc[i].get_text().replace("\x00", "")

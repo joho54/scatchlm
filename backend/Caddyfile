@@ -1,0 +1,19 @@
+# {$DOMAIN}는 docker compose 실행 시 환경변수로 주입된다.
+# 예: DOMAIN=scatchlm.duckdns.org docker compose -f docker-compose.prod.yml up -d
+{$DOMAIN} {
+    encode gzip
+    request_body {
+        max_size 60MB
+    }
+    log {
+        output stdout
+        format console
+    }
+    reverse_proxy app:18000 {
+        # PDF 업로드/스트리밍을 위한 넉넉한 타임아웃
+        transport http {
+            read_timeout 5m
+            write_timeout 5m
+        }
+    }
+}

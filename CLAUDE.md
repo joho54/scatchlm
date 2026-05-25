@@ -21,7 +21,7 @@ scatchlm/
 │   ├── ScatchLM/
 │   │   ├── App/          # ScatchLMApp.swift
 │   │   ├── Views/        # SwiftUI 뷰 (Login, Home, Note, PdfViewer, FeedbackChat, Settings 등)
-│   │   ├── Models/       # GRDB 모델 (Note, NotePage, FeedbackRecord, ChatMessageRecord 등)
+│   │   ├── Models/       # GRDB 모델 (Note, NotePage, FeedbackRecord(+stroke_range_start/end), ChatMessageRecord 등)
 │   │   ├── Services/     # DatabaseService, AuthService, APIClient, LogService
 │   │   └── Utilities/    # Config
 │   ├── project.yml       # XcodeGen 프로젝트 설정
@@ -73,7 +73,13 @@ xcodebuild -project ScatchLM.xcodeproj -scheme ScatchLM \
 xcrun devicectl device install app \
   --device 00008103-000C65D43AEB001E \
   ~/Library/Developer/Xcode/DerivedData/ScatchLM-*/Build/Products/Debug-iphoneos/ScatchLM.app  # 설치
+
+# 시뮬레이터 빌드 (컴파일 검증용 — 실기기 미연결 시 항상 함께 실행)
+xcodebuild -project ScatchLM.xcodeproj -scheme ScatchLM \
+  -destination 'id=E9FA98C5-3953-4CAF-9076-81000B685E2F' build   # iPad (A16) Simulator
 ```
+
+**빌드 정책**: 코드 변경 후에는 실기기 빌드와 시뮬레이터 빌드를 둘 다 수행해 컴파일을 검증할 것. 실기기가 미연결이면 시뮬레이터 빌드만으로도 컴파일 검증은 충분하다.
 
 ### 로그 확인
 
@@ -140,9 +146,42 @@ migrator.registerMigration("v3_new_feature") { db in
 - 디버깅 시 로그 기반으로 분석. BE 로그: `backend/logs/uvicorn.log`, FE 로그: 같은 파일에서 `FE` 필터.
 - 구현에 어려움을 겪을 때 사용자에게 사과하는 대신, 명세나 문제에 대한 합의에 먼저 도달한 후 표준적인 솔루션을 제공할 것.
 
+## 배포 (프로덕션)
+
+상세 절차: `backend/DEPLOY.md`
+
+### 인프라
+- **호스트**: Naver Cloud Platform VM (`server-scatchlm-1`, Ubuntu 24.04, KR-1)
+- **공인 IP**: `101.79.20.91`
+- **도메인**: `scatchlm.duckdns.org` (DuckDNS, 토큰은 `.env.prod`)
+- **VPC**: `scatchlm` / Subnet `scatchlm-subnet-public`
+- **ACG**: 22(본인 IP), 80, 443 인바운드 허용
+- **Object Storage**: Naver Cloud Object Storage (S3 호환, `boto3` 사용, endpoint `kr.object.ncloudstorage.com`)
+- **Container Registry**: GitHub Container Registry (public 패키지 `ghcr.io/joho54/scatchlm-app:latest`)
+- **HTTPS**: Caddy 컨테이너가 Let's Encrypt 자동 발급
+
+### SSH
+```bash
+ssh scatchlm                            # alias (HostName: scatchlm.duckdns.org, User: root)
+# 또는 ssh root@101.79.20.91
+```
+SSH 키: `~/.ssh/id_ed25519`. NCP pem(`/Users/johyeonho/scatchlm-secret/ssh-scatchlm.pem`)은 최초 root 비밀번호 복호화용으로만 사용.
+
+### 배포 흐름
+1. **로컬**: `docker build --platform linux/amd64 -t ghcr.io/joho54/scatchlm-app:latest backend/ && docker push ...`
+2. **VM**: `cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod pull && up -d`
+
+VM에는 빌드하지 않음 (디스크 10GB 절약). 설정 파일(`docker-compose.prod.yml`, `Caddyfile`, `init.sql`, `.env.prod`)은 `/opt/scatchlm/`에 위치.
+
+### 스토리지 추상화 (`app/services/storage.py`)
+- `STORAGE_BACKEND=local` (기본): `PDF_UPLOAD_DIR` 하위 파일 시스템
+- `STORAGE_BACKEND=s3`: Naver Cloud Object Storage. boto3로 endpoint만 바꿔 호출
+- PDF 서빙은 로컬이면 `FileResponse`, S3면 `StreamingResponse`로 자동 분기
+
 ## 참고
 
 - 상세 명세: `SPEC.md`
+- 배포: `backend/DEPLOY.md`
 - iOS 개발환경 셋업: `mobile/README.md` (레거시 RN), `ios-app/project.yml`
 - 인증: Supabase Auth (backend에서 JWT 검증, iOS에서 supabase-swift)
-- API 호스트: `ios-app/ScatchLM/Utilities/Config.swift`에서 관리 (개발 시 로컬 IP)
+- API 호스트: `ios-app/ScatchLM/Utilities/Config.swift`에서 관리 (개발 시 로컬 IP, 운영 시 `https://scatchlm.duckdns.org`)

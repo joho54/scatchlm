@@ -1,9 +1,10 @@
 import json
 import logging
+import os
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from app.services.pdf_service import save_pdf, extract_text as extract_pdf_text,
 from app.services.indexing_service import index_textbook
 from app.services.guide_service import generate_page_guide, generate_chapter_guide
 from app.services.chapter_service import detect_chapters
+from app.services.storage import storage
 
 log = logging.getLogger(__name__)
 
@@ -90,12 +92,8 @@ async def upload_pdf(
 
     if existing_source:
         log.info("PDF duplicate: hash=%s existing_id=%s, reusing", content_hash[:12], existing_source.id)
-        # 중복 파일 삭제
-        import os
-        try:
-            os.remove(server_path)
-        except OSError:
-            pass
+        # 방금 업로드한 중복본 삭제 (server_path는 이번 업로드의 storage key)
+        storage.delete(server_path)
         return {
             "id": existing_source.id,
             "fileName": existing_source.file_name,
@@ -205,10 +203,16 @@ async def serve_pdf_file(
     if not source:
         raise HTTPException(status_code=404, detail="Textbook not found")
 
-    return FileResponse(
-        source.server_path,
+    # 로컬 스토리지(또는 레거시 경로)면 FileResponse, S3면 StreamingResponse
+    local = storage.local_path(source.server_path)
+    if local and os.path.exists(local):
+        return FileResponse(local, media_type="application/pdf", filename=source.file_name)
+    if os.path.exists(source.server_path):  # 레거시 행: server_path가 실제 파일 경로
+        return FileResponse(source.server_path, media_type="application/pdf", filename=source.file_name)
+    return StreamingResponse(
+        storage.stream(source.server_path),
         media_type="application/pdf",
-        filename=source.file_name,
+        headers={"Content-Disposition": f'inline; filename="{source.file_name}"'},
     )
 
 

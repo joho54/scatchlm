@@ -155,6 +155,36 @@ async def test_feedback_chat_success(client: AsyncClient, auth_header: dict):
 
 
 @pytest.mark.asyncio
+async def test_feedback_chat_returns_feedback_id_and_is_rateable(client: AsyncClient, auth_header: dict):
+    """채팅 응답이 AIResponse로 적재되어 /feedback/{id}/rate 로 평가 가능해야 한다."""
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="assistant reply for rating")]
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        chat_res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={"message": "hi", "history": [], "response_language": "Korean"},
+        )
+
+    assert chat_res.status_code == 200
+    chat_id = chat_res.json().get("feedback_id")
+    assert isinstance(chat_id, str) and len(chat_id) > 0
+
+    rate_res = await client.post(
+        f"/api/feedback/{chat_id}/rate",
+        headers=auth_header,
+        json={"rating": 1, "reason_tags": []},
+    )
+    assert rate_res.status_code == 204
+
+
+@pytest.mark.asyncio
 async def test_feedback_chat_requires_auth(client: AsyncClient):
     """인증 없이 채팅 요청 시 401 반환."""
     res = await client.post(

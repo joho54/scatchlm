@@ -24,6 +24,26 @@ final class DatabaseServiceTests: XCTestCase {
         try db.deleteNote(id: note.id)
     }
 
+    func testUpdateNoteTitleAndLanguagePersists() throws {
+        // EditNoteSheet flow: 같은 id로 title/language를 바꿔 re-save 하면
+        // GRDB upsert로 덮어써져야 한다.
+        var note = Note.new(title: "Old Title", language: "en")
+        try db.saveNote(&note)
+
+        var updated = try XCTUnwrap(db.note(id: note.id))
+        updated.title = "New Title"
+        updated.language = "Japanese"
+        updated.updatedAt = Date()
+        try db.saveNote(&updated)
+
+        let refetched = try db.note(id: note.id)
+        XCTAssertEqual(refetched?.title, "New Title")
+        XCTAssertEqual(refetched?.language, "Japanese")
+        XCTAssertEqual(refetched?.id, note.id)
+
+        try db.deleteNote(id: note.id)
+    }
+
     // MARK: - Page System
 
     func testCreatePagesAndSwitch() throws {

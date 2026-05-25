@@ -8,7 +8,7 @@ struct PageNavigatorView: View {
     let onAdd: () -> Void
     let onClose: () -> Void
 
-    private let thumbSize = CGSize(width: 160, height: 213)  // 3:4
+    private let thumbSize = CGSize(width: 160, height: 107)  // 가로형
 
     var body: some View {
         VStack(spacing: 0) {

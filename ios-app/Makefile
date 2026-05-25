@@ -31,3 +31,10 @@ reinstall: build install
 
 clean:
 	rm -rf ~/Library/Developer/Xcode/DerivedData/ScatchLM-*
+
+# 시뮬레이터 부팅 → 빌드 → 설치 → 실행
+run-sim: build-sim
+	@xcrun simctl boot $(SIM_ID) 2>/dev/null || true
+	open -a Simulator
+	xcrun simctl install booted $(SIM_APP_PATH)
+	xcrun simctl launch booted $(BUNDLE_ID)

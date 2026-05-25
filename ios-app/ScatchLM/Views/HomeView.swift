@@ -1,4 +1,5 @@
 import SwiftUI
+import PencilKit
 
 struct HomeView: View {
     @State private var notes: [Note] = []
@@ -6,6 +7,7 @@ struct HomeView: View {
     @State private var showCreateSheet = false
     @State private var showSettings = false
     @State private var selectedNoteId: String?
+    @State private var editingNote: Note?
 
     private let db = DatabaseService.shared
 
@@ -26,6 +28,11 @@ struct HomeView: View {
                         NoteCardView(note: note)
                     }
                     .contextMenu {
+                        Button {
+                            editingNote = note
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
                         Button(role: .destructive) {
                             deleteNote(note)
                         } label: {
@@ -67,6 +74,11 @@ struct HomeView: View {
         .sheet(isPresented: $showSettings) {
             SettingsSheet()
         }
+        .sheet(item: $editingNote) { note in
+            EditNoteSheet(note: note) { newTitle, newLanguage in
+                updateNote(note, title: newTitle, language: newLanguage)
+            }
+        }
         .onAppear { loadNotes() }
     }
 
@@ -96,6 +108,21 @@ struct HomeView: View {
         }
     }
 
+    private func updateNote(_ note: Note, title: String, language: String) {
+        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
+        var updated = notes[idx]
+        updated.title = title
+        updated.language = language
+        updated.updatedAt = Date()
+        do {
+            try db.saveNote(&updated)
+            notes[idx] = updated
+            appLog("home", "updateNote OK", ["id": updated.id])
+        } catch {
+            appLogError("home", "updateNote failed", ["error": "\(error)"])
+        }
+    }
+
     private func deleteNote(_ note: Note) {
         do {
             try db.deleteNote(id: note.id)
@@ -109,11 +136,13 @@ struct HomeView: View {
 struct NoteCardView: View {
     let note: Note
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var thumbnail: UIImage?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Ruled lines preview
             ZStack {
-                Color.white
+                colorScheme == .dark ? Color(white: 0.12) : Color.white
                 VStack(spacing: 0) {
                     ForEach(0..<6, id: \.self) { _ in
                         Rectangle()
@@ -122,9 +151,15 @@ struct NoteCardView: View {
                             .padding(.top, 24)
                     }
                 }
+                if let img = thumbnail {
+                    Image(uiImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                }
             }
             .frame(height: 160)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .task(id: note.id) { await loadThumbnail() }
 
             Text(note.title)
                 .font(.headline)
@@ -156,5 +191,24 @@ struct NoteCardView: View {
         .padding(12)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func loadThumbnail() async {
+        let noteId = note.id
+        let img: UIImage? = await Task.detached(priority: .utility) {
+            guard let pages = try? DatabaseService.shared.pages(noteId: noteId),
+                  let first = pages.first,
+                  let data = first.drawingData,
+                  let drawing = try? PKDrawing(data: data),
+                  !drawing.strokes.isEmpty else { return nil }
+
+            let sourceWidth: CGFloat = 800
+            let aspect: CGFloat = 160.0 / 240.0
+            let sourceHeight = sourceWidth * aspect
+            let rect = CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight)
+            let scale = 240.0 / sourceWidth
+            return drawing.image(from: rect, scale: scale)
+        }.value
+        await MainActor.run { self.thumbnail = img }
     }
 }

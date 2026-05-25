@@ -5,7 +5,7 @@ $(LOGS_DIR):
 
 .PHONY: serve
 serve: $(LOGS_DIR)
-	source venv/bin/activate && uvicorn app.main:app --reload --loop asyncio --host 0.0.0.0 2>&1 | tee $(LOGS_DIR)/uvicorn.log
+	source venv/bin/activate && uvicorn app.main:app --reload --loop asyncio --host 0.0.0.0 --port 18000 2>&1 | tee $(LOGS_DIR)/uvicorn.log
 
 .PHONY: db-up
 db-up:

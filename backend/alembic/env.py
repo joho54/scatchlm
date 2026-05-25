@@ -12,6 +12,8 @@ from app.models.user import Base
 import app.models.document  # noqa: F401
 import app.models.textbook  # noqa: F401
 import app.models.usage  # noqa: F401
+import app.models.chapter  # noqa: F401
+import app.models.guide  # noqa: F401
 
 config = context.config
 

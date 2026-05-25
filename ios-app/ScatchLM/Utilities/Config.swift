@@ -6,14 +6,14 @@ enum Config {
         // 개발 시 맥의 IP를 자동 감지하거나 하드코딩
         // 프로덕션에서는 서버 URL로 교체
         #if DEBUG
-        return "192.168.0.62"
+        return "127.0.0.1"
         #else
         return "api.scatchlm.com"
         #endif
     }
 
     static var apiBaseURL: String {
-        "http://\(apiHost):8000/api"
+        "http://\(apiHost):18000/api"
     }
 
     // MARK: - Supabase

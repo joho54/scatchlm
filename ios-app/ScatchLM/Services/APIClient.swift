@@ -39,13 +39,43 @@ final class APIClient {
             request.setValue(value, forHTTPHeaderField: key)
         }
 
+        appLog("api", "→ GET \(path)", query.isEmpty ? nil : query)
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        appLog("api", "← \(statusCode) GET \(path)", ["bytes": "\(data.count)"])
+        guard 200..<300 ~= statusCode else {
+            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    // MARK: - POST (JSON)
+
+    @discardableResult
+    func postJSON<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
+        let (data, _) = try await postJSONRaw(path, body: body)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    func postJSONNoContent(_ path: String, body: [String: Any]) async throws {
+        _ = try await postJSONRaw(path, body: body)
+    }
+
+    private func postJSONRaw(_ path: String, body: [String: Any]) async throws -> (Data, HTTPURLResponse) {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "POST"
+        for (key, value) in await authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-
-        return try JSONDecoder().decode(T.self, from: data)
+        return (data, httpResponse)
     }
 
     // MARK: - POST (multipart/form-data)

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Page Nav Pill — Design Options</title>
+<style>
+  :root {
+    --bg: #f2f2f7;
+    --canvas: #e9eaee;
+    --pill-bg: rgba(255, 255, 255, 0.72);
+    --pill-border: rgba(0, 0, 0, 0.06);
+    --pill-shadow: 0 6px 20px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --ink: #1c1c1e;
+    --ink-secondary: #6e6e73;
+    --ink-tertiary: #b0b0b5;
+    --accent: #0a84ff;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 48px 32px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--ink-secondary);
+    font-size: 14px;
+    margin: 0 0 32px;
+  }
+  .stage {
+    background: var(--canvas);
+    border-radius: 20px;
+    padding: 48px 32px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 120px;
+    border: 1px solid rgba(0,0,0,0.04);
+  }
+  .label {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    margin: 24px 0 8px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .label .name {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* ===== Common pill base ===== */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    background: var(--pill-bg);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--pill-border);
+    box-shadow: var(--pill-shadow);
+    border-radius: 999px;
+    user-select: none;
+  }
+  .btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:hover { background: rgba(0,0,0,0.04); }
+  .btn:active { background: rgba(0,0,0,0.08); }
+  .btn:disabled { color: var(--ink-tertiary); cursor: default; }
+  .btn:disabled:hover { background: transparent; }
+  .btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(0,0,0,0.10);
+  }
+  .count {
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-secondary);
+    letter-spacing: 0.01em;
+  }
+
+  /* ===== Option A: Compact (Apple Books style) ===== */
+  .pill-a .btn { width: 32px; height: 32px; border-radius: 999px; }
+  .pill-a .count { padding: 0 10px; }
+  .pill-a { padding: 4px; }
+
+  /* ===== Option B: Segmented with center number ===== */
+  .pill-b { padding: 0; overflow: hidden; }
+  .pill-b .btn { width: 40px; height: 36px; border-radius: 0; }
+  .pill-b .center {
+    padding: 0 16px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    border-left: 1px solid rgba(0,0,0,0.08);
+    border-right: 1px solid rgba(0,0,0,0.08);
+  }
+  .pill-b .center .count { color: var(--ink); font-weight: 600; }
+  .pill-b .center .total { color: var(--ink-secondary); font-weight: 500; margin-left: 2px; }
+
+  /* ===== Option C: Outlined arrows (Notion-ish) ===== */
+  .pill-c { padding: 4px; gap: 2px; }
+  .pill-c .btn {
+    width: 28px; height: 28px; border-radius: 8px;
+  }
+  .pill-c .count {
+    padding: 0 8px; font-size: 12px;
+  }
+
+  /* ===== Option D: Floating dots indicator ===== */
+  .pill-d { padding: 6px 10px; gap: 8px; }
+  .pill-d .btn { width: 28px; height: 28px; border-radius: 999px; }
+  .pill-d .dots { display: inline-flex; gap: 5px; align-items: center; padding: 0 4px; }
+  .pill-d .dot {
+    width: 5px; height: 5px; border-radius: 999px;
+    background: rgba(0,0,0,0.18);
+    transition: all 0.2s;
+  }
+  .pill-d .dot.active {
+    width: 16px; background: var(--ink);
+  }
+
+  /* ===== Option E: Stepper with chevrons + add ===== */
+  .pill-e { padding: 4px; gap: 2px; }
+  .pill-e .btn { width: 32px; height: 32px; border-radius: 999px; }
+  .pill-e .count { padding: 0 10px; }
+  .pill-e .add { color: var(--accent); }
+  .pill-e .add svg { stroke-width: 2.6; }
+
+  footer {
+    margin-top: 40px;
+    color: var(--ink-tertiary);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Page Navigation Pill — Design Options</h1>
+<p class="subtitle">캔버스 페이지 이동용 floating pill. iOS 시스템 디자인 언어 기반.</p>
+
+<!-- A -->
+<div class="label"><span class="name">A. Compact</span> — Apple Books / Photos 스타일. 가장 표준적, 미니멀.</div>
+<div class="stage">
+  <div class="pill pill-a">
+    <button class="btn" aria-label="Previous">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="count">2 / 8</span>
+    <button class="btn" aria-label="Next">
+      <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- B -->
+<div class="label"><span class="name">B. Segmented</span> — 가운데 페이지 카운터 영역 강조. 정보 위계 분리.</div>
+<div class="stage">
+  <div class="pill pill-b">
+    <button class="btn" aria-label="Previous">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="center">
+      <span class="count">2</span><span class="total">&nbsp;/ 8</span>
+    </span>
+    <button class="btn" aria-label="Next">
+      <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- C -->
+<div class="label"><span class="name">C. Rounded-square arrows</span> — Notion / Linear 스타일. 좀 더 productivity tool 느낌.</div>
+<div class="stage">
+  <div class="pill pill-c">
+    <button class="btn" aria-label="Previous">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="count">2 / 8</span>
+    <button class="btn" aria-label="Next">
+      <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- D -->
+<div class="label"><span class="name">D. Dots indicator</span> — 페이지 수가 적을 때(≤8) 시각적. Apple Weather/Onboarding 스타일.</div>
+<div class="stage">
+  <div class="pill pill-d">
+    <button class="btn" aria-label="Previous">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="dots">
+      <span class="dot"></span>
+      <span class="dot active"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </span>
+    <button class="btn" aria-label="Next">
+      <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- E -->
+<div class="label"><span class="name">E. With inline "+" page add</span> — 새 페이지 버튼을 페이지 컨트롤 안에 통합. 단일 pill로 정리.</div>
+<div class="stage">
+  <div class="pill pill-e">
+    <button class="btn" aria-label="Previous">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="count">2 / 8</span>
+    <button class="btn" aria-label="Next">
+      <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+    <span class="divider"></span>
+    <button class="btn add" aria-label="Add page">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+  </div>
+</div>
+
+<footer>
+  모든 옵션: ultraThinMaterial (backdrop-blur) 배경 · 1px hairline border · soft drop shadow · 99px corner radius
+</footer>
+
+</body>
+</html>

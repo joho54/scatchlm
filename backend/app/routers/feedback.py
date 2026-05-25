@@ -1,17 +1,22 @@
 import logging
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.auth import get_current_user_id
 from app.core.database import get_db
+from app.models.feedback import AIFeedbackRecord, AIFeedbackRating
 from app.models.textbook import TextbookSource
 from app.models.usage import LLMUsage
 from app.services.feedback_service import get_feedback, get_recognition
 from app.services.pdf_service import extract_text as extract_pdf_text
 from app.services.retrieval_service import search_relevant_chunks, format_chunks_as_context
+
+PROMPT_CONTEXT_MAX_CHARS = 2000
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +26,7 @@ router = APIRouter(prefix="/api", tags=["feedback"])
 class FeedbackResponse(BaseModel):
     type: str = "feedback"
     content: str = ""
+    feedback_id: str | None = None
     # Legacy fields (optional, for backward compat)
     recognized_text: str = ""
     feedback: str = ""
@@ -149,10 +155,83 @@ async def request_feedback(
         language=language,
         has_textbook_context=textbook_context is not None,
     ))
-    await db.commit()
 
-    log.info("Feedback [%s]: done latency=%dms", rid, result.latency_ms)
-    return FeedbackResponse(**result.data)
+    # 사용자 피드백 수집을 위한 레코드 적재
+    response_content = result.data.get("content") or ""
+    record = AIFeedbackRecord(
+        user_id=user_id,
+        note_id=note_id,
+        task_type=task_type,
+        language=language,
+        response_language=response_language,
+        model=result.model,
+        textbook_id=textbook_id,
+        current_page=current_page,
+        has_textbook_context=textbook_context is not None,
+        prompt_context_snippet=(textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
+        previous_context=(previous_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
+        response_content=response_content,
+        request_id=request_id,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+
+    log.info("Feedback [%s]: done latency=%dms feedback_id=%s", rid, result.latency_ms, record.id)
+    return FeedbackResponse(feedback_id=record.id, **result.data)
+
+
+class RatingRequest(BaseModel):
+    rating: int = Field(..., description="-1 (👎) or 1 (👍)")
+    reason_tags: list[str] = Field(default_factory=list)
+    comment: str | None = None
+    client_ts: datetime | None = None
+
+
+@router.post("/feedback/{feedback_id}/rate", status_code=204)
+async def rate_feedback(
+    feedback_id: str,
+    body: RatingRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.rating not in (-1, 1):
+        raise HTTPException(status_code=400, detail="rating must be -1 or 1")
+    if body.comment and len(body.comment) > 2000:
+        raise HTTPException(status_code=400, detail="comment too long (max 2000)")
+
+    record = (await db.execute(
+        select(AIFeedbackRecord).where(AIFeedbackRecord.id == feedback_id)
+    )).scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status_code=404, detail="feedback not found")
+    if record.user_id != user_id:
+        raise HTTPException(status_code=403, detail="not your feedback")
+
+    existing = (await db.execute(
+        select(AIFeedbackRating).where(AIFeedbackRating.feedback_id == feedback_id)
+    )).scalar_one_or_none()
+
+    if existing is None:
+        db.add(AIFeedbackRating(
+            feedback_id=feedback_id,
+            user_id=user_id,
+            rating=body.rating,
+            reason_tags=body.reason_tags or [],
+            comment=body.comment,
+            client_ts=body.client_ts.replace(tzinfo=None) if body.client_ts else None,
+        ))
+    else:
+        existing.rating = body.rating
+        existing.reason_tags = body.reason_tags or []
+        existing.comment = body.comment
+        if body.client_ts:
+            existing.client_ts = body.client_ts.replace(tzinfo=None)
+
+    await db.commit()
+    log.info("Feedback rating: user=%s feedback=%s rating=%d tags=%s",
+             user_id, feedback_id, body.rating, body.reason_tags)
+    return None
 
 
 class ChatMessage(BaseModel):

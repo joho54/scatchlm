@@ -3,6 +3,7 @@ import Foundation
 struct AIResponse: Codable {
     let type: String
     let content: String?
+    let feedbackId: String?
     // Legacy fields
     let recognizedText: String?
     let feedback: String?
@@ -10,6 +11,7 @@ struct AIResponse: Codable {
 
     enum CodingKeys: String, CodingKey {
         case type, content
+        case feedbackId = "feedback_id"
         case recognizedText = "recognized_text"
         case feedback
         case summary

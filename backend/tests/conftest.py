@@ -13,7 +13,11 @@ from app.core.database import get_db
 from app.models.user import Base, User
 from app.main import app
 
-TEST_DB_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/scatchlm_test"
+import os
+TEST_DB_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/scatchlm_test",
+)
 
 # 테스트용 ES256 키 쌍 생성
 _private_key = ec.generate_private_key(ec.SECP256R1())

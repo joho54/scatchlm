@@ -411,6 +411,7 @@ struct PdfViewerView: View {
         showGuide = true
         guideLoading = true
         pageGuide = nil
+        appLog("pdf", "loadGuide start", ["page": "\(currentPage)", "textbookId": textbookId])
         Task {
             do {
                 let guide: PageGuide = try await APIClient.shared.get(

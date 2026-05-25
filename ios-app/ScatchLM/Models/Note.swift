@@ -75,7 +75,12 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
     var bboxY: Double
     var bboxWidth: Double
     var bboxHeight: Double
+    var strokeRangeStart: Int
+    var strokeRangeEnd: Int
     var createdAt: Date
+    var serverFeedbackId: String?
+    var userRating: Int?
+    var userRatingSyncedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id, content
@@ -87,7 +92,12 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
         case bboxY = "bbox_y"
         case bboxWidth = "bbox_width"
         case bboxHeight = "bbox_height"
+        case strokeRangeStart = "stroke_range_start"
+        case strokeRangeEnd = "stroke_range_end"
         case createdAt = "created_at"
+        case serverFeedbackId = "server_feedback_id"
+        case userRating = "user_rating"
+        case userRatingSyncedAt = "user_rating_synced_at"
     }
 
     enum Columns: String, ColumnExpression {
@@ -100,7 +110,48 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
         case bboxY = "bbox_y"
         case bboxWidth = "bbox_width"
         case bboxHeight = "bbox_height"
+        case strokeRangeStart = "stroke_range_start"
+        case strokeRangeEnd = "stroke_range_end"
         case createdAt = "created_at"
+        case serverFeedbackId = "server_feedback_id"
+        case userRating = "user_rating"
+        case userRatingSyncedAt = "user_rating_synced_at"
+    }
+
+    init(
+        id: String,
+        noteId: String,
+        pageId: String?,
+        content: String,
+        positionX: Double,
+        positionY: Double,
+        bboxX: Double,
+        bboxY: Double,
+        bboxWidth: Double,
+        bboxHeight: Double,
+        strokeRangeStart: Int,
+        strokeRangeEnd: Int,
+        createdAt: Date,
+        serverFeedbackId: String? = nil,
+        userRating: Int? = nil,
+        userRatingSyncedAt: Date? = nil
+    ) {
+        self.id = id
+        self.noteId = noteId
+        self.pageId = pageId
+        self.content = content
+        self.positionX = positionX
+        self.positionY = positionY
+        self.bboxX = bboxX
+        self.bboxY = bboxY
+        self.bboxWidth = bboxWidth
+        self.bboxHeight = bboxHeight
+        self.strokeRangeStart = strokeRangeStart
+        self.strokeRangeEnd = strokeRangeEnd
+        self.createdAt = createdAt
+        self.serverFeedbackId = serverFeedbackId
+        self.userRating = userRating
+        self.userRatingSyncedAt = userRatingSyncedAt
     }
 }
 

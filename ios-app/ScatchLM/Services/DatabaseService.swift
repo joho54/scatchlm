@@ -114,6 +114,21 @@ final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v4_feedback_stroke_range") { db in
+            try db.alter(table: "feedbacks") { t in
+                t.add(column: "stroke_range_start", .integer).notNull().defaults(to: 0)
+                t.add(column: "stroke_range_end", .integer).notNull().defaults(to: 0)
+            }
+        }
+
+        migrator.registerMigration("v5_feedback_user_rating") { db in
+            try db.alter(table: "feedbacks") { t in
+                t.add(column: "server_feedback_id", .text)
+                t.add(column: "user_rating", .integer)
+                t.add(column: "user_rating_synced_at", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -194,6 +209,21 @@ final class DatabaseService {
     func saveFeedback(_ feedback: inout FeedbackRecord) throws {
         try dbQueue.write { db in
             try feedback.save(db)
+        }
+    }
+
+    func deleteFeedback(id: String) throws {
+        try dbQueue.write { db in
+            _ = try FeedbackRecord.deleteOne(db, key: id)
+        }
+    }
+
+    func updateFeedbackRating(id: String, rating: Int?, syncedAt: Date?) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE feedbacks SET user_rating = ?, user_rating_synced_at = ? WHERE id = ?",
+                arguments: [rating, syncedAt, id]
+            )
         }
     }
 

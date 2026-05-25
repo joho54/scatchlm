@@ -97,6 +97,7 @@ final class DatabaseServiceTests: XCTestCase {
             content: "feedback for page 0",
             positionX: 16, positionY: 100,
             bboxX: 16, bboxY: 100, bboxWidth: 300, bboxHeight: 200,
+            strokeRangeStart: 0, strokeRangeEnd: 0,
             createdAt: Date()
         )
         try db.saveFeedback(&fb0)
@@ -111,6 +112,115 @@ final class DatabaseServiceTests: XCTestCase {
 
         // Cleanup
         try db.deleteNote(id: note.id)
+    }
+
+    // MARK: - Feedback Rating
+
+    func testUpdateFeedbackRating() throws {
+        var note = Note.new(title: "Rating Test")
+        try db.saveNote(&note)
+        let page = try db.createPage(noteId: note.id, pageIndex: 0)
+
+        var fb = FeedbackRecord(
+            id: UUID().uuidString, noteId: note.id, pageId: page.id,
+            content: "fb",
+            positionX: 0, positionY: 0,
+            bboxX: 0, bboxY: 0, bboxWidth: 100, bboxHeight: 100,
+            strokeRangeStart: 0, strokeRangeEnd: 0,
+            createdAt: Date(),
+            serverFeedbackId: "srv-123"
+        )
+        try db.saveFeedback(&fb)
+
+        let now = Date()
+        try db.updateFeedbackRating(id: fb.id, rating: 1, syncedAt: now)
+        let fetched = try db.feedbacks(pageId: page.id).first
+        XCTAssertEqual(fetched?.userRating, 1)
+        XCTAssertEqual(fetched?.serverFeedbackId, "srv-123")
+        XCTAssertNotNil(fetched?.userRatingSyncedAt)
+
+        try db.deleteNote(id: note.id)
+    }
+
+    // MARK: - Empty Drawing Save
+
+    func testSaveEmptyDrawing() throws {
+        var note = Note.new(title: "Empty Drawing Test")
+        try db.saveNote(&note)
+
+        let page = try db.createPage(noteId: note.id, pageIndex: 0)
+
+        // 빈 드로잉 데이터 저장 (빈 캔버스도 저장되어야 함)
+        let emptyData = Data()
+        try db.savePageDrawing(pageId: page.id, data: emptyData)
+
+        let loaded = try db.page(noteId: note.id, pageIndex: 0)
+        XCTAssertNotNil(loaded?.drawingData)
+        XCTAssertEqual(loaded?.drawingData, emptyData)
+
+        // Cleanup
+        try db.deleteNote(id: note.id)
+    }
+
+    func testOverwriteDrawingWithEmpty() throws {
+        var note = Note.new(title: "Overwrite Test")
+        try db.saveNote(&note)
+
+        let page = try db.createPage(noteId: note.id, pageIndex: 0)
+
+        // 먼저 데이터 저장
+        let data = "some-drawing".data(using: .utf8)!
+        try db.savePageDrawing(pageId: page.id, data: data)
+
+        // 빈 데이터로 덮어쓰기 — 이전 필기가 남으면 안 됨
+        let emptyData = Data()
+        try db.savePageDrawing(pageId: page.id, data: emptyData)
+
+        let loaded = try db.page(noteId: note.id, pageIndex: 0)
+        XCTAssertEqual(loaded?.drawingData, emptyData)
+
+        try db.deleteNote(id: note.id)
+    }
+
+    // MARK: - Cascade Delete
+
+    func testDeleteNoteCascadesPages() throws {
+        var note = Note.new(title: "Cascade Test")
+        try db.saveNote(&note)
+
+        _ = try db.createPage(noteId: note.id, pageIndex: 0)
+        _ = try db.createPage(noteId: note.id, pageIndex: 1)
+
+        // 노트 삭제
+        try db.deleteNote(id: note.id)
+
+        // 페이지도 삭제되어야 함
+        let pages = try db.pages(noteId: note.id)
+        XCTAssertEqual(pages.count, 0)
+    }
+
+    func testDeleteNoteCascadesFeedbacks() throws {
+        var note = Note.new(title: "Cascade FB Test")
+        try db.saveNote(&note)
+
+        let page = try db.createPage(noteId: note.id, pageIndex: 0)
+
+        var fb = FeedbackRecord(
+            id: UUID().uuidString, noteId: note.id, pageId: page.id,
+            content: "test feedback",
+            positionX: 16, positionY: 100,
+            bboxX: 16, bboxY: 100, bboxWidth: 300, bboxHeight: 200,
+            strokeRangeStart: 0, strokeRangeEnd: 0,
+            createdAt: Date()
+        )
+        try db.saveFeedback(&fb)
+
+        // 노트 삭제
+        try db.deleteNote(id: note.id)
+
+        // 피드백도 삭제되어야 함
+        let fbs = try db.feedbacks(pageId: page.id)
+        XCTAssertEqual(fbs.count, 0)
     }
 
     // MARK: - Current Page Index

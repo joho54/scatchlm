@@ -28,8 +28,10 @@
 		7FD0731BAB0D61F38AE8A28E /* PencilKitCanvasViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49741ADF8AF82F0E85EF90D6 /* PencilKitCanvasViewTests.swift */; };
 		8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9978D4A1B1559395568666 /* ViewExtensions.swift */; };
 		98722C743994C9B3F946C0AE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B229BDBE6FB4105C3256CA5C /* Supabase */; };
+		A8AB3A69E583B419B2B22A4D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */; };
 		C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */; };
 		CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37AAE771009E3533316E278 /* PdfViewerView.swift */; };
+		E9D820F5CA57E24E08C87FDE /* EditNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B673CA2B296363A4EE359305 /* EditNoteSheet.swift */; };
 		FA08A5EA08E7963F7064CADF /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */; };
 		FB0EE0DF5E637E7CBE74B613 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = E448211B4B38BBC9147A67F8 /* Config.swift */; };
 /* End PBXBuildFile section */
@@ -57,9 +59,11 @@
 		548034A17894523B72F0EE4E /* PageNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageNavigatorView.swift; sourceTree = "<group>"; };
 		5AFE523FFC2200C1FC82A2E4 /* Note.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Note.swift; sourceTree = "<group>"; };
 		679B23706BB3597C8044006F /* AIResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIResponse.swift; sourceTree = "<group>"; };
+		745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseServiceTests.swift; sourceTree = "<group>"; };
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
+		B673CA2B296363A4EE359305 /* EditNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditNoteSheet.swift; sourceTree = "<group>"; };
 		C37AAE771009E3533316E278 /* PdfViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfViewerView.swift; sourceTree = "<group>"; };
 		CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseService.swift; sourceTree = "<group>"; };
 		D0B1940235A9FDF08A1E9126 /* NoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteView.swift; sourceTree = "<group>"; };
@@ -126,6 +130,7 @@
 			children = (
 				FD2BEEC09F80B1A41D924AAF /* App */,
 				0CB5D3BBF07CE16F62B838A1 /* Models */,
+				96FF7011758757620ED80F64 /* Resources */,
 				0531F030FA979DE32BC7F289 /* Services */,
 				D0ED11AFF8223995E0319E0D /* Utilities */,
 				D3232EE9E060D1CF99A1F252 /* Views */,
@@ -151,6 +156,14 @@
 			);
 			sourceTree = "<group>";
 		};
+		96FF7011758757620ED80F64 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		D0ED11AFF8223995E0319E0D /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
@@ -164,6 +177,7 @@
 			isa = PBXGroup;
 			children = (
 				971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */,
+				B673CA2B296363A4EE359305 /* EditNoteSheet.swift */,
 				DC21D93FF83B76325CA0FCE6 /* FeedbackCardView.swift */,
 				F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */,
 				F5997BF81BCD5D68E0CF767A /* FeedbackRatingSheet.swift */,
@@ -213,6 +227,7 @@
 			buildConfigurationList = 4B4828B2142E617080EE8B14 /* Build configuration list for PBXNativeTarget "ScatchLM" */;
 			buildPhases = (
 				CE46A5631D783689D5F21D22 /* Sources */,
+				2CB25C7D38DB44712ACDAE0F /* Resources */,
 				02A49F65EE2BB4508A716432 /* Frameworks */,
 			);
 			buildRules = (
@@ -269,6 +284,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		2CB25C7D38DB44712ACDAE0F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A8AB3A69E583B419B2B22A4D /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		30F44C9F94B68D1504A9AE03 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -289,6 +315,7 @@
 				FB0EE0DF5E637E7CBE74B613 /* Config.swift in Sources */,
 				6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */,
 				C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */,
+				E9D820F5CA57E24E08C87FDE /* EditNoteSheet.swift in Sources */,
 				2BAAC71F5DD4AC438E0333E3 /* FeedbackCardView.swift in Sources */,
 				172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */,
 				7E87EBB94433FC4D7672837C /* FeedbackRatingSheet.swift in Sources */,

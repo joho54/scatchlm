@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <mask id="penCut">
+      <rect width="24" height="24" fill="white"/>
+      <path d="M21.5 18.5 a1.5 1.5 0 0 1 -2 2 L12 13 L11 10 L14 11 Z" fill="black" stroke="black" stroke-width="2"/>
+    </mask>
+  </defs>
+  <rect width="24" height="24" fill="url(#bg)"/>
+  <g fill="none" stroke="white" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" mask="url(#penCut)">
+    <rect x="6" y="3" width="14" height="16" rx="2"/>
+    <rect x="4" y="5" width="14" height="16" rx="2"/>
+  </g>
+  <path d="M21.5 18.5 a1.5 1.5 0 0 1 -2 2 L12 13 L11 10 L14 11 Z"
+        fill="none" stroke="white" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

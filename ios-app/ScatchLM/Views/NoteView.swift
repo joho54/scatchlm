@@ -458,13 +458,12 @@ struct NoteView: View {
 
     /// 피드백/박제 카드를 캔버스에 추가하는 공통 함수
     private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil) {
-        // Coordinator에게 카드 Y 위치 계산 위임
+        // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
+        // 먼저 인디케이터를 현재 스트로크/카드 기준으로 갱신해 nextCardLineY를 최신화한 뒤 그 값을 읽는다.
         let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
         if let coordinator {
-            nextCardY = coordinator.calculateNextCardY(
-                on: canvasView,
-                currentNextCardY: nextCardY
-            )
+            coordinator.updateNextPositionIndicator(on: canvasView)
+            nextCardY = coordinator.nextCardLineY
         }
 
         let width = canvasView.bounds.width - 32
@@ -590,8 +589,18 @@ struct NoteView: View {
             delegate.frozenEndIndex = 0
             delegate.previousStrokeCount = 0
         }
+        // 새 캔버스는 기본 사이즈 + 최상단에서 시작 (이전 페이지의 확장/스크롤 상태 전이 방지)
+        resetCanvasToTop()
 
         appLog("note", "newPage", ["index": "\(newIndex)"])
+    }
+
+    /// 캔버스를 기본 높이로 축소하고 스크롤을 최상단으로 되돌린다.
+    /// updateUIView는 contentSize가 확장된 상태(> bounds)면 축소하지 않으므로 여기서 명시적으로 리셋.
+    private func resetCanvasToTop() {
+        let height = canvasView.bounds.height > 0 ? canvasView.bounds.height * 5 : canvasView.contentSize.height
+        canvasView.contentSize = CGSize(width: canvasView.bounds.width, height: height)
+        canvasView.setContentOffset(.zero, animated: false)
     }
 
     private func goToPage(index: Int) {
@@ -620,6 +629,9 @@ struct NoteView: View {
         feedbacks = (try? db.feedbacks(pageId: notePages[index].id)) ?? []
         nextCardY = 100
 
+        // 페이지 전환 시에도 최상단·기본 사이즈에서 시작 (이전 페이지 상태 전이 방지)
+        resetCanvasToTop()
+
         appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
     }
 
@@ -627,8 +639,28 @@ struct NoteView: View {
         try? db.deleteFeedback(id: fb.id)
         feedbacks.removeAll { $0.id == fb.id }
         if let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator {
+            // 되돌리는 피드백이 동결했던 세로 band = [새 frozenBottom, 이전 frozenBottom)
+            let oldFrozenBottom = coordinator.frozenBottom
             coordinator.removeCard(on: canvasView, feedbackId: fb.id)
             coordinator.recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
+            let newFrozenBottom = coordinator.frozenBottom
+
+            // 이 band 안의 "빨강 주석"만 삭제 — 검정 콘텐츠는 보존(동결만 풀려 재요청 대상이 됨)
+            let strokes = canvasView.drawing.strokes
+            let kept = strokes.filter { s in
+                let minY = s.renderBounds.minY
+                let inBand = minY >= newFrozenBottom && minY < oldFrozenBottom
+                return !(inBand && PencilKitCanvasView.Coordinator.isAnnotation(s))
+            }
+            if kept.count != strokes.count {
+                canvasView.drawing = PKDrawing(strokes: kept)
+                coordinator.recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
+                saveDrawing()
+                appLog("note", "annotations removed on revert", [
+                    "removed": "\(strokes.count - kept.count)",
+                    "band": "\(Int(newFrozenBottom))..\(Int(oldFrozenBottom))",
+                ])
+            }
         }
         appLog("note", "feedback reverted", ["id": fb.id])
     }
@@ -693,11 +725,15 @@ struct NoteView: View {
                 appLog("note", "feedback: task entered", ["requestId": requestId])
                 let allStrokes = canvasView.drawing.strokes
                 let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
-                let frozenEnd = min(coordinator?.frozenEndIndex ?? 0, allStrokes.count)
-                appLog("note", "feedback: strokes read", ["requestId": requestId, "count": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)"])
-                let newStrokes = Array(allStrokes.dropFirst(frozenEnd))
+                let frozenEnd = min(coordinator?.frozenEndIndex ?? 0, allStrokes.count)  // strokeRange 기록용
+                let frozenBottom = coordinator?.frozenBottom ?? 0
+                // 피드백 대상 = frozen 경계(공간) 아래의 콘텐츠 stroke. 빨강 주석은 frozen 영역(위)이라 자동 제외.
+                let newStrokes = allStrokes.filter {
+                    $0.renderBounds.minY >= frozenBottom && !PencilKitCanvasView.Coordinator.isAnnotation($0)
+                }
+                appLog("note", "feedback: strokes read", ["requestId": requestId, "count": "\(allStrokes.count)", "frozenBottom": "\(Int(frozenBottom))", "target": "\(newStrokes.count)"])
                 guard !newStrokes.isEmpty else {
-                    appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)"])
+                    appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "frozenBottom": "\(Int(frozenBottom))"])
                     loading = false
                     return
                 }
@@ -921,6 +957,23 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var isDarkMode: Bool = false
         private var saveTimer: Timer?
         private var nextPositionIndicator: UIView?
+        /// 다음 카드가 놓일 Y — 가이드라인(점선)이 그려지는 위치이자 배치의 단일 진실(SSOT).
+        /// updateNextPositionIndicator에서만 갱신되고, appendFeedbackCard는 이 값을 그대로 사용한다.
+        private(set) var nextCardLineY: CGFloat = 100
+
+        // MARK: - 주석(annotation) 식별
+        // 불변식: "빨강 = 주석". frozen(피드백 완료) 영역에 그은 필기는 자동으로 이 색으로 재색칠되며,
+        // 피드백 대상에서 제외되고 해당 피드백 되돌리기 시 함께 삭제된다.
+        // 일반 콘텐츠는 기본색(검정/흰색)이라 이 색과 겹치지 않는다.
+        static let annotationColor = UIColor(red: 0.90, green: 0.16, blue: 0.16, alpha: 1.0)
+
+        static func isAnnotation(_ stroke: PKStroke) -> Bool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            stroke.ink.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            var tr: CGFloat = 0, tg: CGFloat = 0, tb: CGFloat = 0, ta: CGFloat = 0
+            annotationColor.getRed(&tr, green: &tg, blue: &tb, alpha: &ta)
+            return abs(r - tr) < 0.08 && abs(g - tg) < 0.08 && abs(b - tb) < 0.08
+        }
 
         init(onDrawingChanged: @escaping () -> Void) {
             self.onDrawingChanged = onDrawingChanged
@@ -1162,6 +1215,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             }
 
             let y = calculateNextCardY(on: canvasView, currentNextCardY: 100)
+            nextCardLineY = y  // SSOT 갱신 — 배치는 이 값을 읽는다
             let strokeMaxY = canvasView.drawing.strokes.isEmpty
                 ? CGFloat(0)
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
@@ -1189,22 +1243,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
                 let line = CAShapeLayer()
                 line.name = "dashed-line"
-                line.strokeColor = UIColor.systemBlue.withAlphaComponent(0.7).cgColor
+                line.strokeColor = UIColor.separator.withAlphaComponent(0.6).cgColor
                 line.fillColor = nil
-                line.lineWidth = 1.5
-                line.lineDashPattern = [6, 4]
+                line.lineWidth = 1.0
+                line.lineDashPattern = [4, 4]
                 indicator.layer.addSublayer(line)
-
-                let label = UILabel()
-                label.tag = 1
-                label.font = .systemFont(ofSize: 11, weight: .semibold)
-                label.textColor = .white
-                label.text = "  ↓ 다음 피드백 위치  "
-                label.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-                label.layer.cornerRadius = 6
-                label.layer.masksToBounds = true
-                label.textAlignment = .center
-                indicator.addSubview(label)
 
                 canvasView.addSubview(indicator)
                 nextPositionIndicator = indicator
@@ -1219,10 +1262,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 path.move(to: CGPoint(x: lineInset, y: 6))
                 path.addLine(to: CGPoint(x: width - lineInset, y: 6))
                 line.path = path.cgPath
-            }
-            if let label = indicator.subviews.first(where: { $0.tag == 1 }) as? UILabel {
-                let fit = label.sizeThatFits(CGSize(width: width, height: 24))
-                label.frame = CGRect(x: lineInset, y: 0, width: fit.width, height: 18)
             }
 
             canvasView.bringSubviewToFront(indicator)
@@ -1261,20 +1300,28 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 canvasView.contentOffset.y = 0
             }
 
-            // Frozen 영역 입력 차단 — 새로 추가된 stroke만 검사
+            // Frozen(피드백 완료) 영역에 그은 새 stroke는 "주석"으로 간주 → 빨강으로 재색칠.
+            // (거부하지 않고 유지하되, 피드백 대상에서 제외되고 되돌리기 시 함께 삭제됨)
             let strokes = canvasView.drawing.strokes
             if frozenBottom > 0, strokes.count > previousStrokeCount {
-                let diff = strokes.count - previousStrokeCount
-                let added = Array(strokes.suffix(diff))
-                let invalidIdx = added.enumerated().compactMap { (i, s) -> Int? in
-                    s.renderBounds.minY < frozenBottom ? (previousStrokeCount + i) : nil
+                var mutated = strokes
+                var recolored = 0
+                for i in previousStrokeCount..<strokes.count
+                where strokes[i].renderBounds.minY < frozenBottom && !Self.isAnnotation(strokes[i]) {
+                    let s = mutated[i]
+                    mutated[i] = PKStroke(
+                        ink: PKInk(s.ink.inkType, color: Self.annotationColor),
+                        path: s.path,
+                        transform: s.transform,
+                        mask: s.mask
+                    )
+                    recolored += 1
                 }
-                if !invalidIdx.isEmpty {
-                    let invalidSet = Set(invalidIdx)
-                    let kept = strokes.enumerated().filter { !invalidSet.contains($0.offset) }.map { $0.element }
-                    canvasView.drawing = PKDrawing(strokes: kept)
-                    appLog("canvas", "stroke rejected", ["count": "\(invalidIdx.count)", "frozenBottom": "\(Int(frozenBottom))"])
-                    onStrokeRejected?()
+                if recolored > 0 {
+                    // 재색칠 후 재진입(didChange) 시 중복 처리 방지 — count 불변이므로 guard가 무력
+                    previousStrokeCount = strokes.count
+                    canvasView.drawing = PKDrawing(strokes: mutated)
+                    appLog("canvas", "annotation recolored", ["count": "\(recolored)", "frozenBottom": "\(Int(frozenBottom))"])
                 }
             }
             previousStrokeCount = canvasView.drawing.strokes.count

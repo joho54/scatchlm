@@ -104,6 +104,64 @@ async def test_feedback_with_textbook_context(client: AsyncClient, auth_header: 
 
 
 @pytest.mark.asyncio
+async def test_feedback_with_overlapping_chapters_picks_narrowest(
+    client: AsyncClient, auth_header: dict, db_session
+):
+    """계층형 TOC: 한 페이지가 여러 챕터에 속해도 500 없이 가장 좁은 챕터를 고른다.
+
+    회귀: scalar_one_or_none()이 MultipleResultsFound로 터지던 버그(feedback.py).
+    """
+    import fitz
+
+    from app.models.chapter import Chapter
+
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    page = doc[1]  # 2페이지(인덱스 1)에 텍스트
+    page.insert_text((72, 72), "Keys section content")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    upload_res = await client.post(
+        "/api/pdf/upload",
+        headers=auth_header,
+        files={"file": ("textbook.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        data={"note_id": "note-1"},
+    )
+    textbook_id = upload_res.json()["id"]
+
+    # 2페이지를 동시에 포함하는 중첩 챕터 3개 (PART > Chapter > Section)
+    db_session.add_all([
+        Chapter(id="ch-part", textbook_id=textbook_id, level=1, title="PART ONE", page_start=1, page_end=3),
+        Chapter(id="ch-2", textbook_id=textbook_id, level=2, title="Chapter 2", page_start=1, page_end=2),
+        Chapter(id="ch-23", textbook_id=textbook_id, level=3, title="2.3 Keys", page_start=2, page_end=2),
+    ])
+    await db_session.commit()
+
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=MOCK_RESULT,
+    ) as mock_fn:
+        res = await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={
+                "note_id": "note-1",
+                "textbook_id": textbook_id,
+                "current_page": "2",
+            },
+        )
+    assert res.status_code == 200
+    # 가장 좁은 챕터(2.3 Keys)가 컨텍스트로 선택됐는지 확인
+    ctx = mock_fn.call_args.kwargs["textbook_context"]
+    assert ctx is not None
+    assert "2.3 Keys" in ctx
+
+
+@pytest.mark.asyncio
 async def test_feedback_records_usage(client: AsyncClient, auth_header: dict):
     """피드백 성공 시 llm_usage 테이블에 기록되는지 확인."""
     with patch(

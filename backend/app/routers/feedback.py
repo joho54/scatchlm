@@ -82,14 +82,19 @@ async def request_feedback(
     # 2. 현재 보고 있는 챕터 전체 (PDF 뷰어)
     elif source and current_page:
         from app.models.chapter import Chapter
+        # 계층형 TOC에서는 한 페이지가 PART/Chapter/Section 등 여러 챕터에
+        # 동시에 속한다. 가장 좁은(=가장 구체적인) 범위의 챕터 하나를 고른다.
         chapter_result = await db.execute(
-            select(Chapter).where(
+            select(Chapter)
+            .where(
                 Chapter.textbook_id == textbook_id,
                 Chapter.page_start <= current_page,
                 Chapter.page_end >= current_page,
             )
+            .order_by((Chapter.page_end - Chapter.page_start).asc())
+            .limit(1)
         )
-        chapter = chapter_result.scalar_one_or_none()
+        chapter = chapter_result.scalars().first()
         if chapter:
             page_text = extract_pdf_text(source.server_path, chapter.page_start, chapter.page_end or current_page)
             if page_text:
@@ -274,15 +279,18 @@ async def feedback_chat(
         try:
             from app.models.chapter import Chapter
 
-            # 현재 페이지가 속한 챕터 찾기
+            # 현재 페이지가 속한 챕터 찾기 (계층형 TOC면 가장 좁은 범위 우선)
             chapter_result = await db.execute(
-                select(Chapter).where(
+                select(Chapter)
+                .where(
                     Chapter.textbook_id == req.textbook_id,
                     Chapter.page_start <= req.current_page,
                     Chapter.page_end >= req.current_page,
                 )
+                .order_by((Chapter.page_end - Chapter.page_start).asc())
+                .limit(1)
             )
-            chapter = chapter_result.scalar_one_or_none()
+            chapter = chapter_result.scalars().first()
 
             if chapter:
                 # 챕터 전체 텍스트 추출

@@ -124,6 +124,14 @@ async def client(engine):
 
 
 @pytest.fixture
+async def db_session(engine):
+    """테스트에서 직접 DB에 행을 삽입할 때 사용하는 세션."""
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
+
+
+@pytest.fixture
 def auth_token() -> str:
     return make_test_token()
 

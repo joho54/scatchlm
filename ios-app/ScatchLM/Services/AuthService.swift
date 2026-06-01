@@ -52,7 +52,10 @@ final class AuthService {
     func signInWithGoogle() async throws {
         try await client.auth.signInWithOAuth(
             provider: .google,
-            redirectTo: URL(string: "com.joho54.scatchlm://login-callback")
+            redirectTo: URL(string: "com.joho54.scatchlm://login-callback"),
+            // prompt=select_account: Google이 캐시된 계정으로 바로 통과시키지 않고
+            // 항상 계정 선택창을 띄우게 강제 (다른 계정/가입 테스트 가능)
+            queryParams: [(name: "prompt", value: "select_account")]
         )
     }
 

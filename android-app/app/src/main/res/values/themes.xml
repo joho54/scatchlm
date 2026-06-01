@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 가 실제 테마를 그린다. XML 테마는 시작 화면/윈도우 배경만 담당. -->
+    <style name="Theme.ScatchLM" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/scatch_background</item>
+    </style>
+</resources>

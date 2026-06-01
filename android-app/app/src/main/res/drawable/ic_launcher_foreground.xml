@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 펜 + 종이 모티프 (iOS 아이콘 컨셉과 동일) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 종이 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M38,30h26a4,4 0,0 1,4 4v40a4,4 0,0 1,-4 4h-26a4,4 0,0 1,-4 -4v-40a4,4 0,0 1,4 -4z" />
+    <path
+        android:strokeColor="#FFBFD4FF"
+        android:strokeWidth="2"
+        android:pathData="M40,42h22M40,50h22M40,58h16" />
+    <!-- 펜 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M62,70l10,-10l6,6l-10,10l-8,2z" />
+    <path
+        android:fillColor="#FF1E40AF"
+        android:pathData="M72,60l4,-4a3,3 0,0 1,4 0l2,2a3,3 0,0 1,0 4l-4,4z" />
+</vector>

@@ -38,9 +38,9 @@ async def rewrite_query_for_search(
         client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         system_prompt = (
             "Rewrite the user's question into an optimal search query for finding relevant sections "
-            "in a language learning textbook. Output ONLY the search query, nothing else.\n"
+            "in a textbook. Output ONLY the search query, nothing else.\n"
             "Use the table of contents below to map section/chapter numbers to actual topics.\n"
-            "Translate to English if needed for better embedding match. "
+            "Keep the query in the same language as the question and textbook. "
             "Keep it concise (under 30 words)."
         )
         if toc_context:

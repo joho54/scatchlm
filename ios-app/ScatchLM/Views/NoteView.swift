@@ -162,7 +162,7 @@ struct NoteView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(item: $chatFeedback) { fb in
-            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, onPin: { content, responseId in
+            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, subject: note?.language, onPin: { content, responseId in
                 pinToCanvas(content: content, serverFeedbackId: responseId)
             })
         }

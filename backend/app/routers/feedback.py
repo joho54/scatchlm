@@ -245,6 +245,7 @@ class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
     response_language: str = "Korean"
+    subject: str | None = None  # 학습 분야 (언어/물리/역사 등). 없으면 분야 중립 튜터
     textbook_id: str | None = None
     current_page: int | None = None
     note_id: str | None = None
@@ -313,8 +314,11 @@ async def feedback_chat(
             log.exception("Chat context extraction failed")
 
     # 시스템 프롬프트 구성
+    subject_clause = f" {req.subject}" if req.subject else " their material"
     system_parts = [
-        f"You are a language learning tutor helping a student study with their textbook.",
+        f"You are a study tutor helping a student learn{subject_clause}, often alongside their textbook. "
+        "If the subject is a language, help with translation, grammar, and vocabulary; "
+        "for other subjects, focus on concepts, reasoning, and terminology.",
         f"Respond in {req.response_language}. Use markdown formatting freely.",
     ]
 

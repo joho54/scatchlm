@@ -12,15 +12,17 @@ log = logging.getLogger(__name__)
 
 client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-def _build_system_prompt(response_language: str, has_textbook: bool = False) -> str:
+def _build_system_prompt(subject: str, response_language: str, has_textbook: bool = False) -> str:
     base = (
-        "You are a foreign language learning assistant. "
+        f"You are a study assistant helping a student learn {subject}. "
         "The user submits handwritten notes as images, sometimes with textbook reference text.\n\n"
-        "The image may contain text in MULTIPLE languages — the target language "
+        "The image may contain text in MULTIPLE languages — the subject's language "
         "AND the student's native language (translations, annotations, notes). "
         "Recognize ALL text in the image and analyze the entire content holistically.\n\n"
-        "If the student wrote original text + translation, evaluate BOTH. "
-        "Check translations for accuracy, original text for correctness, "
+        "If the subject is a language and the student wrote original text + translation, "
+        "evaluate BOTH — check translation accuracy, grammar, and spelling. "
+        "For non-language subjects, focus on conceptual correctness, reasoning, and terminology. "
+        "Adapt your feedback to what the subject requires, "
         "and compare with textbook content if provided.\n\n"
         f"Respond naturally in {response_language} as a helpful tutor. "
         "Be specific about what is correct and what needs fixing. "
@@ -82,7 +84,7 @@ async def get_recognition(image_bytes: bytes, language: str = "en") -> str | Non
                     },
                     {
                         "type": "text",
-                        "text": f"Language: {language}. Read the handwriting in this image. Return ONLY the recognized text, nothing else.",
+                        "text": f"Subject: {language}. Read the handwriting in this image. Return ONLY the recognized text, nothing else.",
                     },
                 ],
             }],
@@ -122,7 +124,7 @@ async def get_feedback(
         "source": {"type": "base64", "media_type": "image/jpeg" if image_bytes[:2] == b'\xff\xd8' else "image/png", "data": image_b64},
     })
 
-    prompt_parts = [f"Language: {language}. Respond in {response_language}."]
+    prompt_parts = [f"Subject: {language}. Respond in {response_language}."]
     if textbook_context:
         prompt_parts.append(f"Textbook reference:\n{textbook_context}")
     if previous_context:
@@ -135,7 +137,7 @@ async def get_feedback(
     response = await client.messages.create(
         model=model,
         max_tokens=4096,
-        system=_build_system_prompt(response_language, has_textbook=textbook_context is not None),
+        system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None),
         messages=[{"role": "user", "content": user_content}],
     )
     latency_ms = int((time.monotonic() - start) * 1000)

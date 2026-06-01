@@ -6,6 +6,7 @@ struct FeedbackChatSheet: View {
     var textbookId: String?
     var currentPage: Int?
     var noteId: String?
+    var subject: String?
     var onPin: ((String, String?) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var messages: [ChatMessageRecord] = []
@@ -248,6 +249,7 @@ struct FeedbackChatSheet: View {
                     let message: String
                     let history: [[String: String]]
                     let response_language: String
+                    let subject: String?
                     let textbook_id: String?
                     let current_page: Int?
                     let note_id: String?
@@ -262,6 +264,7 @@ struct FeedbackChatSheet: View {
                     message: text,
                     history: history.dropLast().map { $0 },
                     response_language: Config.responseLanguage,
+                    subject: subject,
                     textbook_id: textbookId,
                     current_page: currentPage,
                     note_id: noteId,

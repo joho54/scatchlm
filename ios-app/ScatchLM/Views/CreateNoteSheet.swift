@@ -21,8 +21,8 @@ struct CreateNoteSheet: View {
                     TextField("Untitled note", text: $title)
                 }
 
-                Section("Target Language") {
-                    TextField("e.g. Japanese, Ancient Greek", text: $language)
+                Section("Subject") {
+                    TextField("e.g. Japanese, Physics, World History", text: $language)
 
                     if !recentLanguages.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {

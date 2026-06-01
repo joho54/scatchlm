@@ -12,9 +12,10 @@ GUIDE_MODEL = "claude-haiku-4-5-20251001"
 
 def _page_guide_prompt(response_language: str) -> str:
     return (
-        f"You are helping a non-English speaker understand an English textbook page. "
+        f"You are helping a student understand a textbook page. "
         f"Explain the page content clearly and faithfully in {response_language}. "
-        f"Translate key terms and examples, and make the content accessible. "
+        f"When the source text is in another language, translate key terms and examples; "
+        f"make the content accessible regardless of subject. "
         f"Use markdown formatting freely. Be thorough — cover everything on the page."
     )
 
@@ -43,12 +44,12 @@ async def generate_page_guide(page_text: str, response_language: str = "Korean")
 
 
 def _chapter_guide_prompt(response_language: str) -> str:
-    return f"""You are a language learning tutor. Given the full text of a textbook chapter, produce a chapter study guide as JSON. Write all values in {response_language}:
+    return f"""You are a study tutor. Given the full text of a textbook chapter, produce a chapter study guide as JSON. Write all values in {response_language}:
 {{
   "topic": "What this chapter is about (one paragraph)",
-  "key_concepts": ["Major concepts/grammar/vocab introduced in this chapter"],
+  "key_concepts": ["Major concepts, terms, or skills introduced in this chapter"],
   "study_order": ["Recommended order to study the material"],
-  "common_mistakes": ["Typical errors learners make with this material"],
+  "common_mistakes": ["Common misunderstandings or mistakes learners make with this material"],
   "summary": "2-3 sentence overall summary"
 }}
 

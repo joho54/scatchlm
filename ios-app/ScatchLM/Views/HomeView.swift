@@ -167,7 +167,7 @@ struct NoteCardView: View {
                 .lineLimit(1)
 
             HStack {
-                Text(note.language.uppercased())
+                Text(note.language)
                     .font(.caption2.bold())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)

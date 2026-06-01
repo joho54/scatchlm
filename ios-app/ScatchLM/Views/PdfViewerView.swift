@@ -103,10 +103,12 @@ struct PdfViewerView: View {
                     goToPage(ch.pageStart)
                     showToc = false
                 } label: {
-                    HStack {
+                    HStack(spacing: 8) {
                         Text(ch.title)
-                            .padding(.leading, CGFloat((ch.level - 1) * 16))
-                        Spacer()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
+                        Spacer(minLength: 8)
                         Text("p.\(ch.pageStart)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -118,9 +120,13 @@ struct PdfViewerView: View {
                                 Image(systemName: "book")
                                     .font(.caption)
                             }
+                            .buttonStyle(.borderless)
                         }
                     }
                 }
+                // 들여쓰기는 행 전체에 적용 — 제목이 트레일링(p.X·아이콘)을 밀어내지 않도록
+                .listRowInsets(EdgeInsets(
+                    top: 8, leading: 16 + CGFloat((ch.level - 1) * 16), bottom: 8, trailing: 16))
             }
             .navigationTitle("목차")
             .navigationBarTitleDisplayMode(.inline)
@@ -145,6 +151,69 @@ struct PdfViewerView: View {
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
     @State private var guideChatSending = false
+
+    @State private var chapterChatMessages: [GuideChatMessage] = []
+    @State private var chapterChatInput = ""
+    @State private var chapterChatSending = false
+
+    // MARK: - Shared chat UI (page guide + chapter guide)
+
+    @ViewBuilder
+    private func chatBubble(_ msg: GuideChatMessage, onRate: @escaping (Int) -> Void, onPinTap: @escaping () -> Void) -> some View {
+        HStack {
+            if msg.role == "user" { Spacer(minLength: 60) }
+            VStack(alignment: .leading, spacing: 4) {
+                Markdown(msg.content)
+                    .markdownTextStyle { FontSize(14) }
+                if msg.role != "user" {
+                    Divider()
+                    HStack(spacing: 12) {
+                        if onPin != nil {
+                            Button {
+                                onPin?(msg.content, msg.serverId)
+                                onPinTap()
+                            } label: {
+                                Label("박제", systemImage: "pin.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        ratingButtons(
+                            serverId: msg.serverId,
+                            currentRating: msg.rating,
+                            onRate: onRate,
+                            onDetail: nil
+                        )
+                    }
+                }
+            }
+            .padding(12)
+            .background(msg.role == "user" ? Color.blue.opacity(0.1) : Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            if msg.role != "user" { Spacer(minLength: 60) }
+        }
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private func chatInputBar(text: Binding<String>, sending: Bool, onSend: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            TextField("질문하기...", text: text, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+
+            Button {
+                onSend()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(text.wrappedValue.isEmpty || sending ? .gray : .blue)
+            }
+            .disabled(text.wrappedValue.isEmpty || sending)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
 
     private var guideSheet: some View {
         NavigationStack {
@@ -198,42 +267,14 @@ struct PdfViewerView: View {
 
                                 // Chat messages
                                 ForEach(Array(guideChatMessages.enumerated()), id: \.element.id) { i, msg in
-                                    HStack {
-                                        if msg.role == "user" { Spacer(minLength: 60) }
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Markdown(msg.content)
-                                                .markdownTextStyle { FontSize(14) }
-                                            if msg.role != "user" {
-                                                Divider()
-                                                HStack(spacing: 12) {
-                                                    if onPin != nil {
-                                                        Button {
-                                                            onPin?(msg.content, msg.serverId)
-                                                            showGuide = false
-                                                        } label: {
-                                                            Label("박제", systemImage: "pin.fill")
-                                                                .font(.caption)
-                                                                .foregroundStyle(.secondary)
-                                                        }
-                                                    }
-                                                    ratingButtons(
-                                                        serverId: msg.serverId,
-                                                        currentRating: msg.rating,
-                                                        onRate: { r in
-                                                            guideChatMessages[i].rating = r
-                                                            submitGuideRating(serverId: msg.serverId, rating: r, isPage: false)
-                                                        },
-                                                        onDetail: nil
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        .padding(12)
-                                        .background(msg.role == "user" ? Color.blue.opacity(0.1) : Color(.systemGray6))
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        if msg.role != "user" { Spacer(minLength: 60) }
-                                    }
-                                    .padding(.horizontal)
+                                    chatBubble(
+                                        msg,
+                                        onRate: { r in
+                                            guideChatMessages[i].rating = r
+                                            submitGuideRating(serverId: msg.serverId, rating: r, isPage: false)
+                                        },
+                                        onPinTap: { showGuide = false }
+                                    )
                                     .id(i)
                                 }
 
@@ -261,22 +302,7 @@ struct PdfViewerView: View {
                 Divider()
 
                 // Chat input
-                HStack(spacing: 8) {
-                    TextField("질문하기...", text: $guideChatInput, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...3)
-
-                    Button {
-                        sendGuideChat()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(guideChatInput.isEmpty || guideChatSending ? .gray : .blue)
-                    }
-                    .disabled(guideChatInput.isEmpty || guideChatSending)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                chatInputBar(text: $guideChatInput, sending: guideChatSending, onSend: sendGuideChat)
             }
             .navigationTitle("p.\(currentPage) 가이드")
             .navigationBarTitleDisplayMode(.inline)
@@ -300,6 +326,7 @@ struct PdfViewerView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(!guideChatMessages.isEmpty)
     }
 
     private func sendGuideChat() {
@@ -374,61 +401,111 @@ struct PdfViewerView: View {
 
     private var chapterGuideSheet: some View {
         NavigationStack {
-            ScrollView {
-                if chapterGuideLoading {
-                    ProgressView().padding(.top, 40)
-                } else if let guide = chapterGuide {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(guide.title).font(.headline)
-                        Text(guide.topic).font(.subheadline)
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        if chapterGuideLoading {
+                            ProgressView().padding(.top, 40)
+                        } else if let guide = chapterGuide {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(guide.title).font(.headline)
+                                Text(guide.topic).font(.subheadline)
 
-                        Section {
-                            ForEach(guide.keyConcepts, id: \.self) { item in
-                                Text("• \(item)").font(.subheadline)
-                            }
-                        } header: { Text("📌 핵심 개념").font(.subheadline.bold()) }
+                                Section {
+                                    ForEach(guide.keyConcepts, id: \.self) { item in
+                                        Text("• \(item)").font(.subheadline)
+                                    }
+                                } header: { Text("📌 핵심 개념").font(.subheadline.bold()) }
 
-                        Section {
-                            ForEach(Array(guide.studyOrder.enumerated()), id: \.offset) { i, item in
-                                Text("\(i+1). \(item)").font(.subheadline)
-                            }
-                        } header: { Text("📋 학습 순서").font(.subheadline.bold()) }
+                                Section {
+                                    ForEach(Array(guide.studyOrder.enumerated()), id: \.offset) { i, item in
+                                        Text("\(i+1). \(item)").font(.subheadline)
+                                    }
+                                } header: { Text("📋 학습 순서").font(.subheadline.bold()) }
 
-                        Section {
-                            ForEach(guide.commonMistakes, id: \.self) { item in
-                                Text("• \(item)").font(.subheadline)
-                            }
-                        } header: { Text("⚠️ 자주 하는 실수").font(.subheadline.bold()) }
+                                Section {
+                                    ForEach(guide.commonMistakes, id: \.self) { item in
+                                        Text("• \(item)").font(.subheadline)
+                                    }
+                                } header: { Text("⚠️ 자주 하는 실수").font(.subheadline.bold()) }
 
-                        Section {
-                            Text(guide.summary).font(.subheadline)
-                        } header: { Text("요약").font(.subheadline.bold()) }
+                                Section {
+                                    Text(guide.summary).font(.subheadline)
+                                } header: { Text("요약").font(.subheadline.bold()) }
 
-                        Divider()
-                        HStack(spacing: 12) {
-                            ratingButtons(
-                                serverId: guide.feedbackId,
-                                currentRating: chapterGuideRating,
-                                onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: false, isChapter: true) },
-                                onDetail: {
-                                    appLog("guide-detail", "chapter detail tapped", ["serverId": guide.feedbackId ?? "nil"])
-                                    chapterGuideRatingDetail = true
+                                Divider()
+                                HStack(spacing: 12) {
+                                    if onPin != nil {
+                                        Button {
+                                            onPin?(chapterGuideText(guide), guide.feedbackId)
+                                            showChapterGuide = false
+                                        } label: {
+                                            Label("박제", systemImage: "pin.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    ratingButtons(
+                                        serverId: guide.feedbackId,
+                                        currentRating: chapterGuideRating,
+                                        onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: false, isChapter: true) },
+                                        onDetail: {
+                                            appLog("guide-detail", "chapter detail tapped", ["serverId": guide.feedbackId ?? "nil"])
+                                            chapterGuideRatingDetail = true
+                                        }
+                                    )
                                 }
-                            )
+
+                                Divider().padding(.vertical, 8)
+
+                                // Chat messages
+                                ForEach(Array(chapterChatMessages.enumerated()), id: \.element.id) { i, msg in
+                                    chatBubble(
+                                        msg,
+                                        onRate: { r in
+                                            chapterChatMessages[i].rating = r
+                                            submitGuideRating(serverId: msg.serverId, rating: r, isPage: false)
+                                        },
+                                        onPinTap: { showChapterGuide = false }
+                                    )
+                                    .id(i)
+                                }
+
+                                if chapterChatSending {
+                                    HStack {
+                                        ProgressView().padding(.leading, 16)
+                                        Spacer()
+                                    }
+                                    .id("loading")
+                                }
+                            }
+                            .padding()
+                        } else {
+                            Text("챕터 가이드를 불러올 수 없습니다.")
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 40)
                         }
                     }
-                    .padding()
-                } else {
-                    Text("챕터 가이드를 불러올 수 없습니다.")
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 40)
+                    .onChange(of: chapterChatMessages.count) { _, _ in
+                        withAnimation {
+                            proxy.scrollTo(chapterChatMessages.count - 1, anchor: .bottom)
+                        }
+                    }
                 }
+
+                Divider()
+
+                // Chat input
+                chatInputBar(text: $chapterChatInput, sending: chapterChatSending, onSend: sendChapterChat)
             }
             .navigationTitle("챕터 가이드")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("닫기") { showChapterGuide = false }
+                    Button("닫기") {
+                        showChapterGuide = false
+                        chapterChatMessages = []
+                    }
                 }
             }
             .navigationDestination(isPresented: $chapterGuideRatingDetail) {
@@ -443,6 +520,92 @@ struct PdfViewerView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(!chapterChatMessages.isEmpty)
+    }
+
+    /// 챕터 가이드를 박제용 마크다운 텍스트로 직렬화
+    private func chapterGuideText(_ guide: ChapterGuide) -> String {
+        var parts: [String] = ["## \(guide.title)", guide.topic]
+        if !guide.keyConcepts.isEmpty {
+            parts.append("**📌 핵심 개념**\n" + guide.keyConcepts.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        if !guide.studyOrder.isEmpty {
+            parts.append("**📋 학습 순서**\n" + guide.studyOrder.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
+        }
+        if !guide.commonMistakes.isEmpty {
+            parts.append("**⚠️ 자주 하는 실수**\n" + guide.commonMistakes.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        if !guide.summary.isEmpty {
+            parts.append("**요약**\n" + guide.summary)
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func sendChapterChat() {
+        let text = chapterChatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        chapterChatInput = ""
+        chapterChatSending = true
+
+        chapterChatMessages.append(GuideChatMessage(role: "user", content: text))
+
+        // Build history: chapter guide content as first assistant message
+        var history: [[String: String]] = []
+        if let guide = chapterGuide {
+            history.append(["role": "assistant", "content": chapterGuideText(guide)])
+        }
+        for msg in chapterChatMessages.dropLast() {
+            history.append(["role": msg.role, "content": msg.content])
+        }
+
+        Task {
+            do {
+                struct ChatReq: Encodable {
+                    let message: String
+                    let history: [[String: String]]
+                    let response_language: String
+                    let textbook_id: String?
+                    let current_page: Int?
+                    let parent_feedback_id: String?
+                }
+                struct ChatRes: Decodable {
+                    let content: String
+                    let feedback_id: String?
+                }
+
+                let reqBody = ChatReq(
+                    message: text,
+                    history: history,
+                    response_language: Config.responseLanguage,
+                    textbook_id: textbookId,
+                    current_page: chapterGuide?.pageStart,
+                    parent_feedback_id: chapterGuide?.feedbackId
+                )
+
+                let jsonData = try JSONEncoder().encode(reqBody)
+                var request = URLRequest(url: URL(string: "\(Config.apiBaseURL)/feedback/chat")!)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if let token = AuthService.shared.accessToken {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                request.httpBody = jsonData
+
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 45
+                config.waitsForConnectivity = true
+                let (data, _) = try await URLSession(configuration: config).data(for: request)
+                let res = try JSONDecoder().decode(ChatRes.self, from: data)
+
+                await MainActor.run {
+                    chapterChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
+                    chapterChatSending = false
+                }
+            } catch {
+                appLogError("chapter-chat", "send failed", ["error": "\(error)"])
+                await MainActor.run { chapterChatSending = false }
+            }
+        }
     }
 
     // MARK: - PDF Content
@@ -571,6 +734,7 @@ struct PdfViewerView: View {
         chapterGuideLoading = true
         chapterGuide = nil
         chapterGuideRating = nil
+        chapterChatMessages = []
         Task {
             do {
                 chapterGuide = try await APIClient.shared.get(

@@ -70,6 +70,8 @@ struct PageGuide: Codable {
 struct ChapterGuide: Codable {
     let chapterId: String
     let title: String
+    let pageStart: Int
+    let pageEnd: Int
     let topic: String
     let keyConcepts: [String]
     let studyOrder: [String]
@@ -81,6 +83,8 @@ struct ChapterGuide: Codable {
     enum CodingKeys: String, CodingKey {
         case title, topic, summary, cached
         case chapterId = "chapter_id"
+        case pageStart = "page_start"
+        case pageEnd = "page_end"
         case keyConcepts = "key_concepts"
         case studyOrder = "study_order"
         case commonMistakes = "common_mistakes"

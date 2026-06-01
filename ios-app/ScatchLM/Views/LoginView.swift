@@ -56,6 +56,23 @@ struct LoginView: View {
             }
             .font(.footnote)
 
+            HStack {
+                VStack { Divider() }
+                Text("or").font(.caption).foregroundStyle(.secondary)
+                VStack { Divider() }
+            }
+            .frame(maxWidth: 360)
+
+            Button {
+                Task { await handleGoogleSignIn() }
+            } label: {
+                Label("Continue with Google", systemImage: "globe")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: 360)
+            .disabled(loading)
+
             Spacer()
         }
         .padding()
@@ -73,6 +90,23 @@ struct LoginView: View {
             }
         } catch {
             self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func handleGoogleSignIn() async {
+        loading = true
+        error = nil
+        do {
+            try await AuthService.shared.signInWithGoogle()
+        } catch is CancellationError {
+            // 사용자가 시트를 닫음 — 무시
+        } catch {
+            // ASWebAuthenticationSession 사용자 취소도 조용히 처리
+            let ns = error as NSError
+            if !(ns.domain == "com.apple.AuthenticationServices.WebAuthenticationSession" && ns.code == 1) {
+                self.error = error.localizedDescription
+            }
         }
         loading = false
     }

@@ -47,6 +47,15 @@ final class AuthService {
         try await client.auth.signIn(email: email, password: password)
     }
 
+    /// Google OAuth 로그인. supabase-swift가 ASWebAuthenticationSession을 앱 내부 시트로 띄우고
+    /// redirectTo의 scheme으로 콜백을 가로챈다. authStateChanges 리스너가 새 세션을 반영함.
+    func signInWithGoogle() async throws {
+        try await client.auth.signInWithOAuth(
+            provider: .google,
+            redirectTo: URL(string: "com.joho54.scatchlm://login-callback")
+        )
+    }
+
     func signOut() async throws {
         try await client.auth.signOut()
         session = nil

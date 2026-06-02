@@ -33,7 +33,7 @@
    docker push ghcr.io/joho54/scatchlm-app:latest
    ```
 2. VM `/opt/scatchlm/.env.prod`에 **신규 env 3종** 주입(체크):
-   - `SUPABASE_SERVICE_ROLE_KEY` (계정 삭제 필수)
+   - `SUPABASE_SECRET_KEY` (신형 secret 키 = 옛 service_role; 계정 삭제 필수)
    - `DAILY_COST_LIMIT_NORMAL_USD` / `DAILY_COST_LIMIT_PRO_USD`
    - `ALLOWED_ORIGINS` (iOS 전용이면 빈 값)
    - (관측) `APP_VERSION` / `GIT_SHA` / `ENVIRONMENT=prod`

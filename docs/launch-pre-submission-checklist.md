@@ -42,7 +42,7 @@
   docker push ghcr.io/joho54/scatchlm-app:latest
   ```
 - [ ] `/opt/scatchlm/.env.prod`에 **신규 env** 주입:
-  - [ ] `SUPABASE_SERVICE_ROLE_KEY` (계정 삭제 필수 — 없으면 삭제 502)
+  - [ ] `SUPABASE_SECRET_KEY` (신형 secret 키 = 옛 service_role; 계정 삭제 시 Supabase auth 유저 제거에 사용 — 없으면 삭제 502)
   - [ ] `DAILY_COST_LIMIT_NORMAL_USD` / `DAILY_COST_LIMIT_PRO_USD`
   - [ ] `ALLOWED_ORIGINS` (iOS 전용이면 빈 값 정상)
   - [ ] (관측) `APP_VERSION` / `GIT_SHA` / `ENVIRONMENT=prod`

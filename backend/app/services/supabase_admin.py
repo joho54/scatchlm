@@ -1,10 +1,10 @@
 """Supabase service-role 클라이언트.
 
-JWT 검증만 하는 `core/auth.py`와 달리, 이 모듈은 **service-role 키**로 Supabase
-Admin REST를 호출한다(현재는 auth 유저 삭제 전용). service-role 키는 RLS를 우회하는
-강력한 비밀이므로 절대 응답·로그·클라이언트에 노출하지 않는다.
+JWT 검증만 하는 `core/auth.py`와 달리, 이 모듈은 **Supabase secret 키**(신형, 옛
+service_role)로 Admin REST를 호출한다(현재는 auth 유저 삭제 전용). 이 키는 RLS를
+우회하는 강력한 비밀이므로 절대 응답·로그·클라이언트에 노출하지 않는다.
 
-`SUPABASE_SERVICE_ROLE_KEY` env 필요. 미설정이면 `delete_auth_user`는 RuntimeError.
+`SUPABASE_SECRET_KEY` env 필요. 미설정이면 `delete_auth_user`는 RuntimeError.
 """
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ class SupabaseAdminError(RuntimeError):
 def _require_config() -> tuple[str, str]:
     if not settings.SUPABASE_URL:
         raise SupabaseAdminError("SUPABASE_URL not configured")
-    if not settings.SUPABASE_SERVICE_ROLE_KEY:
-        raise SupabaseAdminError("SUPABASE_SERVICE_ROLE_KEY not configured")
-    return settings.SUPABASE_URL.rstrip("/"), settings.SUPABASE_SERVICE_ROLE_KEY
+    if not settings.SUPABASE_SECRET_KEY:
+        raise SupabaseAdminError("SUPABASE_SECRET_KEY not configured")
+    return settings.SUPABASE_URL.rstrip("/"), settings.SUPABASE_SECRET_KEY
 
 
 async def set_app_metadata(user_id: str, patch: dict) -> dict:

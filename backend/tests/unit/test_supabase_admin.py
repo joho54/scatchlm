@@ -30,7 +30,7 @@ def _mock_client(get_json: dict, put_json: dict | None = None, put_status: int =
 @pytest.fixture(autouse=True)
 def _configure(monkeypatch):
     monkeypatch.setattr(settings, "SUPABASE_URL", "https://test.supabase.co")
-    monkeypatch.setattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "svc-key")
+    monkeypatch.setattr(settings, "SUPABASE_SECRET_KEY", "svc-key")
 
 
 @pytest.mark.asyncio

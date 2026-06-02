@@ -6,9 +6,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     SUPABASE_URL: str = ""
     SUPABASE_PUBLISHABLE_KEY: str = ""
+    # Supabase secret 키(신형, 옛 service_role) — Admin REST(auth 유저 삭제 등) 호출용. 절대 클라이언트 노출 금지.
     SUPABASE_SECRET_KEY: str = ""
-    # Supabase service-role 키 — Admin REST(auth 유저 삭제 등) 호출용. 절대 클라이언트 노출 금지.
-    SUPABASE_SERVICE_ROLE_KEY: str = ""
     VOYAGE_API_KEY: str = ""
     # PDF 업로드 시 Voyage 임베딩 인덱싱(청킹+임베딩) 수행 여부.
     # 현재 RAG 검색 경로(feedback.py)는 PDF 텍스트 추출이 빈 경우에만 도달하는

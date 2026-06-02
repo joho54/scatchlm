@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="stylesheet" href="katex/katex.min.css">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    font-size: __FONT_SIZE__px;
+    line-height: 1.5;
+    color: #1a1a1a;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e8e8e8; }
+  }
+  #content > :first-child { margin-top: 0; }
+  #content > :last-child { margin-bottom: 0; }
+  p { margin: 0.5em 0; }
+  ul, ol { margin: 0.5em 0; padding-left: 1.4em; }
+  li { margin: 0.2em 0; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.9em;
+    background: rgba(127,127,127,0.15);
+    padding: 0.1em 0.3em;
+    border-radius: 4px;
+  }
+  pre {
+    background: rgba(127,127,127,0.12);
+    padding: 0.7em;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    margin: 0.5em 0;
+    padding-left: 0.8em;
+    border-left: 3px solid rgba(127,127,127,0.4);
+    color: rgba(127,127,127,1);
+  }
+  img { max-width: 100%; height: auto; }
+  a { color: #3478f6; }
+  del { opacity: 0.6; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid rgba(127,127,127,0.3); padding: 0.3em 0.6em; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; margin: 0.6em 0; }
+  .katex { font-size: 1.05em; }
+</style>
+</head>
+<body>
+<div id="content"></div>
+<script src="marked.min.js"></script>
+<script src="katex/katex.min.js"></script>
+<script src="katex/contrib/auto-render.min.js"></script>
+<script>
+  (function () {
+    function postHeight() {
+      var h = Math.ceil(document.body.getBoundingClientRect().height);
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.heightChanged) {
+        window.webkit.messageHandlers.heightChanged.postMessage(h);
+      }
+    }
+
+    function render() {
+      var raw;
+      try {
+        raw = decodeURIComponent(escape(window.atob("__CONTENT_B64__")));
+      } catch (e) {
+        raw = "";
+      }
+      var el = document.getElementById("content");
+      try {
+        marked.setOptions({ gfm: true, breaks: true });
+        el.innerHTML = marked.parse(raw);
+      } catch (e) {
+        el.textContent = raw;
+      }
+      try {
+        renderMathInElement(el, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "\\[", right: "\\]", display: true },
+            { left: "$", right: "$", display: false },
+            { left: "\\(", right: "\\)", display: false }
+          ],
+          throwOnError: false,
+          ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"]
+        });
+      } catch (e) {}
+
+      postHeight();
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(postHeight);
+      }
+      if (window.ResizeObserver) {
+        new ResizeObserver(postHeight).observe(document.body);
+      } else {
+        window.addEventListener("load", postHeight);
+      }
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", render);
+    } else {
+      render();
+    }
+  })();
+</script>
+</body>
+</html>

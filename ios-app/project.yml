@@ -12,9 +12,6 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
     from: "7.0.0"
-  MarkdownUI:
-    url: https://github.com/gonzalezreal/swift-markdown-ui.git
-    from: "2.0.0"
 
 targets:
   ScatchLM:
@@ -22,6 +19,9 @@ targets:
     platform: iOS
     sources:
       - ScatchLM
+      - path: WebAssets
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.joho54.scatchlm
@@ -39,8 +39,6 @@ targets:
         product: Supabase
       - package: GRDB
         product: GRDB
-      - package: MarkdownUI
-        product: MarkdownUI
 
   ScatchLMTests:
     type: bundle.unit-test

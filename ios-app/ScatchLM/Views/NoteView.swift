@@ -2,7 +2,6 @@ import SwiftUI
 import PencilKit
 import PDFKit
 import UniformTypeIdentifiers
-import MarkdownUI
 
 // Custom tap gesture that carries a FeedbackRecord
 class FeedbackTapGesture: UITapGestureRecognizer {
@@ -592,7 +591,10 @@ struct NoteView: View {
         // 새 캔버스는 기본 사이즈 + 최상단에서 시작 (이전 페이지의 확장/스크롤 상태 전이 방지)
         resetCanvasToTop()
 
-        appLog("note", "newPage", ["index": "\(newIndex)"])
+        // 진단: 새 페이지 진입 시점에 남아 있는 피드백 카드(tag 9999) 수.
+        // feedbacks=[] 이후 updateUIView→renderAllCards([])가 안 돌면 0이 안 됨 → "카드 따라옴" 버그.
+        let lingeringCards = canvasView.subviews.filter { $0.tag == 9999 }.count
+        appLog("note", "newPage", ["index": "\(newIndex)", "lingeringCards": "\(lingeringCards)"])
     }
 
     /// 캔버스를 기본 높이로 축소하고 스크롤을 최상단으로 되돌린다.
@@ -632,7 +634,8 @@ struct NoteView: View {
         // 페이지 전환 시에도 최상단·기본 사이즈에서 시작 (이전 페이지 상태 전이 방지)
         resetCanvasToTop()
 
-        appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
+        let lingeringCards = canvasView.subviews.filter { $0.tag == 9999 }.count
+        appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)", "lingeringCards": "\(lingeringCards)"])
     }
 
     private func revertFeedback(_ fb: FeedbackRecord) {
@@ -1050,14 +1053,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
             card.layer.shadowOffset = CGSize(width: 0, height: 2)
             card.isUserInteractionEnabled = true
 
-            let label = UITextView()
-            label.isEditable = false
-            label.isScrollEnabled = false
-            label.backgroundColor = .clear
-            label.textContainerInset = .zero
-            label.textContainer.lineFragmentPadding = 0
-
             let rawText = parsed?.displayText ?? fb.content
+
+            // 카드 높이 추정용 측정 텍스트뷰 (화면에는 안 붙임).
+            // 실제 표시는 BakedMarkdownUIView(WKWebView)가 하고, 넘치면 내부 스크롤.
+            let measuringView = UITextView()
+            measuringView.textContainerInset = .zero
+            measuringView.textContainer.lineFragmentPadding = 0
             if let attrStr = try? NSAttributedString(
                 markdown: rawText,
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -1065,14 +1067,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 let mutable = NSMutableAttributedString(attributedString: attrStr)
                 mutable.addAttributes([
                     .font: UIFont.systemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label,
                 ], range: NSRange(location: 0, length: mutable.length))
-                label.attributedText = mutable
+                measuringView.attributedText = mutable
             } else {
-                label.text = rawText
-                label.font = .systemFont(ofSize: 14)
-                label.textColor = .label
+                measuringView.text = rawText
+                measuringView.font = .systemFont(ofSize: 14)
             }
+
+            let label = BakedMarkdownUIView(content: rawText, fontSize: 14)
 
             let buttonBar = UIStackView()
             buttonBar.axis = .horizontal
@@ -1151,7 +1153,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 buttonBar.heightAnchor.constraint(equalToConstant: 28),
             ])
 
-            let labelSize = label.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
+            let labelSize = measuringView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
             let cardHeight = labelSize.height + 48
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
@@ -1298,24 +1300,5 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 self?.onDrawingChanged()
             }
         }
-    }
-}
-
-// MARK: - Markdown Feedback Card (SwiftUI, hosted in UIKit)
-
-struct MarkdownFeedbackCard: View {
-    let content: String
-    let width: CGFloat
-
-    var body: some View {
-        Markdown(content)
-            .markdownTextStyle {
-                FontSize(14)
-            }
-            .padding(14)
-            .frame(width: width, alignment: .leading)
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
     }
 }

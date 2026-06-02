@@ -1,6 +1,5 @@
 import SwiftUI
 import PDFKit
-import MarkdownUI
 
 struct PdfViewerView: View {
     let textbookId: String
@@ -163,8 +162,7 @@ struct PdfViewerView: View {
         HStack {
             if msg.role == "user" { Spacer(minLength: 60) }
             VStack(alignment: .leading, spacing: 4) {
-                Markdown(msg.content)
-                    .markdownTextStyle { FontSize(14) }
+                BakedMarkdownView(content: msg.content)
                 if msg.role != "user" {
                     Divider()
                     HStack(spacing: 12) {
@@ -232,8 +230,7 @@ struct PdfViewerView: View {
                                     }
 
                                     if let content = guide.content, !content.isEmpty {
-                                        Markdown(content)
-                                            .markdownTextStyle { FontSize(14) }
+                                        BakedMarkdownView(content: content)
                                     }
                                 }
                                 .padding(.horizontal)

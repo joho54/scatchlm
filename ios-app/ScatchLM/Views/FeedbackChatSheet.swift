@@ -1,5 +1,4 @@
 import SwiftUI
-import MarkdownUI
 
 struct FeedbackChatSheet: View {
     let feedback: FeedbackRecord
@@ -125,10 +124,7 @@ struct FeedbackChatSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Markdown(content)
-                        .markdownTextStyle {
-                            FontSize(14)
-                        }
+                    BakedMarkdownView(content: content)
 
                     Divider()
                     HStack(spacing: 12) {

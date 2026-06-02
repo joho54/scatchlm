@@ -26,7 +26,7 @@ struct ForgotPasswordView: View {
                 switch step {
                 case .requestEmail:
                     Section {
-                        TextField("Email", text: $email)
+                        TextField("이메일", text: $email)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()

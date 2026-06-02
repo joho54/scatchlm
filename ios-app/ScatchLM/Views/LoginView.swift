@@ -16,17 +16,17 @@ struct LoginView: View {
             Text("ScatchLM")
                 .font(.largeTitle.bold())
 
-            Text("Handwriting-based language learning")
+            Text("손글씨로 배우는 언어 학습")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 12) {
-                TextField("Email", text: $email)
+                TextField("이메일", text: $email)
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.emailAddress)
 
-                SecureField("Password", text: $password)
+                SecureField("비밀번호", text: $password)
                     .textFieldStyle(.roundedBorder)
             }
             .frame(maxWidth: 360)
@@ -44,7 +44,7 @@ struct LoginView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
-                    Text(isSignUp ? "Sign Up" : "Sign In")
+                    Text(isSignUp ? "회원가입" : "로그인")
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -52,7 +52,7 @@ struct LoginView: View {
             .frame(maxWidth: 360)
             .disabled(loading || email.isEmpty || password.isEmpty)
 
-            Button(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up") {
+            Button(isSignUp ? "이미 계정이 있으신가요? 로그인" : "계정이 없으신가요? 회원가입") {
                 isSignUp.toggle()
                 error = nil
             }
@@ -68,7 +68,7 @@ struct LoginView: View {
 
             HStack {
                 VStack { Divider() }
-                Text("or").font(.caption).foregroundStyle(.secondary)
+                Text("또는").font(.caption).foregroundStyle(.secondary)
                 VStack { Divider() }
             }
             .frame(maxWidth: 360)
@@ -76,7 +76,7 @@ struct LoginView: View {
             Button {
                 Task { await handleGoogleSignIn() }
             } label: {
-                Label("Continue with Google", systemImage: "globe")
+                Label("Google로 계속하기", systemImage: "globe")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -87,7 +87,7 @@ struct LoginView: View {
             Button {
                 Task { await handleAppleSignIn() }
             } label: {
-                Label("Sign in with Apple", systemImage: "applelogo")
+                Label("Apple로 로그인", systemImage: "applelogo")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
                     .foregroundStyle(.white)

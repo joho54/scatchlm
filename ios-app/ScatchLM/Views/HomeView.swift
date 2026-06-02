@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var editingNote: Note?
 
     private let db = DatabaseService.shared
+    private let sync = SyncService.shared
 
     private var filteredNotes: [Note] {
         if search.isEmpty { return notes }
@@ -34,23 +35,23 @@ struct HomeView: View {
                         Button {
                             editingNote = note
                         } label: {
-                            Label("Edit", systemImage: "pencil")
+                            Label("편집", systemImage: "pencil")
                         }
                         Button(role: .destructive) {
                             deleteNote(note)
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            Label("삭제", systemImage: "trash")
                         }
                     }
                 }
             }
             .padding()
         }
-        .navigationTitle("Notes")
+        .navigationTitle("노트")
         .navigationDestination(for: String.self) { noteId in
             NoteView(noteId: noteId)
         }
-        .searchable(text: $search, prompt: "Search notes")
+        .searchable(text: $search, prompt: "노트 검색")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -84,6 +85,9 @@ struct HomeView: View {
             }
         }
         .onAppear { loadNotes() }
+        // 로그인 직후 full pull로 복원된 노트는 .onAppear 이후 DB에 머지되므로,
+        // sync 완료(lastSyncedAt 변화) 때 다시 읽어 화면에 반영한다. (재실행해야 보이던 문제)
+        .onChange(of: sync.lastSyncedAt) { loadNotes() }
     }
 
     @ViewBuilder

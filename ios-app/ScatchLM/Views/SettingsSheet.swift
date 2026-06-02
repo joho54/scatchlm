@@ -23,8 +23,8 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Feedback Language") {
-                    TextField("e.g. Korean, English, 日本語", text: $responseLanguage)
+                Section("피드백 언어") {
+                    TextField("예: 한국어, English, 日本語", text: $responseLanguage)
                         .onChange(of: responseLanguage) { _, newValue in
                             Config.responseLanguage = newValue
                         }
@@ -99,7 +99,7 @@ struct SettingsSheet: View {
                             dismiss()
                         }
                     } label: {
-                        Text("Sign Out")
+                        Text("로그아웃")
                     }
                 }
 
@@ -126,11 +126,11 @@ struct SettingsSheet: View {
                     }
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("설정")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("완료") { dismiss() }
                 }
             }
             .confirmationDialog(

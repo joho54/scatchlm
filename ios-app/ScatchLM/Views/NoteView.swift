@@ -93,7 +93,7 @@ struct NoteView: View {
                             Spacer()
                             HStack(spacing: 8) {
                                 ProgressView()
-                                Text("Analyzing handwriting...")
+                                Text("필기 분석 중…")
                                     .font(.subheadline)
                             }
                             .padding(.horizontal, 16)

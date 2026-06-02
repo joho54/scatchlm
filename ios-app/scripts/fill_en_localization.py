@@ -150,6 +150,28 @@ EN = {
     "업로드 중…": "Uploading…",
     "새 PDF 업로드": "Upload new PDF",
     "%lld페이지": "%lld pages",
+    # 로그인/홈/설정 — 영어 소스로 작성돼 있던 것을 한국어 소스로 정정 후 영어 번역
+    "손글씨로 배우는 언어 학습": "Handwriting-based language learning",
+    "이메일": "Email",
+    "비밀번호": "Password",
+    "로그인": "Sign In",
+    "회원가입": "Sign Up",
+    "이미 계정이 있으신가요? 로그인": "Already have an account? Sign In",
+    "계정이 없으신가요? 회원가입": "Don't have an account? Sign Up",
+    "또는": "or",
+    "Google로 계속하기": "Continue with Google",
+    "Apple로 로그인": "Sign in with Apple",
+    "필기 분석 중…": "Analyzing handwriting…",
+    "편집": "Edit",
+    "삭제": "Delete",
+    "노트": "Notes",
+    "노트 검색": "Search notes",
+    "피드백 언어": "Feedback Language",
+    "예: 한국어, English, 日本語": "e.g. Korean, English, 日本語",
+    "로그아웃": "Sign Out",
+    "설정": "Settings",
+    "완료": "Done",
+    "불러오는 중…": "Loading…",
 }
 
 

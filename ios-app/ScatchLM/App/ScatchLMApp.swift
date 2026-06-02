@@ -22,7 +22,7 @@ struct ScatchLMApp: App {
         WindowGroup {
             Group {
                 if auth.isLoading {
-                    ProgressView("Loading...")
+                    ProgressView("불러오는 중…")
                 } else if auth.isAuthenticated {
                     NavigationStack {
                         HomeView()

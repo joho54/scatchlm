@@ -73,19 +73,26 @@
         }
       }
     },
-    "Already have an account? Sign In": {},
-    "Analyzing handwriting...": {},
-    "Continue with Google": {},
-    "Delete": {},
-    "Don't have an account? Sign Up": {},
-    "Done": {},
-    "Edit": {},
-    "Email": {},
-    "Feedback Language": {},
-    "Handwriting-based language learning": {},
-    "Loading...": {},
-    "Notes": {},
-    "Password": {},
+    "Apple로 로그인": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with Apple"
+          }
+        }
+      }
+    },
+    "Google로 계속하기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with Google"
+          }
+        }
+      }
+    },
     "Pro": {},
     "Pro 구독하기": {
       "localizations": {
@@ -99,14 +106,6 @@
     },
     "ScatchLM": {},
     "ScatchLM Pro": {},
-    "Search notes": {},
-    "Settings": {},
-    "Sign In": {},
-    "Sign Out": {},
-    "Sign Up": {},
-    "Sign in with Apple": {},
-    "e.g. Korean, English, 日本語": {},
-    "or": {},
     "p.%lld": {},
     "p.%lld 가이드": {
       "localizations": {
@@ -225,6 +224,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Delete account?"
+          }
+        }
+      }
+    },
+    "계정이 없으신가요? 회원가입": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't have an account? Sign Up"
           }
         }
       }
@@ -369,6 +378,26 @@
         }
       }
     },
+    "노트": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes"
+          }
+        }
+      }
+    },
+    "노트 검색": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search notes"
+          }
+        }
+      }
+    },
     "노트 편집": {
       "localizations": {
         "en": {
@@ -445,6 +474,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Undo"
+          }
+        }
+      }
+    },
+    "또는": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "or"
+          }
+        }
+      }
+    },
+    "로그아웃": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        }
+      }
+    },
+    "로그인": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
           }
         }
       }
@@ -539,6 +598,26 @@
         }
       }
     },
+    "불러오는 중…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading…"
+          }
+        }
+      }
+    },
+    "비밀번호": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password"
+          }
+        }
+      }
+    },
     "비밀번호 변경": {
       "localizations": {
         "en": {
@@ -585,6 +664,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reasons (select all that apply)"
+          }
+        }
+      }
+    },
+    "삭제": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
           }
         }
       }
@@ -649,12 +738,32 @@
         }
       }
     },
+    "설정": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        }
+      }
+    },
     "손글씨 인식 · 교재 기반 RAG 채팅": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Handwriting recognition · textbook-based RAG chat"
+          }
+        }
+      }
+    },
+    "손글씨로 배우는 언어 학습": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handwriting-based language learning"
           }
         }
       }
@@ -769,6 +878,16 @@
         }
       }
     },
+    "예: 한국어, English, 日本語": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. Korean, English, 日本語"
+          }
+        }
+      }
+    },
     "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요.": {
       "localizations": {
         "en": {
@@ -795,6 +914,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tap the + button in the top right to create your first note."
+          }
+        }
+      }
+    },
+    "완료": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
           }
         }
       }
@@ -865,6 +994,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Undo this feedback?"
+          }
+        }
+      }
+    },
+    "이메일": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email"
+          }
+        }
+      }
+    },
+    "이미 계정이 있으신가요? 로그인": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already have an account? Sign In"
           }
         }
       }
@@ -1089,6 +1238,16 @@
         }
       }
     },
+    "편집": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        }
+      }
+    },
     "평가": {
       "localizations": {
         "en": {
@@ -1105,6 +1264,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Feedback chat"
+          }
+        }
+      }
+    },
+    "피드백 언어": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback Language"
           }
         }
       }
@@ -1149,6 +1318,16 @@
         }
       }
     },
+    "필기 분석 중…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyzing handwriting…"
+          }
+        }
+      }
+    },
     "필기를 저장하지 못했어요. 네트워크/저장 공간을 확인해 주세요.": {
       "localizations": {
         "en": {
@@ -1175,6 +1354,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "회원가입": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Up"
           }
         }
       }

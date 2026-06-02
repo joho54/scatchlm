@@ -46,7 +46,17 @@ final class AuthService {
         }
     }
 
+    /// "앱 삭제 = 로그아웃" 보장용 플래그. UserDefaults는 앱 삭제 시 지워지지만
+    /// Keychain의 Supabase 세션은 살아남으므로, 첫 실행이면 잔존 세션을 로컬 purge한다.
+    private static let freshInstallKey = "auth.didInstall"
+
     func initialize() async {
+        // 첫 실행(플래그 부재) → 재설치/신규설치. Keychain에 남은 세션을 로컬에서만 제거(서버 호출 없음).
+        if !UserDefaults.standard.bool(forKey: Self.freshInstallKey) {
+            try? await client.auth.signOut(scope: .local)
+            UserDefaults.standard.set(true, forKey: Self.freshInstallKey)
+            appLog("auth", "fresh install: purged residual keychain session")
+        }
         do {
             session = try await client.auth.session
             appLog("auth", "session restore", ["restored": session != nil ? "true" : "false"])

@@ -1133,7 +1133,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
             let chatBtn = UIButton(type: .system)
             chatBtn.setImage(UIImage(systemName: "bubble.left.fill"), for: .normal)
-            chatBtn.setTitle(" 대화", for: .normal)
+            chatBtn.setTitle(" " + String(localized: "대화"), for: .normal)
             chatBtn.titleLabel?.font = .systemFont(ofSize: 12)
             chatBtn.tintColor = .secondaryLabel
             let chatGesture = FeedbackTapGesture(target: self, action: #selector(feedbackCardTapped(_:)))
@@ -1164,7 +1164,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             buttonBar.addArrangedSubview(downBtn)
 
             let detailBtn = UIButton(type: .system)
-            detailBtn.setTitle("자세히", for: .normal)
+            detailBtn.setTitle(String(localized: "자세히"), for: .normal)
             detailBtn.titleLabel?.font = .systemFont(ofSize: 12)
             detailBtn.tintColor = .secondaryLabel
             detailBtn.isEnabled = fb.serverFeedbackId != nil
@@ -1179,7 +1179,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 let revertBtn = UIButton(type: .system)
                 revertBtn.tag = 8888
                 revertBtn.setImage(UIImage(systemName: "arrow.uturn.backward"), for: .normal)
-                revertBtn.setTitle(" 되돌리기", for: .normal)
+                revertBtn.setTitle(" " + String(localized: "되돌리기"), for: .normal)
                 revertBtn.titleLabel?.font = .systemFont(ofSize: 12)
                 revertBtn.tintColor = UIColor.systemRed.withAlphaComponent(0.7)
                 let revertGesture = FeedbackTapGesture(target: self, action: #selector(feedbackRevertTapped(_:)))

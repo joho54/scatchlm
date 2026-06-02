@@ -1,461 +1,1108 @@
 {
-  "sourceLanguage" : "ko",
-  "strings" : {
-    "" : {
-
-    },
-    "%@ / 월 구독하기" : {
-
-    },
-    "%@ 로 보낸 코드를 입력하세요. 코드가 안 보이면 스팸함도 확인해 주세요." : {
-
-    },
-    "%lld" : {
-
-    },
-    "%lld / %lld" : {
-      "localizations" : {
-        "ko" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld / %2$lld"
+  "sourceLanguage": "ko",
+  "strings": {
+    "": {},
+    "%@ / 월 구독하기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ / month"
           }
         }
       }
     },
-    "%lld pages" : {
-
-    },
-    "%lld. %@" : {
-      "localizations" : {
-        "ko" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld. %2$@"
+    "%@ 로 보낸 코드를 입력하세요. 코드가 안 보이면 스팸함도 확인해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the code sent to %@. If you don't see it, check your spam folder."
           }
         }
       }
     },
-    "6자리 코드" : {
-
-    },
-    "AI 피드백이 이 언어로 작성됩니다." : {
-
-    },
-    "Already have an account? Sign In" : {
-
-    },
-    "Analyzing handwriting..." : {
-
-    },
-    "Cancel" : {
-
-    },
-    "Continue with Google" : {
-
-    },
-    "Create" : {
-
-    },
-    "Delete" : {
-
-    },
-    "Don't have an account? Sign Up" : {
-
-    },
-    "Done" : {
-
-    },
-    "Edit" : {
-
-    },
-    "Edit Note" : {
-
-    },
-    "Email" : {
-
-    },
-    "Feedback Language" : {
-
-    },
-    "Handwriting-based language learning" : {
-
-    },
-    "Loading..." : {
-
-    },
-    "New Note" : {
-
-    },
-    "Notes" : {
-
-    },
-    "Password" : {
-
-    },
-    "Pro" : {
-
-    },
-    "Pro 구독하기" : {
-
-    },
-    "Save" : {
-
-    },
-    "ScatchLM" : {
-
-    },
-    "ScatchLM Pro" : {
-
-    },
-    "Search notes" : {
-
-    },
-    "Settings" : {
-
-    },
-    "Sign In" : {
-
-    },
-    "Sign Out" : {
-
-    },
-    "Sign Up" : {
-
-    },
-    "Sign in with Apple" : {
-
-    },
-    "Subject" : {
-
-    },
-    "Textbook" : {
-
-    },
-    "Textbook (optional)" : {
-
-    },
-    "Title" : {
-
-    },
-    "Untitled note" : {
-
-    },
-    "Upload new PDF" : {
-
-    },
-    "Uploading..." : {
-
-    },
-    "e.g. Japanese, Physics, World History" : {
-
-    },
-    "e.g. Korean, English, 日本語" : {
-
-    },
-    "or" : {
-
-    },
-    "p.%lld" : {
-
-    },
-    "p.%lld 가이드" : {
-
-    },
-    "• %@" : {
-
-    },
-    "⚠️ 자주 하는 실수" : {
-
-    },
-    "가이드" : {
-
-    },
-    "가이드를 불러올 수 없습니다." : {
-
-    },
-    "가입에 사용한 이메일로 6자리 재설정 코드를 보내드려요." : {
-
-    },
-    "개인정보 처리방침" : {
-
-    },
-    "검색 결과가 없어요" : {
-
-    },
-    "계정 삭제" : {
-
-    },
-    "계정과 모든 데이터(노트·피드백·교재)가 영구히 삭제됩니다. 되돌릴 수 없어요." : {
-
-    },
-    "계정과 모든 데이터가 영구히 삭제됩니다. 이 작업은 되돌릴 수 없어요." : {
-
-    },
-    "계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요." : {
-
-    },
-    "계정을 삭제할까요?" : {
-
-    },
-    "구독" : {
-
-    },
-    "구독 검증에 실패했어요." : {
-
-    },
-    "구독 관리" : {
-
-    },
-    "구독은 월 단위로 자동 갱신되며, 현재 기간 종료 24시간 이전에 해지하지 않으면 갱신됩니다. 구매 후 Apple ID 설정에서 관리·해지할 수 있어요." : {
-
-    },
-    "구독이 복원되었어요." : {
-
-    },
-    "구독하기" : {
-
-    },
-    "구매 복원" : {
-
-    },
-    "구매 승인 대기 중이에요. 승인되면 자동으로 적용돼요." : {
-
-    },
-    "기타" : {
-
-    },
-    "너무 김" : {
-
-    },
-    "너무 짧음" : {
-
-    },
-    "넉넉한 일일 AI 피드백 한도" : {
-
-    },
-    "다른 검색어를 입력해 보세요." : {
-
-    },
-    "닫기" : {
-
-    },
-    "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요." : {
-
-    },
-    "도움 안 됨" : {
-
-    },
-    "동기화" : {
-
-    },
-    "되돌리기" : {
-
-    },
-    "로그인이 만료되었어요. 다시 로그인해 주세요." : {
-
-    },
-    "로그인이 필요해요." : {
-
-    },
-    "메시지를 저장하지 못했어요." : {
-
-    },
-    "목차" : {
-
-    },
-    "무료" : {
-
-    },
-    "버전" : {
-
-    },
-    "복원 중…" : {
-
-    },
-    "복원할 구독을 찾지 못했어요." : {
-
-    },
-    "비밀번호 변경" : {
-
-    },
-    "비밀번호 재설정" : {
-
-    },
-    "비밀번호를 잊으셨나요?" : {
-
-    },
-    "사실 오류" : {
-
-    },
-    "사유 (복수 선택)" : {
-
-    },
-    "삭제 중…" : {
-
-    },
-    "상품을 불러오지 못했어요. 잠시 후 다시 시도해 주세요." : {
-
-    },
-    "새 비밀번호 (6자 이상)" : {
-
-    },
-    "서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요." : {
-
-    },
-    "손글씨 인식 · 교재 기반 RAG 채팅" : {
-
-    },
-    "수식 렌더링" : {
-
-    },
-    "수식 보기" : {
-
-    },
-    "수식 안 보기" : {
-
-    },
-    "스크랩" : {
-
-    },
-    "아직 노트가 없어요" : {
-
-    },
-    "알림" : {
-
-    },
-    "약관 및 정책" : {
-
-    },
-    "어조 부적절" : {
-
-    },
-    "언어 오류" : {
-
-    },
-    "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요." : {
-
-    },
-    "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요." : {
-
-    },
-    "오른쪽 위 + 버튼을 눌러 첫 노트를 만들어 보세요." : {
-
-    },
-    "요약" : {
-
-    },
-    "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요." : {
-
-    },
-    "요청한 항목을 찾을 수 없어요." : {
-
-    },
-    "월 자동 갱신 · 언제든 해지" : {
-
-    },
-    "이 영역은 피드백이 완료됐습니다. 되돌리려면 카드의 ↩︎를 누르세요" : {
-
-    },
-    "이 작업을 수행할 권한이 없어요." : {
-
-    },
-    "이 피드백을 되돌리시겠습니까?" : {
-
-    },
-    "이용약관" : {
-
-    },
-    "자동" : {
-
-    },
-    "자동: 수식이 있으면 KaTeX로 렌더. 수식 안 보기는 가볍게 텍스트만 표시합니다." : {
-
-    },
-    "자세히" : {
-
-    },
-    "재설정 코드 받기" : {
-
-    },
-    "제출" : {
-
-    },
-    "질문을 입력하세요..." : {
-
-    },
-    "질문하기..." : {
-
-    },
-    "챕터 가이드" : {
-
-    },
-    "챕터 가이드를 불러올 수 없습니다." : {
-
-    },
-    "취소" : {
-
-    },
-    "카드가 사라지고 해당 영역에 다시 필기할 수 있게 됩니다. 필기 자체는 남습니다." : {
-
-    },
-    "코드 다시 받기" : {
-
-    },
-    "코드가 올바르지 않거나 만료됐어요. 다시 시도해 주세요." : {
-
-    },
-    "코드를 보냈어요. 이메일을 확인해 주세요." : {
-
-    },
-    "코멘트 (선택)" : {
-
-    },
-    "파일이 너무 커요. 더 작은 파일을 사용해 주세요." : {
-
-    },
-    "페이지" : {
-
-    },
-    "평가" : {
-
-    },
-    "피드백 대화" : {
-
-    },
-    "피드백 평가" : {
-
-    },
-    "피드백을 받지 못했어요. 잠시 후 다시 시도해 주세요." : {
-
-    },
-    "피드백을 삭제하지 못했어요." : {
-
-    },
-    "피드백을 저장하지 못했어요." : {
-
-    },
-    "필기를 저장하지 못했어요. 네트워크/저장 공간을 확인해 주세요." : {
-
-    },
-    "현재 플랜" : {
-
-    },
-    "확인" : {
-
-    },
-    "👍 좋음" : {
-
-    },
-    "👎 아쉬움" : {
-
-    },
-    "📋 학습 순서" : {
-
-    },
-    "📌 핵심 개념" : {
-
+    "%lld": {},
+    "%lld / %lld": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%lld pages": {},
+    "%lld. %@": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld. %2$@"
+          }
+        }
+      }
+    },
+    "• %@": {},
+    "⚠️ 자주 하는 실수": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠️ Common mistakes"
+          }
+        }
+      }
+    },
+    "👍 좋음": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "👍 Good"
+          }
+        }
+      }
+    },
+    "👎 아쉬움": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "👎 Needs work"
+          }
+        }
+      }
+    },
+    "📋 학습 순서": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "📋 Study order"
+          }
+        }
+      }
+    },
+    "📌 핵심 개념": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "📌 Key concepts"
+          }
+        }
+      }
+    },
+    "6자리 코드": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6-digit code"
+          }
+        }
+      }
+    },
+    "AI 피드백이 이 언어로 작성됩니다.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI feedback will be written in this language."
+          }
+        }
+      }
+    },
+    "Already have an account? Sign In": {},
+    "Analyzing handwriting...": {},
+    "Cancel": {},
+    "Continue with Google": {},
+    "Create": {},
+    "Delete": {},
+    "Don't have an account? Sign Up": {},
+    "Done": {},
+    "e.g. Japanese, Physics, World History": {},
+    "e.g. Korean, English, 日本語": {},
+    "Edit": {},
+    "Edit Note": {},
+    "Email": {},
+    "Feedback Language": {},
+    "Handwriting-based language learning": {},
+    "Loading...": {},
+    "New Note": {},
+    "Notes": {},
+    "or": {},
+    "p.%lld": {},
+    "p.%lld 가이드": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p.%lld guide"
+          }
+        }
+      }
+    },
+    "Password": {},
+    "Pro": {},
+    "Pro 구독하기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscribe to Pro"
+          }
+        }
+      }
+    },
+    "Save": {},
+    "ScatchLM": {},
+    "ScatchLM Pro": {},
+    "Search notes": {},
+    "Settings": {},
+    "Sign In": {},
+    "Sign in with Apple": {},
+    "Sign Out": {},
+    "Sign Up": {},
+    "Subject": {},
+    "Textbook": {},
+    "Textbook (optional)": {},
+    "Title": {},
+    "Untitled note": {},
+    "Upload new PDF": {},
+    "Uploading...": {},
+    "가이드": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guide"
+          }
+        }
+      }
+    },
+    "가이드를 불러올 수 없습니다.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the guide."
+          }
+        }
+      }
+    },
+    "가입에 사용한 이메일로 6자리 재설정 코드를 보내드려요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We'll send a 6-digit reset code to the email you signed up with."
+          }
+        }
+      }
+    },
+    "개인정보 처리방침": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
+          }
+        }
+      }
+    },
+    "검색 결과가 없어요": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No results"
+          }
+        }
+      }
+    },
+    "계정 삭제": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account"
+          }
+        }
+      }
+    },
+    "계정과 모든 데이터(노트·피드백·교재)가 영구히 삭제됩니다. 되돌릴 수 없어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your account and all data (notes, feedback, textbooks) will be permanently deleted. This can't be undone."
+          }
+        }
+      }
+    },
+    "계정과 모든 데이터가 영구히 삭제됩니다. 이 작업은 되돌릴 수 없어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your account and all data will be permanently deleted. This action can't be undone."
+          }
+        }
+      }
+    },
+    "계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't delete your account. Please try again in a moment."
+          }
+        }
+      }
+    },
+    "계정을 삭제할까요?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account?"
+          }
+        }
+      }
+    },
+    "구독": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription"
+          }
+        }
+      }
+    },
+    "구독 검증에 실패했어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription verification failed."
+          }
+        }
+      }
+    },
+    "구독 관리": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage subscription"
+          }
+        }
+      }
+    },
+    "구독은 월 단위로 자동 갱신되며, 현재 기간 종료 24시간 이전에 해지하지 않으면 갱신됩니다. 구매 후 Apple ID 설정에서 관리·해지할 수 있어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your subscription renews monthly and will renew unless you cancel at least 24 hours before the end of the current period. After purchase, you can manage or cancel it anytime in your Apple ID settings."
+          }
+        }
+      }
+    },
+    "구독이 복원되었어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your subscription has been restored."
+          }
+        }
+      }
+    },
+    "구독하기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscribe"
+          }
+        }
+      }
+    },
+    "구매 복원": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore purchases"
+          }
+        }
+      }
+    },
+    "구매 승인 대기 중이에요. 승인되면 자동으로 적용돼요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your purchase is awaiting approval. It will be applied automatically once approved."
+          }
+        }
+      }
+    },
+    "기타": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        }
+      }
+    },
+    "너무 김": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too long"
+          }
+        }
+      }
+    },
+    "너무 짧음": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too short"
+          }
+        }
+      }
+    },
+    "넉넉한 일일 AI 피드백 한도": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A generous daily AI feedback limit"
+          }
+        }
+      }
+    },
+    "다른 검색어를 입력해 보세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try a different search term."
+          }
+        }
+      }
+    },
+    "닫기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        }
+      }
+    },
+    "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't get a response. Please try again in a moment."
+          }
+        }
+      }
+    },
+    "대화": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        }
+      }
+    },
+    "도움 안 됨": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not helpful"
+          }
+        }
+      }
+    },
+    "동기화": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync"
+          }
+        }
+      }
+    },
+    "되돌리기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo"
+          }
+        }
+      }
+    },
+    "로그인이 만료되었어요. 다시 로그인해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your session has expired. Please sign in again."
+          }
+        }
+      }
+    },
+    "로그인이 필요해요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You need to sign in."
+          }
+        }
+      }
+    },
+    "메시지를 저장하지 못했어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the message."
+          }
+        }
+      }
+    },
+    "목차": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contents"
+          }
+        }
+      }
+    },
+    "무료": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free"
+          }
+        }
+      }
+    },
+    "버전": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        }
+      }
+    },
+    "복원 중…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring…"
+          }
+        }
+      }
+    },
+    "복원할 구독을 찾지 못했어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No subscription to restore was found."
+          }
+        }
+      }
+    },
+    "비밀번호 변경": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change password"
+          }
+        }
+      }
+    },
+    "비밀번호 재설정": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset password"
+          }
+        }
+      }
+    },
+    "비밀번호를 잊으셨나요?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forgot your password?"
+          }
+        }
+      }
+    },
+    "사실 오류": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factual error"
+          }
+        }
+      }
+    },
+    "사유 (복수 선택)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasons (select all that apply)"
+          }
+        }
+      }
+    },
+    "삭제 중…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting…"
+          }
+        }
+      }
+    },
+    "상품을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the product. Please try again in a moment."
+          }
+        }
+      }
+    },
+    "새 비밀번호 (6자 이상)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New password (6+ characters)"
+          }
+        }
+      }
+    },
+    "서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A temporary server problem occurred. Please try again in a moment."
+          }
+        }
+      }
+    },
+    "손글씨 인식 · 교재 기반 RAG 채팅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handwriting recognition · textbook-based RAG chat"
+          }
+        }
+      }
+    },
+    "수식 렌더링": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Math rendering"
+          }
+        }
+      }
+    },
+    "수식 보기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show math"
+          }
+        }
+      }
+    },
+    "수식 안 보기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide math"
+          }
+        }
+      }
+    },
+    "스크랩": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin"
+          }
+        }
+      }
+    },
+    "아직 노트가 없어요": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No notes yet"
+          }
+        }
+      }
+    },
+    "알림": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notice"
+          }
+        }
+      }
+    },
+    "약관 및 정책": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terms & Policies"
+          }
+        }
+      }
+    },
+    "어조 부적절": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inappropriate tone"
+          }
+        }
+      }
+    },
+    "언어 오류": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language error"
+          }
+        }
+      }
+    },
+    "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You've used all of today's free quota. Upgrade to Pro to get more feedback."
+          }
+        }
+      }
+    },
+    "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You've used all of today's quota. Please try again tomorrow."
+          }
+        }
+      }
+    },
+    "오른쪽 위 + 버튼을 눌러 첫 노트를 만들어 보세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the + button in the top right to create your first note."
+          }
+        }
+      }
+    },
+    "요약": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary"
+          }
+        }
+      }
+    },
+    "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't process your request. Please try again in a moment."
+          }
+        }
+      }
+    },
+    "요청한 항목을 찾을 수 없어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The requested item couldn't be found."
+          }
+        }
+      }
+    },
+    "월 자동 갱신 · 언제든 해지": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-renews monthly · cancel anytime"
+          }
+        }
+      }
+    },
+    "이 영역은 피드백이 완료됐습니다. 되돌리려면 카드의 ↩︎를 누르세요": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback is complete for this area. Tap ↩︎ on the card to undo."
+          }
+        }
+      }
+    },
+    "이 작업을 수행할 권한이 없어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You don't have permission to do this."
+          }
+        }
+      }
+    },
+    "이 피드백을 되돌리시겠습니까?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo this feedback?"
+          }
+        }
+      }
+    },
+    "이용약관": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terms of Service"
+          }
+        }
+      }
+    },
+    "자동": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        }
+      }
+    },
+    "자동: 수식이 있으면 KaTeX로 렌더. 수식 안 보기는 가볍게 텍스트만 표시합니다.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto: renders with KaTeX when math is present. Hide math shows text only, more lightly."
+          }
+        }
+      }
+    },
+    "자세히": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        }
+      }
+    },
+    "재설정 코드 받기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get reset code"
+          }
+        }
+      }
+    },
+    "제출": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit"
+          }
+        }
+      }
+    },
+    "질문을 입력하세요...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter your question..."
+          }
+        }
+      }
+    },
+    "질문하기...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a question..."
+          }
+        }
+      }
+    },
+    "챕터 가이드": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chapter guide"
+          }
+        }
+      }
+    },
+    "챕터 가이드를 불러올 수 없습니다.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the chapter guide."
+          }
+        }
+      }
+    },
+    "취소": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "카드가 사라지고 해당 영역에 다시 필기할 수 있게 됩니다. 필기 자체는 남습니다.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The card disappears and you can write in that area again. Your handwriting itself stays."
+          }
+        }
+      }
+    },
+    "코드 다시 받기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resend code"
+          }
+        }
+      }
+    },
+    "코드가 올바르지 않거나 만료됐어요. 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The code is incorrect or expired. Please try again."
+          }
+        }
+      }
+    },
+    "코드를 보냈어요. 이메일을 확인해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code sent. Please check your email."
+          }
+        }
+      }
+    },
+    "코멘트 (선택)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment (optional)"
+          }
+        }
+      }
+    },
+    "파일이 너무 커요. 더 작은 파일을 사용해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is too large. Please use a smaller file."
+          }
+        }
+      }
+    },
+    "페이지": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page"
+          }
+        }
+      }
+    },
+    "평가": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rating"
+          }
+        }
+      }
+    },
+    "피드백 대화": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback chat"
+          }
+        }
+      }
+    },
+    "피드백 평가": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate feedback"
+          }
+        }
+      }
+    },
+    "피드백을 받지 못했어요. 잠시 후 다시 시도해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't get feedback. Please try again in a moment."
+          }
+        }
+      }
+    },
+    "피드백을 삭제하지 못했어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't delete the feedback."
+          }
+        }
+      }
+    },
+    "피드백을 저장하지 못했어요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the feedback."
+          }
+        }
+      }
+    },
+    "필기를 저장하지 못했어요. 네트워크/저장 공간을 확인해 주세요.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save your handwriting. Check your network and storage."
+          }
+        }
+      }
+    },
+    "현재 플랜": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current plan"
+          }
+        }
+      }
+    },
+    "확인": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

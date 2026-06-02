@@ -342,9 +342,11 @@ async def feedback_chat(
     # 시스템 프롬프트 구성
     subject_clause = f" {req.subject}" if req.subject else " their material"
     system_parts = [
-        f"You are a study tutor helping a student learn{subject_clause}, often alongside their textbook. "
+        f"You are a study tutor helping the user learn{subject_clause}, often alongside their textbook. "
         "If the subject is a language, help with translation, grammar, and vocabulary; "
-        "for other subjects, focus on concepts, reasoning, and terminology.",
+        "for other subjects, focus on concepts, reasoning, and terminology. "
+        "ADDRESS THE USER DIRECTLY in the second person; do NOT refer to them with a "
+        "third-person label such as \"the student\"/\"학생\".",
         f"Respond in {req.response_language}. Use markdown formatting freely. "
         "For math, use LaTeX with dollar delimiters ONLY: $...$ for inline math, "
         "and $$...$$ on their own lines for display math (matrices, fractions, aligned equations). "
@@ -353,7 +355,7 @@ async def feedback_chat(
 
     if textbook_context:
         system_parts.append(
-            "\nTEXTBOOK REFERENCES (from the student's textbook):\n"
+            "\nTEXTBOOK REFERENCES (from the user's textbook):\n"
             + textbook_context
             + "\n\nRULES:\n"
             "1. When your answer is based on the textbook references above, cite the page number inline: [p.33]\n"
@@ -361,7 +363,7 @@ async def feedback_chat(
             "3. Always prefer textbook content over general knowledge when both are available.\n"
             "4. Quote relevant textbook passages directly when helpful.\n"
             "5. If the references don't contain relevant information for the question, say so and provide general knowledge with the 📖 marker.\n"
-            "6. If the student asks about content from a DIFFERENT chapter than what's provided, tell them: "
+            "6. If the user asks about content from a DIFFERENT chapter than what's provided, tell them: "
             "\"해당 내용은 현재 보고 계신 챕터에 없습니다. 관련 챕터로 이동한 후 다시 질문해 주세요.\" "
             "and suggest which chapter/page they should navigate to if you can infer it."
         )

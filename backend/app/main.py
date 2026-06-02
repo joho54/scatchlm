@@ -1,7 +1,9 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -41,6 +43,28 @@ app.include_router(devlog.router)
 app.include_router(sync.router)
 app.include_router(account.router)
 app.include_router(iap.router)
+
+
+# 422(요청 검증 실패) 가시화 — 기본 핸들러는 detail을 클라이언트로만 돌려주고 서버엔 안 남긴다.
+# 미들웨어 access 로그도 status만 찍어 "무엇이 왜 거부됐는지"가 영영 기록되지 않았다.
+# 어느 필드(errors)·어느 클라이언트(body/UA)가 거부됐는지 fe 로거에 남겨 디버깅 가능하게 한다.
+_fe_log = logging.getLogger("fe")
+
+
+@app.exception_handler(RequestValidationError)
+async def _log_validation_error(request: Request, exc: RequestValidationError):
+    try:
+        raw = (await request.body()).decode("utf-8", "replace")
+    except Exception:
+        raw = "<body read failed>"
+    _fe_log.warning(
+        "422 %s ua=%r errors=%s body=%s",
+        request.url.path,
+        request.headers.get("user-agent", ""),
+        exc.errors(),
+        raw[:2000],
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 @app.on_event("startup")

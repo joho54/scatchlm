@@ -1,0 +1,300 @@
+# IAP 구독 (Freemium): normal(무료) → pro 자동갱신 구독 Spec
+
+> **Status:** Draft
+> **Date:** 2026-06-02
+> **Author:** (auto-generated)
+> **Scope:** iOS StoreKit 2 인앱 구독 + 백엔드 영수증 검증/entitlement 동기화. 하루부터 freemium(무료 tier 유지 + pro 구독).
+
+---
+
+## 1. Background
+
+### 1.1 현재 상태 (substrate — 절반 깔려 있음)
+
+`launch-readiness-implementation-spec.md §1.3`에서 IAP는 "대형 독립 트랙, post-launch 별도 spec"으로 빠졌다. 이 문서가 그 spec이다. 단가 구조상(피드백 건당 Sonnet ~$0.02–0.05, `feedback_service.py:60-62`) **성공=비례 출혈**이라 구독이 종착지로 합의됨. 일회성 유료는 COGS 미스매치로 배제.
+
+이미 존재하는 기반:
+- **tier 메커니즘:** `quota.py`가 `app_metadata.tier`(`normal`|`pro`)로 일일 비용 한도를 분기 (`DAILY_COST_LIMIT_{NORMAL,PRO}_USD`). 이미 동작.
+- **tier 판정:** `auth.py:65-68` `get_tier(payload)` — **서명 검증된** JWT `app_metadata.tier`에서만 읽음.
+- **service-role 클라이언트:** `supabase_admin.py` — httpx로 Supabase Admin REST 호출(현재 `delete_auth_user`만). `app_metadata` 설정 메서드만 추가하면 됨.
+- **라우터 등록 패턴:** `main.py:12,37-42`.
+
+없는 것(이 스펙의 작업):
+- iOS StoreKit 2 구매/복원 플로우 (앱에 StoreKit 코드 0건 — grep 확인).
+- 백엔드 Apple JWS 검증 + entitlement 영속 + tier 설정.
+- Apple ASSN v2 웹훅(갱신·만료·환불 → tier 동기화).
+
+### 1.2 핵심 아키텍처 결정 (전제 — §6에서 코드 근거)
+
+**(1) tier는 JWT에 캐시된다 → flip은 eventually-consistent.**
+quota가 `app_metadata.tier`를 **서명된 JWT**에서 읽으므로(`auth.py:67`), 백엔드가 Supabase `app_metadata.tier`를 바꿔도 **유저의 현재 토큰이 만료/refresh되기 전엔 반영 안 됨**.
+- 구매 직후: 백엔드 검증 성공 → iOS가 **즉시 `refreshSession()`** 호출해야 새 JWT(tier=pro)를 받음.
+- 만료/환불: 웹훅이 tier=normal로 내려도 유저 JWT는 만료(Supabase 기본 ~1h)까지 pro로 남음 → **최대 토큰 TTL만큼 lag**. 허용(§7).
+
+**(2) 유저 매핑은 `appAccountToken`으로.**
+StoreKit 구매 시 `Product.PurchaseOption.appAccountToken(<Supabase user UUID>)`를 심는다. Apple 서명 트랜잭션(JWS)과 ASSN 웹훅 payload 모두 이 토큰을 포함 → 백엔드가 **결제↔Supabase 유저**를 신뢰성 있게 매핑(서명 검증된 값이라 위조 불가).
+
+**(3) entitlement 영속(table) — 백엔드가 source of truth.**
+JWT tier는 *enforcement* 캐시일 뿐. 누락된 웹훅 복구·앱 시작 시 재동기화·감사·환불 추적을 위해 백엔드에 `iap_entitlements` 테이블을 둔다(§4.3). tier 설정은 항상 이 테이블 → `app_metadata` 순으로 반영.
+
+### 1.3 Out of Scope
+
+| 항목 | 이유 |
+|---|---|
+| 연간/다단계 플랜, 무료체험(intro offer), 프로모 코드 | 단일 월 구독으로 시작. 가격 데이터 후 확장 |
+| Android/웹/Stripe 결제 | iOS 전용 출시. 디지털 구독은 Apple IAP 강제 |
+| Family Sharing, 업/다운그레이드 proration | 단일 tier라 전환 없음 |
+| grandfathering/가격 인상 정책 | 출시 후 |
+| 서버측 App Store Server API 정기 reconciliation 잡(cron) | MVP는 앱 시작 시 + 웹훅 동기화. 정기 잡은 fast-follow |
+
+---
+
+## 2. 시스템 도식 (구매 → tier 반영)
+
+```
+iOS (StoreKit 2)                         Backend                          Apple
+────────────────                         ───────                          ─────
+SettingsSheet "Pro 구독"
+   │ Product.purchase(
+   │   appAccountToken: <supabase uid>) ──────────────────────────────────> App Store
+   │ <─ Transaction(jwsRepresentation) ──────────────────────────────────── (signed)
+   │
+   ├─[verify]─> POST /api/iap/verify ──> JWS 서명검증(Apple root PKI)
+   │            { signed_transaction }    productId·expiresDate·appAccountToken 추출
+   │                                      → iap_entitlements upsert
+   │                                      → supabase app_metadata.tier="pro"
+   │ <─ 200 { tier:"pro", expires_at } ──┘
+   │
+   └─[refresh]─> AuthService.refreshSession()  ← 새 JWT(tier=pro) 발급
+                    │
+   이후 POST /api/feedback ─> quota.check_daily_quota(tier="pro")  ← pro 한도 적용
+
+                              POST /api/iap/notifications <─ ASSN v2 (갱신/만료/환불)
+                                 JWS 검증 → appAccountToken→user → tier 동기화
+```
+
+---
+
+## 3. Backend API Inventory & Contracts
+
+### 3.1 엔드포인트 목록
+
+| Method | Path | 설명 | 상태 | 계약 |
+|---|---|---|---|---|
+| POST | `/api/iap/verify` | 구매 트랜잭션 검증 → tier=pro 설정 | **신규** | §3.2-a |
+| POST | `/api/iap/notifications` | Apple ASSN v2 웹훅(갱신/만료/환불) | **신규** | §3.2-b |
+| GET | `/api/iap/status` | 현재 entitlement 조회(복원·재동기화) | **신규** | §3.2-c |
+| POST | `/api/feedback`, `/chat` | tier별 quota — **변경 없음**(이미 tier 분기) | 변경없음 | — |
+
+### 3.2 신규 엔드포인트 계약 (동결)
+
+#### 3.2-a POST /api/iap/verify  *(Track A)*
+- **Request:**
+  - header: `Authorization: Bearer <jwt>` (필수)
+  - body: `{ "signed_transaction": string (StoreKit2 Transaction.jwsRepresentation, 필수) }`
+- **동작:** JWS를 Apple root PKI로 **서명 검증** → payload에서 `bundleId`·`productId`·`appAccountToken`·`expiresDate`·`environment` 추출. 검증 통과 + `bundleId==com.joho54.scatchlm` + `appAccountToken==현재 user_id` 확인 → `iap_entitlements` upsert → 활성 구독이면 `app_metadata.tier="pro"`.
+- **Response 200:**
+  ```json
+  { "tier": "pro", "product_id": "com.joho54.scatchlm.pro.monthly",
+    "expires_at": "2026-07-02T10:00:00+00:00", "environment": "Sandbox" }
+  ```
+  (`tier`: `"pro"|"normal"`, `product_id`: string|null, `expires_at`: ISO8601|null, `environment`: `"Production"|"Sandbox"`)
+- **Error:**
+  - `401` — JWT 무효/만료.
+  - `400` — JWS 서명 검증 실패 / bundleId 불일치 / 만료된 트랜잭션. `{"detail":"invalid transaction","code":"iap_invalid"}`
+  - `409` — `appAccountToken != user_id` (타 계정 트랜잭션). `{"detail":"transaction belongs to another account","code":"iap_account_mismatch"}`
+  - `502` — Apple/Supabase 호출 실패. `{"detail":"verification upstream failed"}`
+- **빈/엣지:** 만료/환불된 트랜잭션이면 200 + `tier:"normal"`, `expires_at` 과거값. iOS는 이 경우 pro 미반영.
+- **후속(iOS):** 200 & `tier=="pro"` → `AuthService.refreshSession()`로 새 JWT 수령(§4.2).
+- **모킹:** iOS 단위 테스트는 `URLProtocol` 스텁으로 200(pro)/400/409 케이스.
+
+#### 3.2-b POST /api/iap/notifications  *(Track A)*
+- **Request:** **유저 인증 없음**(Apple→서버). body: `{ "signedPayload": string (ASSN v2 JWS, 필수) }`.
+- **동작:** `signedPayload` JWS를 Apple root PKI로 서명 검증 → `notificationType`(`SUBSCRIBED`|`DID_RENEW`|`DID_CHANGE_RENEWAL_STATUS`|`EXPIRED`|`DID_FAIL_TO_RENEW`|`GRACE_PERIOD_EXPIRED`|`REFUND`|`REVOKE` 등) + 트랜잭션의 `appAccountToken`·`expiresDate` 추출 → 유저 매핑 → `iap_entitlements` 갱신 → 활성/비활성에 따라 `app_metadata.tier` 동기화.
+- **인증/보안:** 유저 JWT 없음. 신뢰는 **오직 JWS 서명 검증**으로. 검증 실패 시 400. 서명 검증 없는 본문은 절대 신뢰 금지.
+- **Response 200:** `{ "received": true }` (빠르게 200 반환 — Apple은 non-2xx 시 재시도. 처리 실패해도 가능하면 200 + 비동기 로깅하되, 검증 실패만 400).
+- **Error:** `400` — JWS 검증 실패. (그 외는 200으로 받고 내부 로깅 — 재시도 폭주 방지)
+- **멱등성:** 같은 notification UUID/트랜잭션 재수신 시 동일 결과(upsert). `notificationUUID` 중복 무시.
+- **환경:** Apple은 Production/Sandbox용 **별도 웹훅 URL**을 호출. 같은 엔드포인트가 payload의 `environment`로 분기.
+
+#### 3.2-c GET /api/iap/status  *(Track A)*
+- **Request:** header `Authorization: Bearer <jwt>`.
+- **동작:** 현재 user_id의 `iap_entitlements` 최신 상태 반환(앱 시작/복원 시 재동기화용). 필요 시 `app_metadata.tier` 재설정(웹훅 누락 복구).
+- **Response 200:** `{ "tier": "pro"|"normal", "product_id": string|null, "expires_at": ISO8601|null, "active": boolean }`
+- **Error:** `401`. 미구매 유저는 200 + `{"tier":"normal","active":false,"product_id":null,"expires_at":null}`.
+
+---
+
+## 4. 구현 설계
+
+### 4.1 신규 백엔드 모듈
+
+- `app/services/apple_iap.py`(신규) — Apple JWS(서명 트랜잭션·ASSN payload) 서명 검증 + 디코드. **라이브러리 결정 필요(§6.x-1):** Apple 공식 `app-store-server-library`(python) 권장 vs 수동 x5c 체인 검증. bundleId·productId·appAccountToken·expiresDate·environment 추출.
+- `app/services/supabase_admin.py`(확장) — `set_app_metadata(user_id, patch: dict)` 추가. **read-modify-write 또는 merge**로 `role` 등 기존 키 보존(§6.x-3). `delete_auth_user`와 동일 httpx/service_key 패턴(`supabase_admin.py:32-54`).
+- `app/services/iap_service.py`(신규) — verify/webhook/status 공통 로직: 트랜잭션 → entitlement upsert → tier 동기화. `entitlements` 활성 판정(expires_date > now & not revoked).
+- `app/routers/iap.py`(신규) — 위 3개 엔드포인트. `main.py`에 `include_router(iap.router)`.
+- `app/models/iap.py`(신규) + alembic 마이그레이션 — §4.3.
+- `app/core/config.py`(확장) — `APPLE_BUNDLE_ID`, `APPLE_IAP_PRODUCT_ID_PRO_MONTHLY`, (선택) App Store Server API 키(`APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`) — reconciliation용. JWS-only로 시작 가능하면 키 불필요(§6.x-2).
+
+### 4.2 iOS 변경
+
+- `ScatchLM/Services/StoreKitService.swift`(신규) — StoreKit 2: `Product.products(for:)`, `purchase(options: [.appAccountToken(uid)])`, `Transaction.updates` 리스너, `Transaction.currentEntitlements`(복원), `AppStore.sync()`(restore 버튼). 구매·갱신 verify는 `POST /api/iap/verify` 호출 후 `AuthService.refreshSession()`.
+- `ScatchLM/Services/AuthService.swift`(확장) — `refreshSession()` 래퍼(supabase-swift `client.auth.refreshSession()`). 구매 검증 후 호출해 tier=pro JWT 즉시 반영.
+- `ScatchLM/Views/SettingsSheet.swift`(확장) — "Pro 구독" 섹션: 현재 tier 표시, 구독 버튼(가격은 StoreKit `Product.displayPrice`), 복원 버튼, 관리(앱스토어 구독 관리 링크). 기존 섹션 패턴(`SettingsSheet.swift:49-84`).
+- `ScatchLM/Views/PaywallView.swift`(신규, 선택) — quota 429 도달 시 업그레이드 CTA(F-4 429 처리와 연계, 기존 `APIClient` quotaExceeded).
+- `ScatchLM/Utilities/Config.swift`(확장) — `proMonthlyProductID = "com.joho54.scatchlm.pro.monthly"` (`Config.swift:23` bundleID 인접).
+- `ScatchLM/ScatchLM.entitlements` + `project.yml` — **In-App Purchase capability** 추가(`project.yml:45-48` entitlements에 applesignin 옆).
+
+### 4.3 데이터 모델 (신규 — alembic 마이그레이션 필요)
+
+`iap_entitlements` 테이블:
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `user_id` | text | Supabase uid (FK 없음 — auth는 Supabase 소관) |
+| `original_transaction_id` | text | Apple 구독 식별자(PK 후보) |
+| `product_id` | text | |
+| `status` | text | `active`\|`expired`\|`refunded`\|`revoked` |
+| `expires_at` | timestamp | nullable |
+| `environment` | text | `Production`\|`Sandbox` |
+| `last_notification_type` | text | nullable (감사) |
+| `updated_at` | timestamp | |
+
+- 키: `original_transaction_id` unique. 조회: `user_id`. 활성 판정: `status==active && expires_at > now`.
+- **마이그레이션 필요**(iOS GRDB는 무관 — 서버 전용).
+
+### 4.4 freemium 무료 tier (config — 코드 아님)
+
+quota는 이미 tier 분기를 강제하므로 코드 변경 없음. **출시 config 결정:**
+- `DAILY_COST_LIMIT_NORMAL_USD` = COGS 방어선(예: $0.20–0.30 ≈ 하루 5–10건). 0(무제한)이면 freemium 의미 없음 — **반드시 양수**.
+- `DAILY_COST_LIMIT_PRO_USD` = 넉넉(예: $5 ≈ 100–250건).
+- 구체값은 베타 `LLMUsage.cost_usd` 데이터로 보정(§6.x-5).
+
+---
+
+## 5. 구현 단계 (Tracks)
+
+### 5.1 의존성 그래프
+
+```
+계약 동결(§3) ─── 전 트랙 전제. 완료.
+       │
+       ├── Track A (BE: IAP 검증·웹훅·entitlement) ── 단일 BE 영역, 파일 공유라 내부 순차
+       │     A-1 모델+마이그레이션 ─→ A-2 apple_iap(JWS검증) ─→ A-3 supabase set_app_metadata
+       │       ─→ A-4 iap_service+라우터(verify/notifications/status)
+       │
+       ├── Track B (iOS: StoreKit 구매·복원·UI) ── 계약(§3.2-a/c)으로 독립, 스텁 개발 가능
+       │     B-1 StoreKitService ─→ B-2 refreshSession+verify 연동 ─→ B-3 SettingsSheet/Paywall UI
+       │
+       └── Track C (인프라/ASC) ── 설정, B에 product id 제공(스텁 가능)
+             C-1 ASC 구독상품·그룹·가격 · C-2 ASSN v2 웹훅 URL 등록(Prod+Sandbox) ·
+             C-3 샌드박스 테스터 · C-4 quota 무료/유료 한도 config(§4.4) · C-5 Caddy 경로(웹훅은 기존 BE 라우트라 추가 불필요, /api/iap/* 노출 확인)
+```
+
+### 5.2 트랙 간 의존성
+
+- **계약 동결로 A(BE) ↔ B(iOS) 진짜 병렬.** B는 §3.2-a/c 계약으로 `URLProtocol` 스텁 개발, 실제 검증은 A-4 완료 필요(통합).
+- **B 통합 테스트는 C-1(ASC 상품) 필요** — StoreKit `Product.products(for:)`가 실 상품 id를 ASC에서 받아옴. 단위/스텁은 블록 안 됨.
+- **A 웹훅 e2e는 C-2(웹훅 URL 등록) 필요.** 검증 로직 자체는 독립.
+- **A 내부는 순차** — `iap_service.py`·`supabase_admin.py`·`iap.py`를 공유하므로 한 트랙. verify와 webhook이 같은 검증/tier-set 로직 공유.
+- **G-2(prod 배포)** — launch-readiness Track G와 동일하게 BE 변경(A) + 신규 env + `iap_entitlements` 마이그레이션을 함께 배포.
+
+### 5.3 인원별 배분
+
+| 인원 | 추천 배분 |
+|---|---|
+| 1명 | C-1/C-4(설정) → A → B → C-2(웹훅) → 통합. (가격·상품 먼저 정해야 B의 StoreKit이 돈다) |
+| 2명 | **BE:** A + C-2/C-4. **iOS:** B + C-1/C-3(ASC·샌드박스). |
+| 3명+ | BE 단일 영역이라 A 분할 효용 낮음. 2명 + 1명은 ASC/QA/문서. |
+
+### Track A — BE: IAP 검증·웹훅·entitlement
+**의존:** 없음 (계약 §3.2 동결). **내부 순서:** A-1 → A-2 → A-3 → A-4 (파일 공유 순차).
+**작업량:** 큼. 가장 복잡: A-2 Apple JWS 서명 검증(PKI 체인) + A-4 웹훅 라이프사이클→tier 동기화(멱등·환경 분기).
+
+| ID | 파일 | 내용 |
+|---|---|---|
+| A-1 | `app/models/iap.py`(신규), alembic 마이그레이션 | `iap_entitlements` 테이블(§4.3) |
+| A-2 | `app/services/apple_iap.py`(신규), `core/config.py` | Apple JWS(트랜잭션·ASSN) 서명 검증·디코드. bundleId/productId/appAccountToken/expiresDate/environment 추출. 라이브러리 결정(§6.x-1) |
+| A-3 | `app/services/supabase_admin.py` | `set_app_metadata(user_id, patch)` — merge로 `role` 보존(§6.x-3). 기존 httpx 패턴 재사용 |
+| A-4 | `app/services/iap_service.py`(신규), `app/routers/iap.py`(신규), `main.py` | verify/notifications/status 3엔드포인트(§3.2). entitlement upsert → tier 동기화. appAccountToken→user 매핑. 멱등 |
+
+**검증:** 샌드박스 구매 → `/verify` 200(pro) → JWT refresh 후 `/feedback`이 pro 한도. ASSN `EXPIRED` 모의 payload → tier=normal. 위조 JWS → 400.
+
+### Track B — iOS: StoreKit 구매·복원·UI
+**의존:** 계약 §3.2-a/c. 통합은 A-4 + C-1.
+**내부 순서:** B-1 → B-2 → B-3.
+**작업량:** 큼. 가장 복잡: B-1 StoreKit 2 트랜잭션 리스너·복원·appAccountToken 결합 + 검증/refresh 타이밍.
+
+| ID | 파일 | 내용 |
+|---|---|---|
+| B-1 | `Services/StoreKitService.swift`(신규), `Config.swift` | `Product.products(for:)`, `purchase(options:[.appAccountToken(uid)])`, `Transaction.updates` 리스너, `currentEntitlements`(복원), `AppStore.sync()` |
+| B-2 | `Services/StoreKitService.swift`, `AuthService.swift`, `APIClient.swift` | 구매·갱신 트랜잭션 → `POST /api/iap/verify` → 200/pro면 `refreshSession()`. 앱 시작 시 `GET /api/iap/status` 재동기화 |
+| B-3 | `Views/SettingsSheet.swift`, `Views/PaywallView.swift`(신규) | "Pro 구독" 섹션(가격·구독·복원·관리). quota 429(`APIError.quotaExceeded`) → Paywall CTA |
+
+**검증:** 샌드박스 구매 → 즉시 pro 반영(refresh). 앱 재설치 후 복원으로 pro 복귀. 429 시 paywall 노출.
+
+### Track C — 인프라 / App Store Connect
+**의존:** C-1 product id → B(스텁 가능). C-2 → A 웹훅 e2e.
+**내부 순서:** 대체로 병렬.
+**작업량:** 중간. 가장 복잡: C-2 ASSN v2 URL 등록 + 샌드박스/프로덕션 환경 분리 검증.
+
+| ID | 대상 | 내용 |
+|---|---|---|
+| C-1 | App Store Connect | 자동갱신 구독 그룹 + `com.joho54.scatchlm.pro.monthly` 상품·가격·로컬라이즈·심사 스크린샷 |
+| C-2 | ASC + 백엔드 | ASSN v2 웹훅 URL(`https://scatchlm.duckdns.org/api/iap/notifications`) 등록(Production·Sandbox 각각) |
+| C-3 | ASC | 샌드박스 테스터 계정, StoreKit Configuration(로컬 테스트용 .storekit) |
+| C-4 | `.env.prod` | `DAILY_COST_LIMIT_NORMAL_USD`(양수, COGS 방어), `_PRO_USD`, `APPLE_BUNDLE_ID`, product id, (선택) App Store Server API 키 |
+| C-5 | 배포 | A의 BE 변경 + `iap_entitlements` 마이그레이션 함께 배포(launch-readiness G-2와 동일 흐름) |
+
+**검증:** ASC 상품이 StoreKit에 노출, 웹훅이 백엔드에 도달(서명검증 통과), prod `/api/iap/*` 200.
+
+---
+
+## 6. 확인 완료 사항 (코드 검증)
+
+1. **tier는 검증된 JWT에서만** — `auth.py:65-68` `get_tier`가 서명 검증된 `app_metadata.tier`를 읽음(`verify_signature:False` 경로 미사용). → tier flip은 **token refresh 필요**(eventually-consistent).
+2. **quota가 이미 tier 분기** — `quota.py` `_limit_for_tier`/`check_daily_quota`가 normal/pro 한도 적용. **freemium은 config만**(코드 변경 없음).
+3. **service-role 클라이언트 존재** — `supabase_admin.py:32-54` httpx + `SUPABASE_SERVICE_ROLE_KEY`로 Admin REST. `app_metadata` 설정 메서드만 추가하면 됨(`PUT /auth/v1/admin/users/{id}` 추정 — §6.x-3 확인).
+4. **라우터 등록 패턴** — `main.py:12,37-42` `include_router`. iap 라우터 동일 추가.
+5. **StoreKit 부재** — iOS `grep StoreKit/Transaction/Product` 0건. 전부 신규.
+6. **세션 갱신 가능** — `AuthService`가 supabase-swift `client`(`AuthService.swift:14`) 보유. `refreshSession()` 래퍼만 추가(supabase-swift 2.x 지원 — §6.x-4 시그니처 확인).
+7. **entitlements 파일·capability** — `project.yml:45-48` entitlements(`applesignin`) 존재. In-App Purchase capability 추가 지점 확보.
+8. **설정 UI 패턴** — `SettingsSheet.swift:49-84` Section 패턴. "Pro 구독" 섹션 추가 위치 명확.
+9. **단가** — `feedback_service.py:60-62` Sonnet $3/$15, Haiku $0.25/$1.25. freemium 무료 한도 산정 근거.
+
+### 6.x 미확인 항목
+
+| # | 항목 | 확인 방법 |
+|---|---|---|
+| 1 | Apple JWS 검증 라이브러리(python `app-store-server-library` vs 수동 x5c 체인) | 두 방식 PoC. 공식 라이브러리 우선 평가(유지보수·root cert 갱신) |
+| 2 | JWS-only 검증으로 충분한가 vs App Store Server API 키(reconciliation) 필요 | 출시 MVP는 JWS+웹훅으로 시작 가능 여부 검증. 정기 reconcile은 fast-follow |
+| 3 | Supabase Admin `app_metadata` 갱신 엔드포인트·**merge vs replace** 동작 | `PUT /auth/v1/admin/users/{id}` body `{"app_metadata":{...}}` 실호출 — `role` 보존되는지(merge) 확인. 미보존이면 read-modify-write |
+| 4 | supabase-swift `refreshSession()` 정확한 API·강제 갱신 동작 | supabase-swift 2.x 문서/소스 확인 |
+| 5 | 무료/유료 일일 한도 구체 금액(USD) | 베타 `LLMUsage.cost_usd` 분포로 역산. 무료는 COGS 방어선 양수 |
+| 6 | `appAccountToken`(UUID) ↔ Supabase user_id(소문자 UUID) 포맷 일치 | `AuthService.syncUserId`(소문자) 사용. StoreKit appAccountToken은 UUID 타입 — 변환 일관성 확인 |
+| 7 | ASSN v2 알림 타입별 tier 매핑 표 완성도(GRACE_PERIOD, REVOKE, REFUND 등) | Apple ASSN v2 스키마로 타입→active/inactive 매핑표 작성 |
+| 8 | Apple 심사 — paywall/복원 필수 요건, "구매 없이도 핵심 사용 가능" 여부 | freemium라 무료 tier가 사용 가능 → 일반적으로 OK. 복원 버튼·약관·가격 명시 필수 |
+
+---
+
+## 7. Risk
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| JWT tier lag — 만료/환불 후에도 토큰 TTL(~1h)간 pro 유지 | 중 | 허용(짧음). 토큰 TTL 단축 검토. `GET /status`로 앱 시작 시 재동기화 |
+| ASSN 웹훅 누락(Apple 재시도에도 영구 실패) | 중 | `iap_entitlements` source of truth + 앱 시작 `/status` 재동기화. fast-follow로 정기 reconcile 잡 |
+| 구매 후 verify/refresh 실패 → 결제했는데 normal | 높 | `Transaction.updates` 리스너가 미검증 트랜잭션 재시도(unfinished). verify 성공까지 `finish()` 보류 |
+| Apple JWS 검증 오구현(위조 통과) | 높 | 공식 라이브러리 우선(§6.x-1). bundleId·환경·서명 전부 검증. 웹훅은 서명만으로 신뢰 |
+| `set_app_metadata`가 `role` 등 기존 키 clobber | 높 | merge 확인(§6.x-3). 불확실하면 read-modify-write 강제 |
+| service-role 키 유출 | 높 | `.env.prod`만, 응답·로그 노출 금지(기존 정책) |
+| 무료 한도 0/미설정으로 출시 → freemium 붕괴(무제한 무료) | 높 | C-4에서 `DAILY_COST_LIMIT_NORMAL_USD` 양수 강제. 배포 체크리스트 |
+| 샌드박스/프로덕션 환경 혼선 | 중 | payload `environment`로 분기. 웹훅 URL Prod/Sandbox 각각 등록(C-2) |
+| 환불 abuse(환불 후 토큰 만료까지 사용) | 낮 | TTL 짧음 + REFUND 웹훅 즉시 반영. 손실 미미 |
+| 출시 지연(StoreKit 라이프사이클 구현 분량) | 중 | happy-path 먼저, 라이프사이클(갱신/만료/환불 동기화) 철저. 무료 tier는 이미 동작하므로 구독 미완이어도 무료 출시 fallback 가능 |
+
+---
+
+## 8. 출시 게이트 (요약)
+
+**구독 출시 필수:** A-1~A-4(BE 검증·웹훅·entitlement) · B-1~B-3(StoreKit·UI) · C-1(ASC 상품) · C-2(웹훅 URL) · C-4(무료 한도 양수 + env).
+**fast-follow 허용:** 정기 reconciliation 잡 · App Store Server API 키 기반 보강 · PaywallView 고도화 · 연간/체험 플랜.
+**fallback:** 구독 트랙이 출시를 너무 늦추면, **무료 tier(낮은 quota)만으로 먼저 출시**하고 구독을 fast-follow — freemium 무료 측은 이미 동작(quota config만). 단 "무료→유료 배신감"(§사용자 논의)은 이 fallback의 비용.

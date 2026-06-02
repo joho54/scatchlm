@@ -524,16 +524,16 @@ struct PdfViewerView: View {
     private func chapterGuideText(_ guide: ChapterGuide) -> String {
         var parts: [String] = ["## \(guide.title)", guide.topic]
         if !guide.keyConcepts.isEmpty {
-            parts.append("**📌 핵심 개념**\n" + guide.keyConcepts.map { "- \($0)" }.joined(separator: "\n"))
+            parts.append("**" + String(localized: "📌 핵심 개념") + "**\n" + guide.keyConcepts.map { "- \($0)" }.joined(separator: "\n"))
         }
         if !guide.studyOrder.isEmpty {
-            parts.append("**📋 학습 순서**\n" + guide.studyOrder.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
+            parts.append("**" + String(localized: "📋 학습 순서") + "**\n" + guide.studyOrder.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
         }
         if !guide.commonMistakes.isEmpty {
-            parts.append("**⚠️ 자주 하는 실수**\n" + guide.commonMistakes.map { "- \($0)" }.joined(separator: "\n"))
+            parts.append("**" + String(localized: "⚠️ 자주 하는 실수") + "**\n" + guide.commonMistakes.map { "- \($0)" }.joined(separator: "\n"))
         }
         if !guide.summary.isEmpty {
-            parts.append("**요약**\n" + guide.summary)
+            parts.append("**" + String(localized: "요약") + "**\n" + guide.summary)
         }
         return parts.joined(separator: "\n\n")
     }

@@ -442,7 +442,7 @@
 				CODE_SIGN_ENTITLEMENTS = ScatchLM/ScatchLM.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z5U7D89KP7;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -593,7 +593,7 @@
 				CODE_SIGN_ENTITLEMENTS = ScatchLM/ScatchLM.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z5U7D89KP7;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

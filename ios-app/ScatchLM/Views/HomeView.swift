@@ -63,6 +63,7 @@ struct HomeView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    SyncStatusIndicator()
                 }
             }
         }

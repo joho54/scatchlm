@@ -18,6 +18,11 @@ enum BakedMarkdownHTML {
 
     static func make(content: String, fontSize: CGFloat) -> String? {
         guard let template else { return nil }
+        return bake(template: template, content: content, fontSize: fontSize)
+    }
+
+    /// 순수 치환 — 번들 의존 없이 테스트 가능. content는 base64로 인코딩해 HTML 이스케이프 이슈 회피.
+    static func bake(template: String, content: String, fontSize: CGFloat) -> String {
         let b64 = Data(content.utf8).base64EncodedString()
         return template
             .replacingOccurrences(of: "__CONTENT_B64__", with: b64)

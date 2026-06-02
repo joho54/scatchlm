@@ -1,0 +1,43 @@
+import XCTest
+@testable import ScatchLM
+
+/// HTML bake 치환 로직 회귀 테스트. WKWebView 렌더는 UI 레벨이라 제외하고,
+/// 순수 함수인 `BakedMarkdownHTML.bake`만 검증한다.
+final class BakedMarkdownHTMLTests: XCTestCase {
+
+    private let template = "<body style=\"font-size:__FONT_SIZE__px\"><script>var c=\"__CONTENT_B64__\";</script></body>"
+
+    func testFontSizeInjectedAsInteger() {
+        let html = BakedMarkdownHTML.bake(template: template, content: "hi", fontSize: 14)
+        XCTAssertTrue(html.contains("font-size:14px"))
+        XCTAssertFalse(html.contains("__FONT_SIZE__"))
+    }
+
+    func testContentBase64RoundTrips() {
+        let content = "수식: $E = mc^2$ \n**bold** `code` \"quote\""
+        let html = BakedMarkdownHTML.bake(template: template, content: content, fontSize: 14)
+
+        // 플레이스홀더가 모두 치환됐는지
+        XCTAssertFalse(html.contains("__CONTENT_B64__"))
+
+        // 삽입된 base64를 추출해 원문으로 복원되는지
+        let b64 = Data(content.utf8).base64EncodedString()
+        XCTAssertTrue(html.contains(b64))
+        let decoded = String(data: Data(base64Encoded: b64)!, encoding: .utf8)
+        XCTAssertEqual(decoded, content)
+    }
+
+    func testRawContentNotLeakedUnescaped() {
+        // base64로 들어가므로 LaTeX/따옴표/백슬래시가 HTML에 그대로 노출되면 안 됨
+        let content = "$\\frac{1}{2}$ </script>"
+        let html = BakedMarkdownHTML.bake(template: template, content: content, fontSize: 14)
+        XCTAssertFalse(html.contains("\\frac"))
+        XCTAssertFalse(html.contains("</script> "))
+    }
+
+    func testEmptyContentProducesValidSubstitution() {
+        let html = BakedMarkdownHTML.bake(template: template, content: "", fontSize: 18)
+        XCTAssertFalse(html.contains("__CONTENT_B64__"))
+        XCTAssertTrue(html.contains("font-size:18px"))
+    }
+}

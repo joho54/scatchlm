@@ -12,6 +12,7 @@
 		14C34B1E0B2CB242F8C0AF67 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639004ECF07091105D464672 /* SyncService.swift */; };
 		172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */; };
 		18AC9BB7343336EE101ACA63 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380787FC7AF195DA35EE153 /* APIClient.swift */; };
+		2CB209193FCAAD7BB4F35E3A /* BakedMarkdownHTMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */; };
 		2E4DE5B39114BE137C2444A3 /* ScatchLMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E694681F7B469459BF1C53F /* ScatchLMApp.swift */; };
 		3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1940235A9FDF08A1E9126 /* NoteView.swift */; };
 		355605C1914429CB5EBE47E1 /* DatabaseService+Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F87740E0CE96FF5A6E45BA6 /* DatabaseService+Sync.swift */; };
@@ -85,6 +86,7 @@
 		D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusIndicator.swift; sourceTree = "<group>"; };
 		E448211B4B38BBC9147A67F8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		E52A7F87E1D186E8DDE427CB /* LogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogService.swift; sourceTree = "<group>"; };
+		EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakedMarkdownHTMLTests.swift; sourceTree = "<group>"; };
 		F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackChatSheet.swift; sourceTree = "<group>"; };
 		F5997BF81BCD5D68E0CF767A /* FeedbackRatingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackRatingSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -137,6 +139,7 @@
 		3DDFCB91023A86B0414B6FB6 /* ScatchLMTests */ = {
 			isa = PBXGroup;
 			children = (
+				EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */,
 				7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */,
 				49741ADF8AF82F0E85EF90D6 /* PencilKitCanvasViewTests.swift */,
 				70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */,
@@ -321,6 +324,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CB209193FCAAD7BB4F35E3A /* BakedMarkdownHTMLTests.swift in Sources */,
 				7A1DE7B290F43F1D32235D42 /* DatabaseServiceTests.swift in Sources */,
 				7FD0731BAB0D61F38AE8A28E /* PencilKitCanvasViewTests.swift in Sources */,
 				596C6EE008171D393AA56B90 /* SyncServiceTests.swift in Sources */,

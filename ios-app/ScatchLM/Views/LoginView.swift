@@ -7,6 +7,7 @@ struct LoginView: View {
     @State private var isSignUp = false
     @State private var error: String?
     @State private var loading = false
+    @State private var showForgotPassword = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -57,6 +58,14 @@ struct LoginView: View {
             }
             .font(.footnote)
 
+            if !isSignUp {
+                Button("비밀번호를 잊으셨나요?") {
+                    showForgotPassword = true
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+
             HStack {
                 VStack { Divider() }
                 Text("or").font(.caption).foregroundStyle(.secondary)
@@ -91,6 +100,9 @@ struct LoginView: View {
             Spacer()
         }
         .padding()
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView(initialEmail: email)
+        }
     }
 
     private func handleAuth() async {

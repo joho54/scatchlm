@@ -175,11 +175,22 @@ ssh scatchlm                            # alias (HostName: scatchlm.duckdns.org,
 ```
 SSH 키: `~/.ssh/id_ed25519`. NCP pem(`/Users/johyeonho/scatchlm-secret/ssh-scatchlm.pem`)은 최초 root 비밀번호 복호화용으로만 사용.
 
-### 배포 흐름
-1. **로컬**: `docker build --platform linux/amd64 -t ghcr.io/joho54/scatchlm-app:latest backend/ && docker push ...`
-2. **VM**: `cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod pull && up -d`
+### 배포 흐름 — CI/CD 자동 (GitHub Actions)
 
-VM에는 빌드하지 않음 (디스크 10GB 절약). 설정 파일(`docker-compose.prod.yml`, `Caddyfile`, `init.sql`, `.env.prod`)은 `/opt/scatchlm/`에 위치.
+**`main`에 `backend/**` 변경을 푸시하면 자동 배포된다.** 수동 빌드/SSH 불필요.
+
+워크플로: `.github/workflows/deploy.yml` (트리거: `push` to `main` (`backend/**` 또는 워크플로 파일), 또는 수동 `workflow_dispatch`).
+1. **build-and-push**: `backend/` 이미지(linux/amd64) 빌드 → `ghcr.io/joho54/scatchlm-app:latest` + `:<sha12>` push (gha 캐시).
+2. **deploy** (VM `scatchlm.duckdns.org`, secret `NCP_SSH_KEY`):
+   - VM 설정 파일을 **repo 기준으로 scp 동기화**: `docker-compose.prod.yml`, `Caddyfile`, `static/`. (이미지가 아니라 볼륨 마운트라 git이 single source of truth.)
+   - `docker compose --env-file .env.prod pull app && up -d` → app은 새 이미지로 교체, Caddy는 설정 바뀌면 reload.
+   - 헬스체크: `/docs`, `/privacy`, `/terms` (최대 10회 재시도).
+
+**수동 개입이 필요한 두 가지 (CI가 안 함):**
+- **`.env.prod`(시크릿)**: scp 동기화에서 의도적으로 제외 — VM `/opt/scatchlm/.env.prod`에서 수동 관리. 새 env 추가 시 직접 넣고 `up -d`로 재생성.
+- **DB 마이그레이션(alembic)**: 워크플로가 자동 실행하지 **않음**. 모델 변경 배포 시 VM에서 수동: `ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T app alembic upgrade head'`
+
+긴급 수동 배포(워크플로 우회)가 필요하면: 로컬 `docker build --platform linux/amd64 -t ghcr.io/joho54/scatchlm-app:latest backend/ && docker push ...` → VM `pull && up -d`.
 
 ### 스토리지 추상화 (`app/services/storage.py`)
 - `STORAGE_BACKEND=local` (기본): `PDF_UPLOAD_DIR` 하위 파일 시스템

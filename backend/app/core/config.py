@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     # Supabase service-role 키 — Admin REST(auth 유저 삭제 등) 호출용. 절대 클라이언트 노출 금지.
     SUPABASE_SERVICE_ROLE_KEY: str = ""
     VOYAGE_API_KEY: str = ""
+    # PDF 업로드 시 Voyage 임베딩 인덱싱(청킹+임베딩) 수행 여부.
+    # 현재 RAG 검색 경로(feedback.py)는 PDF 텍스트 추출이 빈 경우에만 도달하는
+    # degenerate fallback이라 임베딩 산출물이 사실상 소비되지 않는다. 매 업로드마다
+    # 발생하는 Voyage 비용·지연을 없애기 위해 기본 비활성화. 되살리려면 true.
+    ENABLE_EMBEDDING: bool = False
     PDF_UPLOAD_DIR: str = "uploads/pdf"
     MAX_PDF_SIZE_MB: int = 50
     DEBUG: bool = False

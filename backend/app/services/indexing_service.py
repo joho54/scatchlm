@@ -2,6 +2,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.document import DocumentChunk
 from app.services.embedding_service import chunk_text_by_pages, embed_texts
 from app.services.pdf_service import _open_pdf
@@ -20,6 +21,12 @@ async def index_textbook(
     Returns:
         생성된 청크 수
     """
+    # 임베딩 인덱싱 비활성화 시 즉시 스킵 (Voyage 비용·지연 제거).
+    # RAG 검색 경로는 그대로 두되 소비할 청크가 없을 뿐이다. settings.ENABLE_EMBEDDING 참고.
+    if not settings.ENABLE_EMBEDDING:
+        log.info("Embedding indexing disabled (ENABLE_EMBEDDING=false), skip textbook %s", textbook_id)
+        return 0
+
     # PDF에서 페이지별 텍스트 추출
     doc = _open_pdf(server_path)
     pages = []

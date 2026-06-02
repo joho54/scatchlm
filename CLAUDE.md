@@ -1,6 +1,6 @@
 # ScatchLM
 
-펜 드로잉 기반 학습 보조 iPad 앱. Apple Pencil 손글씨를 Claude Vision API로 인식하고, AI 피드백을 제공한다. 외국어(고전어 포함)·전공 공부·기술 심화 등 범용 학습에 쓰인다 — 손으로 쓰며 정리하고 즉시 AI 피드백을 받는 학습 루프가 핵심이며, 교재 PDF를 연결하면 RAG로 그 교재 기준 피드백·채팅을 제공한다.
+펜 드로잉 기반 학습 보조 iPad 앱. Apple Pencil 손글씨를 Claude Vision API로 인식하고, AI 피드백을 제공한다. 외국어(고전어 포함)·전공 공부·기술 심화 등 범용 학습에 쓰인다 — 손으로 쓰며 정리하고 즉시 AI 피드백을 받는 학습 루프가 핵심이며, 교재 PDF를 연결하면 해당 페이지·챕터 텍스트를 컨텍스트로 주입해 그 교재 기준 피드백·채팅을 제공한다.
 
 ## 프로젝트 구조
 
@@ -117,8 +117,8 @@ migrator.registerMigration("v3_new_feature") { db in
 ## 주요 API 엔드포인트
 
 - `POST /api/feedback` — 캔버스 이미지 → Claude Vision → 피드백 (response_language 지원)
-- `POST /api/feedback/chat` — 피드백 후속 채팅 (RAG 지원, textbook_id로 교재 검색)
-- `POST /api/pdf/upload` — 교재 PDF 업로드 (TOC 추출, LLM 챕터 감지, 임베딩 인덱싱)
+- `POST /api/feedback/chat` — 피드백 후속 채팅 (current_page → 해당 챕터 전체 텍스트 컨텍스트 주입)
+- `POST /api/pdf/upload` — 교재 PDF 업로드 (TOC 추출, LLM 챕터 감지). 임베딩 인덱싱은 `ENABLE_EMBEDDING=false` 기본 비활성
 - `GET /api/pdf/{id}/file` — PDF 파일 서빙
 - `GET /api/pdf/{id}/chapters` — 챕터 목록
 - `GET /api/pdf/{id}/guide` — 페이지 학습 가이드 (lazy 캐싱)
@@ -126,12 +126,20 @@ migrator.registerMigration("v3_new_feature") { db in
 - `GET /api/pdf/textbooks` — 교재 목록
 - `POST /api/dev/log/batch` — 클라이언트 로그 수신
 
-## RAG 파이프라인
+## 교재 컨텍스트 주입
 
-1. **쿼리 리라이트**: Haiku로 사용자 질문을 검색 최적화 쿼리로 변환
-2. **임베딩 검색**: Voyage AI 임베딩 → pgvector 코사인 유사도 (top_k=5)
-3. **컨텍스트 주입**: 검색된 청크를 시스템 프롬프트에 포함
-4. **출처 표기**: `[p.33]` 인라인 출처, `📖 교재 외 참고:` 구분
+`/api/feedback`는 `textbook_id`가 있으면 다음 우선순위로 교재 텍스트를 LLM 컨텍스트에 주입한다 (`feedback.py`):
+
+1. **수동 페이지 범위**: `page_start`/`page_end`가 오면 해당 페이지 텍스트 (`extract_pdf_text`)
+2. **현재 챕터 전체**: `current_page`가 오면 그 페이지를 포함하는 가장 좁은 챕터의 전체 텍스트. iOS는 교재 연결 시 항상 `current_page`를 함께 보내므로 정상 흐름은 이 경로를 탄다.
+
+### Voyage 임베딩 RAG (현재 비활성)
+
+pgvector 기반 의미 검색(`retrieval_service.search_relevant_chunks`: Haiku 쿼리 리라이트 → Voyage 임베딩 → 코사인 유사도)이 구현돼 있으나 **사실상 미사용**이다:
+
+- 호출 지점은 `feedback.py`의 `if textbook_id and not context_parts:` 하나뿐 — 위 1·2가 빈 컨텍스트를 낼 때(텍스트 레이어 없는 스캔 PDF 등)만 도달하는 degenerate fallback.
+- 매 업로드마다 발생하던 임베딩 비용·지연을 없애기 위해 `ENABLE_EMBEDDING` 플래그(기본 `false`, `config.py`)로 `index_textbook`의 청킹+임베딩을 차단했다. 되살리려면 `.env`에 `ENABLE_EMBEDDING=true`.
+- `retrieval_service`의 `search_by_chapter/page/text`, `_detect_*`는 호출되지 않는 dead code(하이브리드 검색 미완성 잔재).
 
 ## 코드 컨벤션
 

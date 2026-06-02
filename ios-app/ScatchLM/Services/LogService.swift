@@ -148,6 +148,7 @@ final class LogService {
         var request = URLRequest(url: URL(string: "\(baseURL)/dev/log/batch")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body   // 누락 시 빈 본문 전송 → 서버 422(body-level). FE 로깅 전면 무력화의 실제 원인.
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
 
         URLSession.shared.dataTask(with: request) { [weak self] _, response, error in

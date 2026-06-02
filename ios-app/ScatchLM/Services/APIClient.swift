@@ -325,23 +325,23 @@ enum APIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .quotaExceeded:
-            return "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+            return String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
         case .serverError(let code, _):
             switch code {
             case 401:
-                return "로그인이 만료되었어요. 다시 로그인해 주세요."
+                return String(localized: "로그인이 만료되었어요. 다시 로그인해 주세요.")
             case 403:
-                return "이 작업을 수행할 권한이 없어요."
+                return String(localized: "이 작업을 수행할 권한이 없어요.")
             case 404:
-                return "요청한 항목을 찾을 수 없어요."
+                return String(localized: "요청한 항목을 찾을 수 없어요.")
             case 413:
-                return "파일이 너무 커요. 더 작은 파일을 사용해 주세요."
+                return String(localized: "파일이 너무 커요. 더 작은 파일을 사용해 주세요.")
             case 429:
-                return "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+                return String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
             case 500...599:
-                return "서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
+                return String(localized: "서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.")
             default:
-                return "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요."
+                return String(localized: "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.")
             }
         }
     }

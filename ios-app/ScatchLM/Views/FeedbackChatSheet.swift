@@ -242,7 +242,7 @@ struct FeedbackChatSheet: View {
             try db.saveChatMessage(&userMsg)
         } catch {
             appLogError("chat", "saveChatMessage(user) failed", ["error": "\(error)"])
-            errorMessage = "메시지를 저장하지 못했어요."
+            errorMessage = String(localized: "메시지를 저장하지 못했어요.")
             sending = false
             return
         }
@@ -312,9 +312,9 @@ struct FeedbackChatSheet: View {
                 appLogError("chat", "send failed", ["error": "\(error)"])
                 await MainActor.run {
                     if case APIError.quotaExceeded = error {
-                        errorMessage = "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+                        errorMessage = String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
                     } else {
-                        errorMessage = (error as? LocalizedError)?.errorDescription ?? "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요."
+                        errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.")
                     }
                     sending = false
                 }

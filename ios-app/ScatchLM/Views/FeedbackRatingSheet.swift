@@ -20,13 +20,13 @@ struct RatingFormView: View {
     }
 
     private let allTags: [(key: String, label: String)] = [
-        ("wrong_language", "언어 오류"),
-        ("tone_off", "어조 부적절"),
-        ("factually_wrong", "사실 오류"),
-        ("too_long", "너무 김"),
-        ("too_short", "너무 짧음"),
-        ("unhelpful", "도움 안 됨"),
-        ("other", "기타"),
+        ("wrong_language", String(localized: "언어 오류")),
+        ("tone_off", String(localized: "어조 부적절")),
+        ("factually_wrong", String(localized: "사실 오류")),
+        ("too_long", String(localized: "너무 김")),
+        ("too_short", String(localized: "너무 짧음")),
+        ("unhelpful", String(localized: "도움 안 됨")),
+        ("other", String(localized: "기타")),
     ]
 
     var body: some View {

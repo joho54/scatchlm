@@ -24,6 +24,6 @@ struct SyncStatusIndicator: View {
                     .foregroundStyle(.red)
             }
         }
-        .accessibilityLabel("동기화")
+        .accessibilityLabel(String(localized: "동기화"))
     }
 }

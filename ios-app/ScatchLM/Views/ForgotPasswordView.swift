@@ -38,7 +38,7 @@ struct ForgotPasswordView: View {
                         Button {
                             Task { await sendCode() }
                         } label: {
-                            buttonLabel("재설정 코드 받기")
+                            buttonLabel(String(localized: "재설정 코드 받기"))
                         }
                         .disabled(loading || email.isEmpty)
                     }
@@ -58,7 +58,7 @@ struct ForgotPasswordView: View {
                         Button {
                             Task { await resetPassword() }
                         } label: {
-                            buttonLabel("비밀번호 변경")
+                            buttonLabel(String(localized: "비밀번호 변경"))
                         }
                         .disabled(loading || code.isEmpty || newPassword.count < 6)
 
@@ -101,7 +101,7 @@ struct ForgotPasswordView: View {
         do {
             try await AuthService.shared.requestPasswordReset(email: email)
             step = .enterCode
-            info = "코드를 보냈어요. 이메일을 확인해 주세요."
+            info = String(localized: "코드를 보냈어요. 이메일을 확인해 주세요.")
         } catch {
             self.error = error.localizedDescription
         }
@@ -116,7 +116,7 @@ struct ForgotPasswordView: View {
             // 성공 시 복구 세션으로 로그인됨 → 시트 닫으면 자동으로 앱 진입.
             dismiss()
         } catch {
-            self.error = "코드가 올바르지 않거나 만료됐어요. 다시 시도해 주세요."
+            self.error = String(localized: "코드가 올바르지 않거나 만료됐어요. 다시 시도해 주세요.")
         }
         loading = false
     }

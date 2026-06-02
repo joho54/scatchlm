@@ -38,3 +38,7 @@ mobile/*.tsbuildinfo
 *.mobileprovision
 *.jks
 ios-app/.build/
+
+# Xcode 사용자별 상태 (per-user, 공유 불필요)
+xcuserdata/
+*.xcuserstate

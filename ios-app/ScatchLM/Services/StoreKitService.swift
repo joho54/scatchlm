@@ -63,13 +63,13 @@ final class StoreKitService {
         guard let product = proProduct else {
             await loadProducts()
             guard proProduct != nil else {
-                lastError = "상품을 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+                lastError = String(localized: "상품을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")
                 return false
             }
             return await purchasePro()
         }
         guard let uidString = AuthService.shared.syncUserId, let uid = UUID(uuidString: uidString) else {
-            lastError = "로그인이 필요해요."
+            lastError = String(localized: "로그인이 필요해요.")
             return false
         }
 
@@ -88,7 +88,7 @@ final class StoreKitService {
             case .pending:
                 // Ask-to-Buy 등 — 추후 Transaction.updates로 도착.
                 appLog("iap", "purchase pending")
-                lastError = "구매 승인 대기 중이에요. 승인되면 자동으로 적용돼요."
+                lastError = String(localized: "구매 승인 대기 중이에요. 승인되면 자동으로 적용돼요.")
                 return false
             @unknown default:
                 return false
@@ -162,7 +162,7 @@ final class StoreKitService {
             return entitlement.isPro
         } catch {
             // 검증 실패 → finish하지 않음. 리스너/다음 시작에서 재시도됨.
-            lastError = (error as? LocalizedError)?.errorDescription ?? "구독 검증에 실패했어요."
+            lastError = (error as? LocalizedError)?.errorDescription ?? String(localized: "구독 검증에 실패했어요.")
             appLogError("iap", "verify failed (will retry)", ["error": "\(error)"])
             return false
         }

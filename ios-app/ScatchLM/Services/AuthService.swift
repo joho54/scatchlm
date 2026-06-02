@@ -188,7 +188,7 @@ final class AuthService {
     func deleteAccount() async throws -> DeleteAccountResult {
         guard let uid = syncUserId else {
             throw NSError(domain: "AuthService", code: 401,
-                          userInfo: [NSLocalizedDescriptionKey: "로그인이 필요해요."])
+                          userInfo: [NSLocalizedDescriptionKey: String(localized: "로그인이 필요해요.")])
         }
         appLog("auth", "account deletion start", ["user": uid])
         let (status, data) = try await APIClient.shared.deleteRaw("/account")

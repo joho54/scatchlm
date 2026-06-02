@@ -164,7 +164,7 @@ struct SettingsSheet: View {
         restoring = true
         defer { restoring = false }
         let ok = await store.restore()
-        alertMessage = ok ? "구독이 복원되었어요." : (store.lastError ?? "복원할 구독을 찾지 못했어요.")
+        alertMessage = ok ? String(localized: "구독이 복원되었어요.") : (store.lastError ?? String(localized: "복원할 구독을 찾지 못했어요."))
     }
 
     private func deleteAccount() async {
@@ -177,7 +177,7 @@ struct SettingsSheet: View {
             }
             dismiss()
         } catch {
-            alertMessage = (error as? LocalizedError)?.errorDescription ?? "계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요."
+            alertMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.")
         }
     }
 }

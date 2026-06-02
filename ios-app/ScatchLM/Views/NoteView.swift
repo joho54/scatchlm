@@ -162,7 +162,7 @@ struct NoteView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $showPaywall) {
-            PaywallView(reason: "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요.")
+            PaywallView(reason: String(localized: "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요."))
         }
         .sheet(item: $chatFeedback) { fb in
             FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, subject: note?.language, onPin: { content, responseId in
@@ -215,7 +215,7 @@ struct NoteView: View {
                 pendingRevert = fb
             },
             onStrokeRejected: {
-                showToast("이 영역은 피드백이 완료됐습니다. 되돌리려면 카드의 ↩︎를 누르세요")
+                showToast(String(localized: "이 영역은 피드백이 완료됐습니다. 되돌리려면 카드의 ↩︎를 누르세요"))
             },
             onFeedbackRate: { fb, rating in
                 submitRating(feedback: fb, rating: rating, reasonTags: [], comment: nil)
@@ -494,7 +494,7 @@ struct NoteView: View {
         } catch {
             // 저장 실패 시 메모리 배열에 추가하지 않음(롤백) + 사용자 알림 (L7/O11)
             appLogError("note", "saveFeedback failed", ["error": "\(error)"])
-            showToast("피드백을 저장하지 못했어요.")
+            showToast(String(localized: "피드백을 저장하지 못했어요."))
             return
         }
         feedbacks.append(record)
@@ -569,7 +569,7 @@ struct NoteView: View {
         } catch {
             // 필기 저장 실패 — 사용자에게 알려 손실 인지 (L7/O11)
             appLogError("note", "savePageDrawing failed", ["pageId": page.id, "error": "\(error)"])
-            showToast("필기를 저장하지 못했어요. 네트워크/저장 공간을 확인해 주세요.")
+            showToast(String(localized: "필기를 저장하지 못했어요. 네트워크/저장 공간을 확인해 주세요."))
             return
         }
         // 메모리 배열도 동기화
@@ -666,7 +666,7 @@ struct NoteView: View {
             try db.deleteFeedback(id: fb.id)
         } catch {
             appLogError("note", "deleteFeedback failed", ["id": fb.id, "error": "\(error)"])
-            showToast("피드백을 삭제하지 못했어요.")
+            showToast(String(localized: "피드백을 삭제하지 못했어요."))
             return
         }
         feedbacks.removeAll { $0.id == fb.id }
@@ -847,9 +847,9 @@ struct NoteView: View {
     /// API 에러를 사용자 친화 토스트 문구로 변환 (L8/F-4).
     private func feedbackErrorMessage(_ error: Error) -> String {
         if case APIError.quotaExceeded = error {
-            return "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+            return String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
         }
-        return (error as? LocalizedError)?.errorDescription ?? "피드백을 받지 못했어요. 잠시 후 다시 시도해 주세요."
+        return (error as? LocalizedError)?.errorDescription ?? String(localized: "피드백을 받지 못했어요. 잠시 후 다시 시도해 주세요.")
     }
 }
 

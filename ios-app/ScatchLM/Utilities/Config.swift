@@ -63,9 +63,9 @@ enum Config {
 
         var label: String {
             switch self {
-            case .auto: return "자동"
-            case .on: return "수식 보기"
-            case .off: return "수식 안 보기"
+            case .auto: return String(localized: "자동")
+            case .on: return String(localized: "수식 보기")
+            case .off: return String(localized: "수식 안 보기")
             }
         }
     }

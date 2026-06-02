@@ -42,6 +42,7 @@
 		A8AB3A69E583B419B2B22A4D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */; };
 		C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */; };
 		CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37AAE771009E3533316E278 /* PdfViewerView.swift */; };
+		CDF117CC3D7073BE8ECFA8FA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D7A77C93C22BFC716A884820 /* Localizable.xcstrings */; };
 		D4DFBB036249FB325D5D7802 /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF8A4CB8143EE7F7D7CE7FB /* SyncModels.swift */; };
 		E9D820F5CA57E24E08C87FDE /* EditNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B673CA2B296363A4EE359305 /* EditNoteSheet.swift */; };
 		ECAD7C8D375493B40EB5F07F /* SyncStatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */; };
@@ -97,6 +98,7 @@
 		CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseService.swift; sourceTree = "<group>"; };
 		D0B1940235A9FDF08A1E9126 /* NoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteView.swift; sourceTree = "<group>"; };
 		D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusIndicator.swift; sourceTree = "<group>"; };
+		D7A77C93C22BFC716A884820 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		E448211B4B38BBC9147A67F8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		E52A7F87E1D186E8DDE427CB /* LogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogService.swift; sourceTree = "<group>"; };
 		EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakedMarkdownHTMLTests.swift; sourceTree = "<group>"; };
@@ -211,6 +213,7 @@
 			isa = PBXGroup;
 			children = (
 				745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */,
+				D7A77C93C22BFC716A884820 /* Localizable.xcstrings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -310,17 +313,17 @@
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					F7DA71B8129950248351EA2C = {
-						DevelopmentTeam = T8HU7SD8CK;
+						DevelopmentTeam = Z5U7D89KP7;
 						ProvisioningStyle = Automatic;
 					};
 				};
 			};
 			buildConfigurationList = 8D5366C4F056ADE39D88E2EB /* Build configuration list for PBXProject "ScatchLM" */;
-			developmentRegion = en;
+			developmentRegion = ko;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
-				en,
+				ko,
 			);
 			mainGroup = 7E272242099ECDCDD60C4260;
 			minimizedProjectReferenceProxies = 1;
@@ -346,6 +349,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A8AB3A69E583B419B2B22A4D /* Assets.xcassets in Resources */,
+				CDF117CC3D7073BE8ECFA8FA /* Localizable.xcstrings in Resources */,
 				484A753DA988497B5FB5E152 /* WebAssets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -438,7 +442,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T8HU7SD8CK;
+				DEVELOPMENT_TEAM = Z5U7D89KP7;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"Vendor\"",
@@ -450,11 +454,13 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "-lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.scatchlm;
 				SDKROOT = iphoneos;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 2;
 			};
@@ -587,7 +593,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T8HU7SD8CK;
+				DEVELOPMENT_TEAM = Z5U7D89KP7;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"Vendor\"",
@@ -599,11 +605,13 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "-lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.scatchlm;
 				SDKROOT = iphoneos;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 2;
 			};

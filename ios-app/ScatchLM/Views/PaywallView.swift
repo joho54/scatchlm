@@ -33,9 +33,9 @@ struct PaywallView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        benefit("넉넉한 일일 AI 피드백 한도")
-                        benefit("손글씨 인식 · 교재 기반 RAG 채팅")
-                        benefit("월 자동 갱신 · 언제든 해지")
+                        benefit(String(localized: "넉넉한 일일 AI 피드백 한도"))
+                        benefit(String(localized: "손글씨 인식 · 교재 기반 RAG 채팅"))
+                        benefit(String(localized: "월 자동 갱신 · 언제든 해지"))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
@@ -103,9 +103,9 @@ struct PaywallView: View {
 
     private var buttonTitle: String {
         if let price = store.proDisplayPrice {
-            return "\(price) / 월 구독하기"
+            return String(localized: "\(price) / 월 구독하기")
         }
-        return "구독하기"
+        return String(localized: "구독하기")
     }
 
     private func benefit(_ text: String) -> some View {
@@ -131,10 +131,10 @@ struct PaywallView: View {
         defer { working = false }
         let ok = await store.restore()
         if ok {
-            alertMessage = "구독이 복원되었어요."
+            alertMessage = String(localized: "구독이 복원되었어요.")
             dismiss()
         } else {
-            alertMessage = store.lastError ?? "복원할 구독을 찾지 못했어요."
+            alertMessage = store.lastError ?? String(localized: "복원할 구독을 찾지 못했어요.")
         }
     }
 }

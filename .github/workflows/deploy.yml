@@ -53,7 +53,23 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Pull & restart app on VM
+      - uses: actions/checkout@v4
+
+      # VM 측 설정(compose/Caddyfile/static)을 repo 기준으로 동기화.
+      # 이 파일들은 app 이미지가 아니라 VM 볼륨 마운트라 pull로는 갱신되지 않는다 → git이 single source of truth.
+      # .env.prod(시크릿)는 의도적으로 제외 — VM에서 수동 관리.
+      - name: Sync VM config from repo
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: scatchlm.duckdns.org
+          username: root
+          key: ${{ secrets.NCP_SSH_KEY }}
+          source: "backend/docker-compose.prod.yml,backend/Caddyfile,backend/static"
+          target: "/opt/scatchlm"
+          strip_components: 1
+          overwrite: true
+
+      - name: Pull & restart on VM
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: scatchlm.duckdns.org
@@ -64,14 +80,22 @@ jobs:
             set -euo pipefail
             cd /opt/scatchlm
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull app
-            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d app
+            # up -d (전체): compose/볼륨 마운트가 바뀐 컨테이너(예: caddy)만 재생성. app은 새 이미지로 교체.
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+            # Caddyfile '내용'만 바뀐 경우 컨테이너는 재생성 안 되므로 무중단 reload로 반영. 실패 시 restart로 폴백.
+            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T caddy \
+              caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
+              || docker compose -f docker-compose.prod.yml --env-file .env.prod restart caddy
             docker image prune -af
 
       - name: Health check
         run: |
+          # app 프록시(/docs) + Caddy 정적 서빙(/privacy,/terms, 심사 차단 아티팩트)을 모두 검증.
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -fsS https://scatchlm.duckdns.org/docs > /dev/null; then
-              echo "Healthy"
+            if curl -fsS https://scatchlm.duckdns.org/docs > /dev/null \
+               && curl -fsS https://scatchlm.duckdns.org/privacy > /dev/null \
+               && curl -fsS https://scatchlm.duckdns.org/terms > /dev/null; then
+              echo "Healthy (app + static)"
               exit 0
             fi
             echo "Attempt $i failed, retrying in 5s..."

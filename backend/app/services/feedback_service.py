@@ -74,8 +74,33 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
 
 
+def estimate_cost_from_usage(model: str, usage) -> float:
+    """prompt caching(§11 L2)을 반영한 정확한 비용.
+
+    Anthropic은 캐시 적중분을 별도 필드로 보고한다(`input_tokens`는 비캐시 신규 입력만):
+    - cache_read_input_tokens  → **0.1×** 단가
+    - cache_creation_input_tokens → **1.25×** 단가(쓰기 오버헤드)
+    캐시 미사용 응답이면 두 필드가 0/없음이라 estimate_cost와 동일하게 동작.
+    """
+    pricing = MODEL_PRICING.get(model, {"input": 3.0, "output": 15.0})
+    input_tokens = getattr(usage, "input_tokens", 0) or 0
+    output_tokens = getattr(usage, "output_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    return (
+        input_tokens * pricing["input"]
+        + cache_read * pricing["input"] * 0.1
+        + cache_write * pricing["input"] * 1.25
+        + output_tokens * pricing["output"]
+    ) / 1_000_000
+
+
 # 하위호환 별칭
 _estimate_cost = estimate_cost
+
+# 피드백 응답 output 상한 (§11 L1). 전형 피드백은 ~600토큰이라 평균엔 영향 없고
+# 롱테일/폭주 응답 비용만 상한한다(output은 $15/1M로 비용의 ~55%).
+FEEDBACK_MAX_TOKENS = 1536
 
 
 @dataclass
@@ -157,7 +182,7 @@ async def get_feedback(
     start = time.monotonic()
     response = await client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=FEEDBACK_MAX_TOKENS,
         system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None),
         messages=[{"role": "user", "content": user_content}],
     )

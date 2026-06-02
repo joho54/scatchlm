@@ -19,7 +19,7 @@ from app.models.usage import LLMUsage
 from app.core.log_sanitize import loglen
 from app.services.feedback_service import (
     classify_anthropic_error,
-    estimate_cost,
+    estimate_cost_from_usage,
     get_feedback,
     get_recognition,
 )
@@ -374,11 +374,20 @@ async def feedback_chat(
         messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": req.message})
 
+    # 프롬프트 캐싱(§11 L2): system 블록(교재 RAG 컨텍스트 포함)은 같은 대화의 turn마다
+    # prefix로 그대로 재사용된다 → cache_control로 5분 내 재요청 시 0.1× 과금(KV 캐시 재사용).
+    # 교재 컨텍스트가 큰 경우 효과가 크다(미연결/짧은 system은 최소 캐시 길이 미만이면 무시되며 무해).
+    system_blocks = [{
+        "type": "text",
+        "text": "\n".join(system_parts),
+        "cache_control": {"type": "ephemeral"},
+    }]
+
     try:
         response = await client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system="\n".join(system_parts),
+            max_tokens=2048,  # §11 L1: chat output 상한(설명형이라 피드백보다 넉넉히)
+            system=system_blocks,
             messages=messages,
         )
     except Exception as e:
@@ -386,20 +395,23 @@ async def feedback_chat(
         raise HTTPException(status_code=502, detail=f"LLM API error: {e}")
 
     content = response.content[0].text
-    log.info("Feedback chat response: tokens=%d (in=%d out=%d) content=%s",
-             response.usage.input_tokens + response.usage.output_tokens,
-             response.usage.input_tokens, response.usage.output_tokens,
+    usage = response.usage
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    log.info("Feedback chat response: tokens=%d (in=%d out=%d cache_read=%d cache_write=%d) content=%s",
+             usage.input_tokens + usage.output_tokens,
+             usage.input_tokens, usage.output_tokens, cache_read, cache_write,
              loglen(content))
 
-    # usage 기록 — 채팅 비용도 일일 quota에 합산되도록 적재
+    # usage 기록 — 채팅 비용도 일일 quota에 합산되도록 적재. 캐시 적중분을 반영한 정확한 비용(§11 L2).
     chat_model = "claude-sonnet-4-6"
     db.add(LLMUsage(
         user_id=user_id,
         model=chat_model,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
-        total_tokens=response.usage.input_tokens + response.usage.output_tokens,
-        cost_usd=estimate_cost(chat_model, response.usage.input_tokens, response.usage.output_tokens),
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.input_tokens + usage.output_tokens,
+        cost_usd=estimate_cost_from_usage(chat_model, usage),
         latency_ms=0,
         task_type="chat",
         language="",

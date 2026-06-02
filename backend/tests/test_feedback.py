@@ -189,7 +189,8 @@ async def test_feedback_chat_success(client: AsyncClient, auth_header: dict):
     """피드백 채팅이 LLM 응답을 반환하는지 확인."""
     mock_response = AsyncMock()
     mock_response.content = [AsyncMock(text="완료형은 과거의 행동이 현재까지 영향을 미침을 나타냅니다.")]
-    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50)
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
 
     with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
         mock_client = AsyncMock()
@@ -217,7 +218,8 @@ async def test_feedback_chat_returns_feedback_id_and_is_rateable(client: AsyncCl
     """채팅 응답이 AIResponse로 적재되어 /feedback/{id}/rate 로 평가 가능해야 한다."""
     mock_response = AsyncMock()
     mock_response.content = [AsyncMock(text="assistant reply for rating")]
-    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20)
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
 
     with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
         mock_client = AsyncMock()
@@ -257,7 +259,8 @@ async def test_feedback_chat_with_response_language(client: AsyncClient, auth_he
     """response_language가 시스템 프롬프트에 반영되는지 확인."""
     mock_response = AsyncMock()
     mock_response.content = [AsyncMock(text="test response")]
-    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20)
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
 
     with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
         mock_client = AsyncMock()
@@ -275,6 +278,11 @@ async def test_feedback_chat_with_response_language(client: AsyncClient, auth_he
         )
 
     assert res.status_code == 200
-    # system prompt에 Japanese가 포함되었는지 확인
+    # system은 프롬프트 캐싱(§11 L2)을 위해 content block 리스트 형태. 텍스트에 Japanese 포함 확인.
     call_kwargs = mock_client.messages.create.call_args.kwargs
-    assert "Japanese" in call_kwargs["system"]
+    system_block = call_kwargs["system"][0]
+    assert "Japanese" in system_block["text"]
+    # 캐싱 회귀 가드: system 블록에 cache_control(ephemeral)이 부착돼야 한다.
+    assert system_block["cache_control"] == {"type": "ephemeral"}
+    # output 상한(§11 L1)이 적용돼야 한다.
+    assert call_kwargs["max_tokens"] == 2048

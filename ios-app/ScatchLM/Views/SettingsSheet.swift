@@ -50,6 +50,8 @@ struct SettingsSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
+                // v1 무료 출시 — 구독 UI 숨김(Config.subscriptionEnabled). ASC 상품 등록 후 노출.
+                if Config.subscriptionEnabled {
                 Section("구독") {
                     HStack {
                         Text("현재 플랜")
@@ -81,6 +83,7 @@ struct SettingsSheet: View {
                         }
                     }
                     .disabled(restoring)
+                }
                 }
 
                 Section("약관 및 정책") {

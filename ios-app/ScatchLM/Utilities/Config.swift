@@ -26,6 +26,10 @@ enum Config {
     /// Pro 월간 자동갱신 구독 product id (App Store Connect 등록값과 일치해야 함).
     static let proMonthlyProductID = "com.joho54.scatchlm.pro.monthly"
 
+    /// v1은 무료 단독 출시 — 구독(IAP) UI를 숨긴다(작동 안 하는 결제 UI = 리젝 사유, ASC 상품 미등록).
+    /// App Store Connect에 구독 상품 등록 후 true로 전환(fast-follow).
+    static let subscriptionEnabled = false
+
     // MARK: - Sentry (에러/크래시 리포팅, O7)
     /// DSN 우선순위: UserDefaults `sentryDSN`(dev 임시) → Info.plist `SENTRY_DSN`(빌드설정 주입) → 빈 값.
     /// 빈 값이면 SentrySDK.start를 호출하지 않아 SDK 완전 비활성(spec §4.2·B-2). DSN은 커밋 금지.

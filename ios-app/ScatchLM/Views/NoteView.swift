@@ -833,8 +833,8 @@ struct NoteView: View {
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])
             } catch {
                 appLogError("note", "feedback failed", ["requestId": "\(requestId)", "error": "\(error)"])
-                // quota 429: 무료 한도 초과 → 업그레이드 Paywall 노출(§B-3).
-                if case APIError.quotaExceeded = error, !StoreKitService.shared.isPro {
+                // quota 429: 구독 활성 시에만 Paywall 노출(v1 무료라 비활성), 아니면 친화 토스트.
+                if Config.subscriptionEnabled, case APIError.quotaExceeded = error, !StoreKitService.shared.isPro {
                     showPaywall = true
                 } else {
                     showToast(feedbackErrorMessage(error))

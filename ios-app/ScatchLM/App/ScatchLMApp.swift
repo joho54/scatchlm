@@ -34,7 +34,8 @@ struct ScatchLMApp: App {
             .task {
                 await auth.initialize()
                 // 구독 라이프사이클 리스너 시작 + 서버 상태 동기화(§B-2). 로그인 후 호출해 status 동기화.
-                StoreKitService.shared.start()
+                // v1 무료 출시에선 비활성(Config.subscriptionEnabled=false). ASC 구독 상품 등록 후 켜짐.
+                if Config.subscriptionEnabled { StoreKitService.shared.start() }
             }
             .onChange(of: scenePhase) { _, phase in
                 handleScenePhase(phase)

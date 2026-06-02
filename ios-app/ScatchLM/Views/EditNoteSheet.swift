@@ -19,12 +19,12 @@ struct EditNoteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Title") {
-                    TextField("Untitled note", text: $title)
+                Section("제목") {
+                    TextField("제목 없음", text: $title)
                 }
 
-                Section("Subject") {
-                    TextField("e.g. Japanese, Physics, World History", text: $language)
+                Section("주제") {
+                    TextField("예: 일본어, 물리학, 세계사", text: $language)
 
                     if !recentLanguages.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -42,30 +42,30 @@ struct EditNoteSheet: View {
                 }
 
                 if let tbName = note.textbookName {
-                    Section("Textbook") {
+                    Section("교재") {
                         HStack {
                             Image(systemName: "book.closed.fill")
                                 .foregroundStyle(.purple)
                             Text(tbName)
                                 .lineLimit(1)
                             Spacer()
-                            Text("\(note.textbookPages) pages")
+                            Text("\(note.textbookPages)페이지")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
-            .navigationTitle("Edit Note")
+            .navigationTitle("노트 편집")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("취소") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("저장") {
                         onSave(
-                            title.isEmpty ? "Untitled note" : title,
+                            title.isEmpty ? String(localized: "제목 없음") : title,
                             language.isEmpty ? "en" : language
                         )
                         dismiss()

@@ -17,12 +17,12 @@ struct CreateNoteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Title") {
-                    TextField("Untitled note", text: $title)
+                Section("제목") {
+                    TextField("제목 없음", text: $title)
                 }
 
-                Section("Subject") {
-                    TextField("e.g. Japanese, Physics, World History", text: $language)
+                Section("주제") {
+                    TextField("예: 일본어, 물리학, 세계사", text: $language)
 
                     if !recentLanguages.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -39,7 +39,7 @@ struct CreateNoteSheet: View {
                     }
                 }
 
-                Section("Textbook (optional)") {
+                Section("교재 (선택)") {
                     if loadingTextbooks {
                         ProgressView()
                     } else {
@@ -59,7 +59,7 @@ struct CreateNoteSheet: View {
                                             .font(.subheadline)
                                             .foregroundStyle(.primary)
                                             .lineLimit(1)
-                                        Text("\(tb.totalPages) pages")
+                                        Text("\(tb.totalPages)페이지")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -79,24 +79,24 @@ struct CreateNoteSheet: View {
                         } label: {
                             HStack {
                                 Image(systemName: "arrow.up.doc")
-                                Text(uploading ? "Uploading..." : "Upload new PDF")
+                                Text(uploading ? "업로드 중…" : "새 PDF 업로드")
                             }
                         }
                         .disabled(uploading)
                     }
                 }
             }
-            .navigationTitle("New Note")
+            .navigationTitle("새 노트")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("취소") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
+                    Button("만들기") {
                         let selected = textbooks.first { $0.id == selectedTextbookId }
                         onCreate(
-                            title.isEmpty ? "Untitled note" : title,
+                            title.isEmpty ? String(localized: "제목 없음") : title,
                             language.isEmpty ? "en" : language,
                             selected
                         )

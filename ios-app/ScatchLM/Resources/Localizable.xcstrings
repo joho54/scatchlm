@@ -33,7 +33,6 @@
         }
       }
     },
-    "%lld pages": {},
     "%lld. %@": {
       "localizations": {
         "ko": {
@@ -44,53 +43,12 @@
         }
       }
     },
-    "• %@": {},
-    "⚠️ 자주 하는 실수": {
+    "%lld페이지": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠️ Common mistakes"
-          }
-        }
-      }
-    },
-    "👍 좋음": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "👍 Good"
-          }
-        }
-      }
-    },
-    "👎 아쉬움": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "👎 Needs work"
-          }
-        }
-      }
-    },
-    "📋 학습 순서": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "📋 Study order"
-          }
-        }
-      }
-    },
-    "📌 핵심 개념": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "📌 Key concepts"
+            "value": "%lld pages"
           }
         }
       }
@@ -117,34 +75,16 @@
     },
     "Already have an account? Sign In": {},
     "Analyzing handwriting...": {},
-    "Cancel": {},
     "Continue with Google": {},
-    "Create": {},
     "Delete": {},
     "Don't have an account? Sign Up": {},
     "Done": {},
-    "e.g. Japanese, Physics, World History": {},
-    "e.g. Korean, English, 日本語": {},
     "Edit": {},
-    "Edit Note": {},
     "Email": {},
     "Feedback Language": {},
     "Handwriting-based language learning": {},
     "Loading...": {},
-    "New Note": {},
     "Notes": {},
-    "or": {},
-    "p.%lld": {},
-    "p.%lld 가이드": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "p.%lld guide"
-          }
-        }
-      }
-    },
     "Password": {},
     "Pro": {},
     "Pro 구독하기": {
@@ -157,22 +97,38 @@
         }
       }
     },
-    "Save": {},
     "ScatchLM": {},
     "ScatchLM Pro": {},
     "Search notes": {},
     "Settings": {},
     "Sign In": {},
-    "Sign in with Apple": {},
     "Sign Out": {},
     "Sign Up": {},
-    "Subject": {},
-    "Textbook": {},
-    "Textbook (optional)": {},
-    "Title": {},
-    "Untitled note": {},
-    "Upload new PDF": {},
-    "Uploading...": {},
+    "Sign in with Apple": {},
+    "e.g. Korean, English, 日本語": {},
+    "or": {},
+    "p.%lld": {},
+    "p.%lld 가이드": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p.%lld guide"
+          }
+        }
+      }
+    },
+    "• %@": {},
+    "⚠️ 자주 하는 실수": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠️ Common mistakes"
+          }
+        }
+      }
+    },
     "가이드": {
       "localizations": {
         "en": {
@@ -269,6 +225,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Delete account?"
+          }
+        }
+      }
+    },
+    "교재": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbook"
+          }
+        }
+      }
+    },
+    "교재 (선택)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbook (optional)"
           }
         }
       }
@@ -393,6 +369,16 @@
         }
       }
     },
+    "노트 편집": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Note"
+          }
+        }
+      }
+    },
     "다른 검색어를 입력해 보세요.": {
       "localizations": {
         "en": {
@@ -479,6 +465,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "You need to sign in."
+          }
+        }
+      }
+    },
+    "만들기": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
           }
         }
       }
@@ -613,6 +609,26 @@
         }
       }
     },
+    "새 PDF 업로드": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload new PDF"
+          }
+        }
+      }
+    },
+    "새 노트": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Note"
+          }
+        }
+      }
+    },
     "새 비밀번호 (6자 이상)": {
       "localizations": {
         "en": {
@@ -729,6 +745,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Language error"
+          }
+        }
+      }
+    },
+    "업로드 중…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading…"
+          }
+        }
+      }
+    },
+    "예: 일본어, 물리학, 세계사": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. Japanese, Physics, World History"
           }
         }
       }
@@ -883,12 +919,52 @@
         }
       }
     },
+    "저장": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "제목": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title"
+          }
+        }
+      }
+    },
+    "제목 없음": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled note"
+          }
+        }
+      }
+    },
     "제출": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Submit"
+          }
+        }
+      }
+    },
+    "주제": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subject"
           }
         }
       }
@@ -1099,6 +1175,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "👍 좋음": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "👍 Good"
+          }
+        }
+      }
+    },
+    "👎 아쉬움": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "👎 Needs work"
+          }
+        }
+      }
+    },
+    "📋 학습 순서": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "📋 Study order"
+          }
+        }
+      }
+    },
+    "📌 핵심 개념": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "📌 Key concepts"
           }
         }
       }

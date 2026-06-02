@@ -136,6 +136,20 @@ EN = {
     "👎 아쉬움": "👎 Needs work",
     "📋 학습 순서": "📋 Study order",
     "📌 핵심 개념": "📌 Key concepts",
+    # 노트 생성/편집 모달 — 영어 소스로 작성돼 있던 것을 한국어 소스로 정정 후 영어 번역
+    "제목": "Title",
+    "제목 없음": "Untitled note",
+    "주제": "Subject",
+    "예: 일본어, 물리학, 세계사": "e.g. Japanese, Physics, World History",
+    "교재 (선택)": "Textbook (optional)",
+    "교재": "Textbook",
+    "새 노트": "New Note",
+    "노트 편집": "Edit Note",
+    "만들기": "Create",
+    "저장": "Save",
+    "업로드 중…": "Uploading…",
+    "새 PDF 업로드": "Upload new PDF",
+    "%lld페이지": "%lld pages",
 }
 
 

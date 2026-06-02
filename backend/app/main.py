@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.logging import setup_logging
-from app.routers import admin, devlog, feedback, pdf
+from app.routers import admin, devlog, feedback, pdf, sync
 
 setup_logging()
 
@@ -21,6 +21,7 @@ app.include_router(feedback.router)
 app.include_router(pdf.router)
 app.include_router(admin.router)
 app.include_router(devlog.router)
+app.include_router(sync.router)
 
 
 @app.get("/health")

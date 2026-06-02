@@ -15,6 +15,7 @@ import app.models.usage  # noqa: F401
 import app.models.chapter  # noqa: F401
 import app.models.guide  # noqa: F401
 import app.models.feedback  # noqa: F401
+import app.models.sync  # noqa: F401
 
 config = context.config
 

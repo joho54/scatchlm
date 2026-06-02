@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -47,7 +47,15 @@ async def check_daily_quota(user_id: str, tier: str, db: AsyncSession) -> None:
     """일일 비용 한도 초과 시 HTTPException(429)를 던진다. 한도 0/미설정이면 무제한(통과)."""
     limit = _limit_for_tier(tier)
     if not limit or limit <= 0:
-        return  # 무제한
+        return  # 무제한 (락도 생략 — 오버헤드 회피)
+
+    # 동시성 race 방지: per-user 트랜잭션 advisory lock.
+    # check_daily_quota → LLM 호출 → usage commit 사이에 중간 commit이 없으므로,
+    # 이 lock은 요청이 usage를 기록·커밋할 때까지 유지된다. 같은 유저의 다음 요청은
+    # lock 획득에서 대기 → 직전 요청의 비용을 반영한 합계를 읽는다(stale read 차단).
+    # 한 유저의 병렬 요청만 직렬화되며(타 유저 무관), hashtext 충돌 시 드물게
+    # 무관한 유저와 직렬화될 뿐 정확성·안전성에는 영향 없다.
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:uid))"), {"uid": user_id})
 
     since, next_midnight_kst = _kst_day_bounds()
     used = await db.scalar(

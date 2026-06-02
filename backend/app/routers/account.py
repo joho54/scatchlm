@@ -41,9 +41,17 @@ async def delete_account(
             detail={"detail": "account deletion failed", "stage": "db"},
         )
 
-    # 3. 커밋 후 blob 삭제
-    blob_count = account_deletion.delete_blobs(user_id, blob_keys)
+    # 3. 커밋 후 blob 삭제. 실패는 삼키지 않고 surface(삭제 완전성).
+    blob_count, blob_failures = account_deletion.delete_blobs(user_id, blob_keys)
     counts["blobs"] = blob_count
+    blobs_complete = not blob_failures
+    if blob_failures:
+        # DB 참조는 지워졌으나 일부 사용자 콘텐츠(blob)가 잔존 → ops가 인지·정리할 수 있게 error 로깅.
+        # 클라 플로우(200/502만 처리)는 깨지 않되, 응답에 blobs_complete=false로 명시한다.
+        log.error(
+            "Account deletion: blob removal INCOMPLETE user=%s failures=%s",
+            user_id, blob_failures,
+        )
 
     # 4. 마지막에 Supabase auth 유저 삭제(재시도 가능하게 맨 끝)
     try:
@@ -57,15 +65,20 @@ async def delete_account(
             content={
                 "detail": "data deleted but auth removal failed",
                 "supabase_auth_deleted": False,
+                "blobs_complete": blobs_complete,
                 "user_id": user_id,
                 "counts": counts,
             },
         )
 
-    log.warning("Account deletion done: user=%s counts=%s", user_id, counts)
+    log.warning(
+        "Account deletion done: user=%s counts=%s blobs_complete=%s",
+        user_id, counts, blobs_complete,
+    )
     return {
         "deleted": True,
         "user_id": user_id,
         "counts": counts,
         "supabase_auth_deleted": supabase_auth_deleted,
+        "blobs_complete": blobs_complete,
     }

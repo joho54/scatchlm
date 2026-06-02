@@ -7,8 +7,25 @@ from dataclasses import dataclass
 import anthropic
 
 from app.core.config import settings
+from app.core.log_sanitize import loglen
 
 log = logging.getLogger(__name__)
+
+
+def classify_anthropic_error(exc: Exception) -> str:
+    """Anthropic 예외를 분류 라벨로 반환(로그 태깅용, O12/C6)."""
+    if isinstance(exc, anthropic.RateLimitError):
+        return "rate_limit_429"
+    if isinstance(exc, anthropic.APITimeoutError):
+        return "timeout"
+    if isinstance(exc, anthropic.APIStatusError):
+        code = getattr(exc, "status_code", None)
+        if code == 529:
+            return "overloaded_529"
+        return f"api_status_{code}"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return "connection"
+    return "unknown"
 
 client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -52,9 +69,13 @@ def _select_model(task_type: str) -> str:
     return "claude-sonnet-4-6"
 
 
-def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     pricing = MODEL_PRICING.get(model, {"input": 3.0, "output": 15.0})
     return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+
+
+# 하위호환 별칭
+_estimate_cost = estimate_cost
 
 
 @dataclass
@@ -90,10 +111,10 @@ async def get_recognition(image_bytes: bytes, language: str = "en") -> str | Non
             }],
         )
         text = response.content[0].text.strip()
-        log.info("Recognition (Haiku): '%s'", text[:100])
+        log.info("Recognition (Haiku): %s", loglen(text))
         return text
-    except Exception:
-        log.exception("Recognition failed")
+    except Exception as e:
+        log.exception("Recognition failed: error=%s", classify_anthropic_error(e))
         return None
 
 

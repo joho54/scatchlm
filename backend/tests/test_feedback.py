@@ -162,7 +162,7 @@ async def test_feedback_with_overlapping_chapters_picks_narrowest(
 
 
 @pytest.mark.asyncio
-async def test_feedback_records_usage(client: AsyncClient, auth_header: dict):
+async def test_feedback_records_usage(client: AsyncClient, auth_header: dict, admin_header: dict):
     """피드백 성공 시 llm_usage 테이블에 기록되는지 확인."""
     with patch(
         "app.routers.feedback.get_feedback",
@@ -176,8 +176,8 @@ async def test_feedback_records_usage(client: AsyncClient, auth_header: dict):
             data={"note_id": "note-1", "language": "ja"},
         )
 
-    # admin 엔드포인트로 usage 확인 (인증 필요)
-    res = await client.get("/api/admin/usage?days=1", headers=auth_header)
+    # admin 엔드포인트로 usage 확인 (admin role 필요 — A-3)
+    res = await client.get("/api/admin/usage?days=1", headers=admin_header)
     assert res.status_code == 200
     data = res.json()
     assert data["summary"]["total_requests"] >= 1

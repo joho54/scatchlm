@@ -1,6 +1,12 @@
 import Foundation
 import GRDB
 
+// 모든 sync 대상 모델은 동기화 메타를 공유한다 (cloud-data-sync-spec §4.3):
+//   userId    — 현재 세션 user.id 스코프 (§4.5). write 시 DatabaseService가 주입.
+//   deleted   — soft delete tombstone.
+//   dirty     — 미전송 로컬 변경. write 시 1, push 성공 시 0.
+//   drawingHash — note/note_page만: PKDrawing blob의 sha256(hex). null=빈 드로잉.
+
 struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "notes"
 
@@ -16,6 +22,11 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var currentPageIndex: Int
     var createdAt: Date
     var updatedAt: Date
+    // sync 메타
+    var userId: String
+    var drawingHash: String?
+    var deleted: Bool
+    var dirty: Bool
 
     // DB 컬럼명 매핑 (snake_case)
     enum CodingKeys: String, CodingKey {
@@ -29,6 +40,9 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         case currentPageIndex = "current_page_index"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case userId = "user_id"
+        case drawingHash = "drawing_hash"
+        case deleted, dirty
     }
 
     enum Columns: String, ColumnExpression {
@@ -42,6 +56,45 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         case currentPageIndex = "current_page_index"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case userId = "user_id"
+        case drawingHash = "drawing_hash"
+        case deleted, dirty
+    }
+
+    init(
+        id: String,
+        title: String,
+        language: String,
+        textbookId: String?,
+        textbookName: String?,
+        textbookPages: Int,
+        drawingData: Data?,
+        lastPage: Int,
+        pdfOpen: Bool,
+        currentPageIndex: Int,
+        createdAt: Date,
+        updatedAt: Date,
+        userId: String = "",
+        drawingHash: String? = nil,
+        deleted: Bool = false,
+        dirty: Bool = true
+    ) {
+        self.id = id
+        self.title = title
+        self.language = language
+        self.textbookId = textbookId
+        self.textbookName = textbookName
+        self.textbookPages = textbookPages
+        self.drawingData = drawingData
+        self.lastPage = lastPage
+        self.pdfOpen = pdfOpen
+        self.currentPageIndex = currentPageIndex
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.userId = userId
+        self.drawingHash = drawingHash
+        self.deleted = deleted
+        self.dirty = dirty
     }
 
     static func new(title: String, language: String = "en") -> Note {
@@ -81,6 +134,11 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
     var serverFeedbackId: String?
     var userRating: Int?
     var userRatingSyncedAt: Date?
+    // sync 메타
+    var userId: String
+    var updatedAt: Date
+    var deleted: Bool
+    var dirty: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, content
@@ -98,6 +156,9 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
         case serverFeedbackId = "server_feedback_id"
         case userRating = "user_rating"
         case userRatingSyncedAt = "user_rating_synced_at"
+        case userId = "user_id"
+        case updatedAt = "updated_at"
+        case deleted, dirty
     }
 
     enum Columns: String, ColumnExpression {
@@ -116,6 +177,9 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
         case serverFeedbackId = "server_feedback_id"
         case userRating = "user_rating"
         case userRatingSyncedAt = "user_rating_synced_at"
+        case userId = "user_id"
+        case updatedAt = "updated_at"
+        case deleted, dirty
     }
 
     init(
@@ -134,7 +198,11 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
         createdAt: Date,
         serverFeedbackId: String? = nil,
         userRating: Int? = nil,
-        userRatingSyncedAt: Date? = nil
+        userRatingSyncedAt: Date? = nil,
+        userId: String = "",
+        updatedAt: Date = Date(),
+        deleted: Bool = false,
+        dirty: Bool = true
     ) {
         self.id = id
         self.noteId = noteId
@@ -152,6 +220,10 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.serverFeedbackId = serverFeedbackId
         self.userRating = userRating
         self.userRatingSyncedAt = userRatingSyncedAt
+        self.userId = userId
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+        self.dirty = dirty
     }
 }
 
@@ -187,6 +259,12 @@ struct NotePage: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var pageIndex: Int
     var drawingData: Data?
     var createdAt: Date
+    // sync 메타
+    var userId: String
+    var drawingHash: String?
+    var updatedAt: Date
+    var deleted: Bool
+    var dirty: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -194,6 +272,10 @@ struct NotePage: Codable, FetchableRecord, PersistableRecord, Identifiable {
         case pageIndex = "page_index"
         case drawingData = "drawing_data"
         case createdAt = "created_at"
+        case userId = "user_id"
+        case drawingHash = "drawing_hash"
+        case updatedAt = "updated_at"
+        case deleted, dirty
     }
 
     enum Columns: String, ColumnExpression {
@@ -202,6 +284,34 @@ struct NotePage: Codable, FetchableRecord, PersistableRecord, Identifiable {
         case pageIndex = "page_index"
         case drawingData = "drawing_data"
         case createdAt = "created_at"
+        case userId = "user_id"
+        case drawingHash = "drawing_hash"
+        case updatedAt = "updated_at"
+        case deleted, dirty
+    }
+
+    init(
+        id: String,
+        noteId: String,
+        pageIndex: Int,
+        drawingData: Data?,
+        createdAt: Date,
+        userId: String = "",
+        drawingHash: String? = nil,
+        updatedAt: Date = Date(),
+        deleted: Bool = false,
+        dirty: Bool = true
+    ) {
+        self.id = id
+        self.noteId = noteId
+        self.pageIndex = pageIndex
+        self.drawingData = drawingData
+        self.createdAt = createdAt
+        self.userId = userId
+        self.drawingHash = drawingHash
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+        self.dirty = dirty
     }
 }
 
@@ -216,6 +326,11 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     var serverMessageId: String?
     var userRating: Int?
     var userRatingSyncedAt: Date?
+    // sync 메타
+    var userId: String
+    var updatedAt: Date
+    var deleted: Bool
+    var dirty: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, role, content
@@ -224,6 +339,9 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         case serverMessageId = "server_message_id"
         case userRating = "user_rating"
         case userRatingSyncedAt = "user_rating_synced_at"
+        case userId = "user_id"
+        case updatedAt = "updated_at"
+        case deleted, dirty
     }
 
     enum Columns: String, ColumnExpression {
@@ -233,5 +351,36 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         case serverMessageId = "server_message_id"
         case userRating = "user_rating"
         case userRatingSyncedAt = "user_rating_synced_at"
+        case userId = "user_id"
+        case updatedAt = "updated_at"
+        case deleted, dirty
+    }
+
+    init(
+        id: String,
+        feedbackId: String,
+        role: String,
+        content: String,
+        createdAt: Date,
+        serverMessageId: String? = nil,
+        userRating: Int? = nil,
+        userRatingSyncedAt: Date? = nil,
+        userId: String = "",
+        updatedAt: Date = Date(),
+        deleted: Bool = false,
+        dirty: Bool = true
+    ) {
+        self.id = id
+        self.feedbackId = feedbackId
+        self.role = role
+        self.content = content
+        self.createdAt = createdAt
+        self.serverMessageId = serverMessageId
+        self.userRating = userRating
+        self.userRatingSyncedAt = userRatingSyncedAt
+        self.userId = userId
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+        self.dirty = dirty
     }
 }

@@ -7,6 +7,14 @@ final class DatabaseServiceTests: XCTestCase {
     override func setUp() {
         super.setUp()
         db = DatabaseService.shared
+        // v7 이후 모든 sync 대상 write는 활성 세션(user_id)을 요구한다(§4.5).
+        // 테스트마다 고유 user_id로 스코프를 격리한다.
+        db.currentUserId = UUID().uuidString.lowercased()
+    }
+
+    override func tearDown() {
+        db.currentUserId = nil
+        super.tearDown()
     }
 
     // MARK: - Note CRUD

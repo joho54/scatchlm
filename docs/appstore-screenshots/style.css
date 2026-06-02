@@ -1,0 +1,134 @@
+/* =========================================================================
+   App Store 스크린샷 스타일 — 여기 변수만 만지면 디자인이 바뀝니다.
+   캡처 규격: iPad 12.9" 세로(portrait) = 2048 x 2732 px
+   ========================================================================= */
+:root {
+  /* --- 색 (취향대로 바꾸세요) — 짙은 파랑 테마(아이콘과 통일) --- */
+  --bg-top:    #122a63;   /* 배경 그라데이션 위 (짙은 파랑) */
+  --bg-bottom: #0b1838;   /* 배경 그라데이션 아래 (더 짙게) */
+  --ink:       #ffffff;   /* 캡션 메인 텍스트 (흰색) */
+  --accent:    #ffffff;   /* 강조·현재 단계 (흰색) */
+  --muted:     #6b7aa0;   /* 트래커 비활성 단계 (회색) */
+  --sub:       #aab6d4;   /* 보조 텍스트 (연한 회청색) */
+
+  /* --- 치수 (세로) --- */
+  --frame-w: 2048px;
+  --frame-h: 2732px;
+  --pad:     130px;       /* 프레임 안쪽 여백 */
+  --radius:  40px;        /* 스크린샷 모서리 둥글기 */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 미리보기: 앱스토어 제품 페이지처럼 가로 캐러셀 =====
+   (각 프레임은 zoom으로 축소만 — 렌더 시엔 body.rendering이 zoom:1로 되돌림) */
+body {
+  background: #000;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 28px;
+  padding: 60px 48px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 100vh;
+}
+.frame {
+  width: var(--frame-w);
+  height: var(--frame-h);
+  background: linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--pad) var(--pad) 0;   /* 하단 0 — 스크린샷을 바닥에 붙여 흘려보냄 */
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  zoom: 0.28;                 /* 미리보기 축소 — 캐러셀에 여러 장 보이게 */
+  border-radius: 60px;       /* 앱스토어 카드 느낌 */
+}
+
+/* ===== 렌더 모드: render.mjs가 body에 .rendering을 붙임 → 풀사이즈 1:1 ===== */
+body.rendering {
+  display: block;
+  background: #fff;
+  padding: 0;
+  overflow: visible;
+}
+body.rendering .frame {
+  zoom: 1;
+  border-radius: 0;          /* 업로드 이미지는 모서리 직각 (스토어가 알아서 라운딩) */
+  margin: 0;
+}
+
+/* ---- 캡션 (상단) ---- */
+.caption {
+  text-align: center;
+  margin-bottom: 80px;
+  flex-shrink: 0;
+}
+.caption h2 {
+  color: var(--ink);
+  font-size: 104px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.18;
+}
+.caption .sub {
+  color: var(--sub);
+  font-size: 48px;
+  font-weight: 500;
+  margin-top: 28px;
+}
+
+/* ---- 루프 진행 트래커 (#3~#5 상단) ---- */
+.tracker-wrap { text-align: center; margin-bottom: 70px; flex-shrink: 0; }
+.tracker-eyebrow {
+  color: var(--sub);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  margin-bottom: 30px;
+}
+.tracker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  font-size: 74px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+.tracker .tstep { color: var(--muted); transition: none; }
+.tracker .tstep.on { color: var(--accent); }
+.tracker .tarrow { color: var(--muted); font-weight: 300; font-size: 64px; }
+
+/* ---- 단일 스크린샷 ---- */
+.shot {
+  flex: 1;
+  width: 100%;
+  border-radius: 96px 96px 0 0;     /* 베젤 바깥 모서리 (상단만) */
+  overflow: hidden;
+  box-shadow: 0 -10px 140px -20px rgba(0,0,0,.5);
+  /* 얇은 다크 베젤 (아이패드 프레임). 하단은 없음 → 바닥에 붙어 잘림 */
+  border: 30px solid #1b1c22;
+  border-bottom: none;
+  background: #faf8f3 center/cover no-repeat;
+  position: relative;
+  min-height: 0;
+}
+.shot img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; position: relative; z-index: 2; }
+
+/* 이미지 없을 때 보이는 플레이스홀더 라벨 (img가 로드되면 위에 덮임) */
+.shot::after {
+  content: attr(data-label);
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #b8b2a6; font-size: 60px; font-weight: 600;
+  z-index: 1;
+}

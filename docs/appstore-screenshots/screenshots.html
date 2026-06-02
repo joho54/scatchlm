@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ScatchLM App Store Screenshots</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- =====================================================================
+     iPad 12.9" 세로(portrait) 2048 x 2732 px · 7장
+     사용법:
+     1) 실기기에서 화면 캡처(세로) → shots/ 폴더에 아래 파일명대로 저장
+        (없으면 회색 플레이스홀더가 보입니다)
+     2) 브라우저로 이 파일 열어 디자인 확인
+     3) `node render.mjs` 실행 → out/ 에 2048x2732 PNG 7장
+     캡션 문구는 marketing-plan-v1.md §2.3 기준. 루프(#3~5)는 3장 분리 + 진행 트래커.
+     ===================================================================== -->
+
+<!-- #1 손글씨 + AI 피드백 -->
+<div class="frame" id="shot-1">
+  <div class="caption">
+    <h2>손으로 쓰면,<br>AI가 바로 첨삭</h2>
+    <div class="sub">타이핑 말고, 종이에 쓰듯 풀고 즉시 피드백</div>
+  </div>
+  <div class="shot" data-label="1-feedback.png">
+    <img src="shots/1-feedback.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #2 교재 grounding -->
+<div class="frame" id="shot-2">
+  <div class="caption">
+    <h2>내 교재 기준으로<br>답해줘요</h2>
+    <div class="sub">PDF를 올리면 페이지를 인용해 그 책 기준으로</div>
+  </div>
+  <div class="shot" data-label="2-textbook.png">
+    <img src="shots/2-textbook.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #3 루프 ① — 질문 -->
+<div class="frame" id="shot-3">
+  <div class="tracker-wrap">
+    <div class="tracker-eyebrow">한 캔버스에서 닫히는 학습 루프</div>
+    <div class="tracker">
+      <span class="tstep on">묻고</span>
+      <span class="tarrow">→</span>
+      <span class="tstep">연습하고</span>
+      <span class="tarrow">→</span>
+      <span class="tstep">다시 피드백</span>
+    </div>
+  </div>
+  <div class="shot" data-label="3a.png">
+    <img src="shots/3a.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #4 루프 ② — 연습 -->
+<div class="frame" id="shot-4">
+  <div class="tracker-wrap">
+    <div class="tracker-eyebrow">한 캔버스에서 닫히는 학습 루프</div>
+    <div class="tracker">
+      <span class="tstep">묻고</span>
+      <span class="tarrow">→</span>
+      <span class="tstep on">연습하고</span>
+      <span class="tarrow">→</span>
+      <span class="tstep">다시 피드백</span>
+    </div>
+  </div>
+  <div class="shot" data-label="3b.png">
+    <img src="shots/3b.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #5 루프 ③ — 재피드백 -->
+<div class="frame" id="shot-5">
+  <div class="tracker-wrap">
+    <div class="tracker-eyebrow">한 캔버스에서 닫히는 학습 루프</div>
+    <div class="tracker">
+      <span class="tstep">묻고</span>
+      <span class="tarrow">→</span>
+      <span class="tstep">연습하고</span>
+      <span class="tarrow">→</span>
+      <span class="tstep on">다시 피드백</span>
+    </div>
+  </div>
+  <div class="shot" data-label="3c.png">
+    <img src="shots/3c.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #6 범용성 -->
+<div class="frame" id="shot-6">
+  <div class="caption">
+    <h2>외국어든<br>전공이든</h2>
+    <div class="sub">고전어 작문·전공 문제 풀이·이론 심화까지</div>
+  </div>
+  <div class="shot" data-label="4-usage.png">
+    <img src="shots/4-usage.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #7 채팅 심화 -->
+<div class="frame" id="shot-7">
+  <div class="caption">
+    <h2>막히면<br>끝까지 파고들기</h2>
+    <div class="sub">이해될 때까지 이어서 질문</div>
+  </div>
+  <div class="shot" data-label="5-chat.png">
+    <img src="shots/5-chat.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+</body>
+</html>

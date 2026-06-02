@@ -130,11 +130,10 @@ final class LogService {
     private func flushLocked(completion: (() -> Void)? = nil) {
         guard !sending, !buffer.isEmpty else { completion?(); return }
 
-        // 릴리스 게이팅: 미인증이면 전송 보류(버퍼 유지).
+        // 미인증이어도 전송한다. 엔드포인트는 인증을 요구하지 않으며(익명 허용),
+        // 로그인 실패/온보딩 구간 로그는 정의상 토큰이 없는 상태에서 발생하므로
+        // 여기서 보류하면 그 텔레메트리가 영영 도착하지 않는다. 토큰은 있으면 첨부.
         let token = AuthService.shared.accessToken
-        #if !DEBUG
-        guard token != nil else { completion?(); return }
-        #endif
 
         sending = true
         let batch = Array(buffer.prefix(flushThreshold * 2))

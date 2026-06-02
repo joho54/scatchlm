@@ -7,12 +7,16 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import async_session
 from app.core.logging import setup_logging
+from app.core.sentry import init_sentry
 from app.middleware.request_log import RequestLogMiddleware
 from app.routers import account, admin, devlog, feedback, pdf, sync
 from app.services.storage import storage
 
 setup_logging()
 log = logging.getLogger(__name__)
+
+# Sentry는 app 생성 전에 init해야 ASGI/FastAPI 통합이 올바르게 결선된다(spec §4.1·A-2).
+init_sentry()
 
 
 app = FastAPI(title="ScatchLM API", version=settings.APP_VERSION)

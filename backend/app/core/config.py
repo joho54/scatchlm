@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     GIT_SHA: str = "dev"
     ENVIRONMENT: str = "dev"
 
+    # Sentry (에러/크래시 리포팅, O7). DSN 빈 값이면 SDK는 no-op(dev 안전).
+    # release=scatchlm-backend@{GIT_SHA}, environment=ENVIRONMENT 재사용(신규 env 불필요).
+    # traces_sample_rate=0이어도 trace_id 전파/상관은 유지(spec §3.1).
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
     # Storage: "local" (default) | "s3" (Naver Cloud Object Storage, S3 호환)
     STORAGE_BACKEND: str = "local"
     OBJECT_STORAGE_ENDPOINT: str = "https://kr.object.ncloudstorage.com"

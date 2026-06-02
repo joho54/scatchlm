@@ -23,7 +23,7 @@ def setup_logging() -> None:
 
     from app.core.request_context import RequestContextFilter
 
-    fmt = "%(asctime)s %(levelname)-8s [%(name)s] [%(request_id)s] %(message)s"
+    fmt = "%(asctime)s %(levelname)-8s [%(name)s] [trace:%(trace_id)s req:%(request_id)s] %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
 
     # 공통 포매터 + request_id 주입 필터

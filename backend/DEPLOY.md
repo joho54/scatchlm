@@ -192,6 +192,38 @@ xcrun devicectl device install app --device 00008103-000C65D43AEB001E \
 
 - Caddy access log: Caddyfile에 `log { output stdout; format console }` 활성화돼 있음. 모든 요청이 caddy 로그에 떨어짐
 - iOS FE 로그: `LogService`가 2초 주기로 `POST /api/dev/log/batch` → app 로그에 `[fe]` prefix로 기록
+- 모든 로그 라인은 `[trace:<32hex> req:<id>]` prefix를 가짐(O7). iOS가 보낸 요청은 BE 로그 trace_id == iOS Sentry trace_id로 상관됨
+
+## Sentry (에러·크래시 리포팅, O7)
+
+스펙: `docs/sentry-introduction-spec.md`. 코드(Track A·B)는 DSN 없이도 컴파일·동작(SDK no-op).
+아래는 **수동/운영 절차**(Track C)다.
+
+### C-1. 프로젝트 생성·DSN 발급 (sentry.io 대시보드)
+1. 조직 생성 후 프로젝트 2개:
+   - `scatchlm-backend` (Platform: **Python / FastAPI**)
+   - `scatchlm-ios` (Platform: **Apple / iOS (Cocoa)**)
+2. 각 프로젝트 Settings → Client Keys (DSN)에서 DSN 복사. **DSN은 커밋 금지.**
+
+### C-2. DSN 주입
+- **백엔드**: `/opt/scatchlm/.env.prod`에 `SENTRY_DSN=<backend-dsn>` + `SENTRY_TRACES_SAMPLE_RATE=0.05` 추가 후 `docker compose ... up -d`로 재기동. (템플릿: `.env.prod.example`)
+  - `GIT_SHA`가 실제 SHA로 주입돼야 release regression 추적이 의미 있음(G-2 체크리스트).
+- **iOS**: DSN을 `project.yml` target settings의 `INFOPLIST_KEY_SENTRY_DSN` 또는 Info.plist `SENTRY_DSN` 키로 주입(빌드설정/xcconfig 권장, 커밋 금지). 임시 dev 검증은 `UserDefaults`의 `sentryDSN` 키로도 가능(`Config.sentryDSN` 우선순위 참고).
+
+### C-3. dSYM 업로드 (iOS 심볼리케이션)
+릴리스 빌드의 dSYM을 Sentry에 올려야 크래시가 함수명·라인으로 보인다. 현재 CI 자동화 없음 → 수동:
+```bash
+# Archive 후 dSYM 경로 확인 → 업로드
+sentry-cli --auth-token <token> debug-files upload \
+  --org <org> --project scatchlm-ios \
+  ~/Library/Developer/Xcode/Archives/.../dSYMs
+```
+(향후 Xcode build phase 또는 fastlane으로 자동화)
+
+### 검증
+- BE: `SENTRY_DSN` 설정 후 의도적 5xx → 대시보드 이벤트 + `request_id`/`trace_id` tag + `release`/`environment`. 4xx(404)는 이벤트 안 생김. payload에 Authorization/이미지/본문 없음.
+- iOS: 의도적 크래시(`fatalError`) → 재실행 시 크래시 이벤트(심볼리케이션). iOS 에러와 그 요청의 BE 에러가 동일 `trace_id`로 Trace 뷰에서 연결.
+- DSN 빈 값에서도 모든 로그 라인에 `[trace:…]` 존재.
 
 ## 트러블슈팅 (실제로 겪었던 것들)
 

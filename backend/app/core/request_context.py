@@ -5,6 +5,7 @@ import contextvars
 import logging
 
 _request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+_trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
 _user_id: contextvars.ContextVar[str] = contextvars.ContextVar("user_id", default="-")
 
 
@@ -16,6 +17,14 @@ def get_request_id() -> str:
     return _request_id.get()
 
 
+def set_trace_id(value: str) -> None:
+    _trace_id.set(value)
+
+
+def get_trace_id() -> str:
+    return _trace_id.get()
+
+
 def set_user_id(value: str) -> None:
     _user_id.set(value)
 
@@ -25,8 +34,9 @@ def get_user_id() -> str:
 
 
 class RequestContextFilter(logging.Filter):
-    """로그 레코드에 request_id를 주입한다 (포맷에서 %(request_id)s 사용)."""
+    """로그 레코드에 trace_id/request_id를 주입한다 (포맷에서 %(trace_id)s·%(request_id)s 사용)."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = _request_id.get()
+        record.trace_id = _trace_id.get()
         return True

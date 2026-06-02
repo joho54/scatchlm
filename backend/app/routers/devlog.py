@@ -18,6 +18,7 @@ class LogEntry(BaseModel):
     ts: str | None = None
     timestamp: str | None = None
     request_id: str | None = None
+    trace_id: str | None = None
 
 
 class LogContext(BaseModel):
@@ -28,6 +29,8 @@ class LogContext(BaseModel):
     device_model: str | None = None
     locale: str | None = None
     session_id: str | None = None
+    # FE Sentry trace_id (spec §4.3). FE 로그↔Sentry 트레이스 상관.
+    trace_id: str | None = None
 
 
 class LogBatch(BaseModel):
@@ -52,6 +55,10 @@ def _emit(entry: LogEntry, context: "LogContext | None"):
     level = entry.level.upper()
     ts = entry.ts or entry.timestamp or datetime.now(timezone.utc).isoformat()
     parts = [f"[FE {ts}]"]
+    # FE Sentry trace_id — 라인별 entry 우선, 없으면 batch context (spec §4.3).
+    trace_id = entry.trace_id or (context.trace_id if context else None)
+    if trace_id:
+        parts.append(f"[trace:{trace_id}]")
     if context and context.session_id:
         parts.append(f"[sess:{context.session_id[:8]}]")
     if context and context.user_id:

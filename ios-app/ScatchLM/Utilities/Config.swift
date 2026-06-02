@@ -27,4 +27,25 @@ enum Config {
         get { UserDefaults.standard.string(forKey: "responseLanguage") ?? "Korean" }
         set { UserDefaults.standard.set(newValue, forKey: "responseLanguage") }
     }
+
+    /// 수식(LaTeX) 렌더링 모드.
+    /// - auto(자동): 콘텐츠에 수식이 감지되면 KaTeX(HTML), 아니면 네이티브 마크다운
+    /// - on(수식 보기): 항상 KaTeX
+    /// - off(수식 안 보기): 항상 네이티브 (수식 미렌더)
+    enum MathRenderMode: String, CaseIterable {
+        case auto, on, off
+
+        var label: String {
+            switch self {
+            case .auto: return "자동"
+            case .on: return "수식 보기"
+            case .off: return "수식 안 보기"
+            }
+        }
+    }
+
+    static var mathRenderMode: MathRenderMode {
+        get { MathRenderMode(rawValue: UserDefaults.standard.string(forKey: "mathRenderMode") ?? "") ?? .auto }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "mathRenderMode") }
+    }
 }

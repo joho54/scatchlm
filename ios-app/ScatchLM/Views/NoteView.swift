@@ -1054,12 +1054,16 @@ struct PencilKitCanvasView: UIViewRepresentable {
             card.isUserInteractionEnabled = true
 
             let rawText = parsed?.displayText ?? fb.content
+            let useKaTeX = MarkdownRender.shouldUseKaTeX(rawText)
 
-            // 카드 높이 추정용 측정 텍스트뷰 (화면에는 안 붙임).
-            // 실제 표시는 BakedMarkdownUIView(WKWebView)가 하고, 넘치면 내부 스크롤.
-            let measuringView = UITextView()
-            measuringView.textContainerInset = .zero
-            measuringView.textContainer.lineFragmentPadding = 0
+            // 네이티브 경로의 표시 + (양 경로 공통) 높이 추정용 텍스트뷰.
+            // KaTeX 경로에선 측정 전용이고, 표시는 BakedMarkdownUIView(WKWebView)가 한다.
+            let textView = UITextView()
+            textView.isEditable = false
+            textView.isScrollEnabled = false
+            textView.backgroundColor = .clear
+            textView.textContainerInset = .zero
+            textView.textContainer.lineFragmentPadding = 0
             if let attrStr = try? NSAttributedString(
                 markdown: rawText,
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -1067,14 +1071,17 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 let mutable = NSMutableAttributedString(attributedString: attrStr)
                 mutable.addAttributes([
                     .font: UIFont.systemFont(ofSize: 14),
+                    .foregroundColor: UIColor.label,
                 ], range: NSRange(location: 0, length: mutable.length))
-                measuringView.attributedText = mutable
+                textView.attributedText = mutable
             } else {
-                measuringView.text = rawText
-                measuringView.font = .systemFont(ofSize: 14)
+                textView.text = rawText
+                textView.font = .systemFont(ofSize: 14)
+                textView.textColor = .label
             }
 
-            let label = BakedMarkdownUIView(content: rawText, fontSize: 14)
+            // 표시 뷰: 수식이면 WKWebView, 아니면 네이티브 텍스트뷰(측정뷰 재사용).
+            let label: UIView = useKaTeX ? BakedMarkdownUIView(content: rawText, fontSize: 14) : textView
 
             let buttonBar = UIStackView()
             buttonBar.axis = .horizontal
@@ -1153,7 +1160,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 buttonBar.heightAnchor.constraint(equalToConstant: 28),
             ])
 
-            let labelSize = measuringView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
+            let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
             let cardHeight = labelSize.height + 48
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)

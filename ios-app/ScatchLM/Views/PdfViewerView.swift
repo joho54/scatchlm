@@ -162,7 +162,7 @@ struct PdfViewerView: View {
         HStack {
             if msg.role == "user" { Spacer(minLength: 60) }
             VStack(alignment: .leading, spacing: 4) {
-                BakedMarkdownView(content: msg.content)
+                MarkdownContentView(content: msg.content)
                 if msg.role != "user" {
                     Divider()
                     HStack(spacing: 12) {
@@ -230,7 +230,7 @@ struct PdfViewerView: View {
                                     }
 
                                     if let content = guide.content, !content.isEmpty {
-                                        BakedMarkdownView(content: content)
+                                        MarkdownContentView(content: content)
                                     }
                                 }
                                 .padding(.horizontal)

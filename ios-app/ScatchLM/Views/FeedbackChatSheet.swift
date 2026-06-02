@@ -124,7 +124,7 @@ struct FeedbackChatSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    BakedMarkdownView(content: content)
+                    MarkdownContentView(content: content)
 
                     Divider()
                     HStack(spacing: 12) {

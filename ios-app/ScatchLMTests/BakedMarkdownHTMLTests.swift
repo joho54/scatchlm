@@ -41,3 +41,35 @@ final class BakedMarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("font-size:18px"))
     }
 }
+
+/// 수식 감지 휴리스틱 회귀 테스트 — 자동 모드 분기의 핵심.
+final class MarkdownMathDetectionTests: XCTestCase {
+
+    func testDisplayMathDetected() {
+        XCTAssertTrue(MarkdownRender.containsMath("결과: $$E = mc^2$$ 입니다"))
+    }
+
+    func testParenAndBracketDelimitersDetected() {
+        XCTAssertTrue(MarkdownRender.containsMath("값은 \\(x^2\\) 또는 \\[y\\]"))
+    }
+
+    func testBackslashCommandDetected() {
+        XCTAssertTrue(MarkdownRender.containsMath("분수 \\frac{1}{2}"))
+    }
+
+    func testInlineMathWithMathCharDetected() {
+        XCTAssertTrue(MarkdownRender.containsMath("여기 $x_1$ 항"))
+        XCTAssertTrue(MarkdownRender.containsMath("$a^2 + b^2$"))
+    }
+
+    func testCurrencyNotDetectedAsMath() {
+        // 통화 표기는 수식으로 오인되면 안 됨 (auto 모드에서 네이티브 렌더 유지)
+        XCTAssertFalse(MarkdownRender.containsMath("이건 $5에서 $10로 올랐다"))
+        XCTAssertFalse(MarkdownRender.containsMath("가격은 $100 입니다"))
+    }
+
+    func testPlainMarkdownNotDetected() {
+        XCTAssertFalse(MarkdownRender.containsMath("**굵게** 그리고 *기울임* 그리고 `code`"))
+        XCTAssertFalse(MarkdownRender.containsMath("- 목록\n- 항목"))
+    }
+}

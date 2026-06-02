@@ -214,6 +214,21 @@ final class DatabaseService {
         try migrator.migrate(dbQueue)
     }
 
+    // MARK: - 계정 삭제용 하드 purge (L1 / D-1)
+
+    /// 계정 삭제 시 로컬 전 테이블 행을 **하드 삭제**한다(sync 소프트삭제와 별개).
+    /// sync 대상 4테이블은 user_id로 스코프, pdf_drawings는 user 스코프가 없어 전체 삭제.
+    func purgeAllData(userId: String) throws {
+        guard !userId.isEmpty else { return }
+        try dbQueue.write { db in
+            for table in ["feedback_chats", "feedbacks", "note_pages", "notes"] {
+                try db.execute(sql: "DELETE FROM \(table) WHERE user_id = ?", arguments: [userId])
+            }
+            // pdf_drawings는 user 스코프 컬럼이 없음 — 디바이스 로컬 전체 삭제.
+            try db.execute(sql: "DELETE FROM pdf_drawings")
+        }
+    }
+
     // MARK: - 레거시 행 claim (§4.6)
 
     /// v7 이전 단일 공유 DB의 sentinel(user_id='') 행을 현재 user.id로 1회 흡수한다.

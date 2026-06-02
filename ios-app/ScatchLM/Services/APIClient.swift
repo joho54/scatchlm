@@ -17,6 +17,29 @@ final class APIClient {
 
     private var baseURL: String { Config.apiBaseURL }
 
+    /// 응답을 검증한다. 비-2xx면 적절한 APIError를 던지고, X-Request-Id를 로그에 동봉한다.
+    /// 반환값은 서버 생성 request_id(없으면 nil).
+    @discardableResult
+    private func validate(
+        _ data: Data, _ response: URLResponse, method: String, path: String
+    ) throws -> String? {
+        let http = response as? HTTPURLResponse
+        let statusCode = http?.statusCode ?? 0
+        let requestId = http?.value(forHTTPHeaderField: "X-Request-Id")
+        var logData: [String: Any] = ["bytes": "\(data.count)"]
+        if let requestId { logData["request_id"] = requestId }
+        appLog("api", "← \(statusCode) \(method) \(path)", logData)
+
+        guard 200..<300 ~= statusCode else {
+            // 429 quota 초과 — 친화 처리(§3.2-b)
+            if statusCode == 429, let info = QuotaInfo.decode(from: data) {
+                throw APIError.quotaExceeded(info)
+            }
+            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return requestId
+    }
+
     private func authHeaders() async -> [String: String] {
         var headers = ["Content-Type": "application/json"]
         if let token = AuthService.shared.accessToken {
@@ -41,12 +64,7 @@ final class APIClient {
 
         appLog("api", "→ GET \(path)", query.isEmpty ? nil : query)
         let (data, response) = try await session.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        appLog("api", "← \(statusCode) GET \(path)", ["bytes": "\(data.count)"])
-        guard 200..<300 ~= statusCode else {
-            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
-
+        try validate(data, response, method: "GET", path: path)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
@@ -71,11 +89,8 @@ final class APIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
-        return (data, httpResponse)
+        try validate(data, response, method: "POST", path: path)
+        return (data, response as! HTTPURLResponse)
     }
 
     // MARK: - POST (multipart/form-data)
@@ -119,14 +134,7 @@ final class APIClient {
         request.httpBody = body
 
         let (data, response) = try await session.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let bodyStr = String(data: data, encoding: .utf8) ?? ""
-        appLog("api", "← \(statusCode) multipart response", ["body": String(bodyStr.prefix(500))])
-
-        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-            throw APIError.serverError(statusCode, bodyStr)
-        }
-
+        try validate(data, response, method: "POST(multipart)", path: path)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
@@ -142,11 +150,7 @@ final class APIClient {
 
         appLog("api", "→ POST \(path)")
         let (data, response) = try await session.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        appLog("api", "← \(statusCode) POST \(path)", ["bytes": "\(data.count)"])
-        guard 200..<300 ~= statusCode else {
-            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
+        try validate(data, response, method: "POST", path: path)
         return try JSONDecoder().decode(Res.self, from: data)
     }
 
@@ -158,11 +162,7 @@ final class APIClient {
             request.setValue(value, forHTTPHeaderField: key)
         }
         let (data, response) = try await session.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        appLog("api", "← \(statusCode) GET \(path)", ["bytes": "\(data.count)"])
-        guard 200..<300 ~= statusCode else {
-            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
+        try validate(data, response, method: "GET", path: path)
         return data
     }
 
@@ -202,12 +202,40 @@ final class APIClient {
         request.httpBody = body
 
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
-
+        try validate(data, response, method: "POST(upload)", path: path)
         return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// DELETE — 본문 없이 호출, 디코딩 가능한 응답 반환(계정 삭제 등).
+    @discardableResult
+    func delete<T: Decodable>(_ path: String) async throws -> T {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "DELETE"
+        for (key, value) in await authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        appLog("api", "→ DELETE \(path)")
+        let (data, response) = try await session.data(for: request)
+        try validate(data, response, method: "DELETE", path: path)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// DELETE — 502(부분 실패)도 호출부에서 분기할 수 있게 status를 반환.
+    /// 계정 삭제(§3.2-a): 200=완전 성공, 502=데이터 삭제됐으나 auth 잔존(로컬 purge는 진행).
+    func deleteRaw(_ path: String) async throws -> (status: Int, data: Data) {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "DELETE"
+        for (key, value) in await authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        appLog("api", "→ DELETE \(path)")
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        var logData: [String: Any] = ["bytes": "\(data.count)"]
+        if let rid = http?.value(forHTTPHeaderField: "X-Request-Id") { logData["request_id"] = rid }
+        appLog("api", "← \(status) DELETE \(path)", logData)
+        return (status, data)
     }
 }
 
@@ -238,13 +266,52 @@ extension APIClient: SyncAPIClient {
     }
 }
 
+/// 일일 사용량 한도 초과(429) 응답 본문 (§3.2-b).
+struct QuotaInfo: Decodable {
+    let code: String
+    let tier: String?
+    let limit_usd: Double?
+    let used_usd: Double?
+    let reset_at: String?
+
+    static func decode(from data: Data) -> QuotaInfo? {
+        // detail 래핑 형태({"detail": {...}}) 와 평탄 형태 모두 수용.
+        if let info = try? JSONDecoder().decode(QuotaInfo.self, from: data), info.code == "quota_exceeded" {
+            return info
+        }
+        struct Wrapper: Decodable { let detail: QuotaInfo }
+        if let w = try? JSONDecoder().decode(Wrapper.self, from: data), w.detail.code == "quota_exceeded" {
+            return w.detail
+        }
+        return nil
+    }
+}
+
 enum APIError: LocalizedError {
     case serverError(Int, String)
+    case quotaExceeded(QuotaInfo)
 
     var errorDescription: String? {
         switch self {
-        case .serverError(let code, let detail):
-            return "Server error \(code): \(detail)"
+        case .quotaExceeded:
+            return "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+        case .serverError(let code, _):
+            switch code {
+            case 401:
+                return "로그인이 만료되었어요. 다시 로그인해 주세요."
+            case 403:
+                return "이 작업을 수행할 권한이 없어요."
+            case 404:
+                return "요청한 항목을 찾을 수 없어요."
+            case 413:
+                return "파일이 너무 커요. 더 작은 파일을 사용해 주세요."
+            case 429:
+                return "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+            case 500...599:
+                return "서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
+            default:
+                return "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요."
+            }
         }
     }
 }

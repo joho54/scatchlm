@@ -39,9 +39,13 @@ struct ScatchLMApp: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            appLog("lifecycle", "scenePhase active")
             // foreground 진입: dirty push → pull (송신 시작점)
             SyncService.shared.requestSync()
         case .background, .inactive:
+            appLog("lifecycle", "scenePhase background/inactive")
+            // 로그 버퍼도 즉시 flush (유실 방지, O6)
+            LogService.shared.flush()
             // background/종료 직전: 디바운스 취소 + 즉시 dirty flush (송신 보장)
             flushOnBackground()
         @unknown default:

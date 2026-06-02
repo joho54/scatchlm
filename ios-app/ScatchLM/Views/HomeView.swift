@@ -22,6 +22,9 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
+            if filteredNotes.isEmpty {
+                emptyState
+            }
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(filteredNotes) { note in
                     NavigationLink(value: note.id) {
@@ -81,6 +84,26 @@ struct HomeView: View {
             }
         }
         .onAppear { loadNotes() }
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: search.isEmpty ? "pencil.and.outline" : "magnifyingglass")
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+            Text(search.isEmpty ? "아직 노트가 없어요" : "검색 결과가 없어요")
+                .font(.headline)
+            Text(search.isEmpty
+                 ? "오른쪽 위 + 버튼을 눌러 첫 노트를 만들어 보세요."
+                 : "다른 검색어를 입력해 보세요.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 80)
+        .padding(.horizontal, 32)
     }
 
     private func loadNotes() {

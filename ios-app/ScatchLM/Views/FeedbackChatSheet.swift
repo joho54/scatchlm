@@ -12,6 +12,7 @@ struct FeedbackChatSheet: View {
     @State private var input = ""
     @State private var sending = false
     @State private var pushedRatingMessageId: String?
+    @State private var errorMessage: String?
 
     private let db = DatabaseService.shared
 
@@ -92,6 +93,14 @@ struct FeedbackChatSheet: View {
                 }
             }
             .onAppear { loadMessages() }
+            .alert("알림", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
             .navigationDestination(isPresented: Binding(
                 get: { pushedRatingMessageId != nil },
                 set: { if !$0 { pushedRatingMessageId = nil } }
@@ -228,7 +237,15 @@ struct FeedbackChatSheet: View {
             userRating: nil,
             userRatingSyncedAt: nil
         )
-        try? db.saveChatMessage(&userMsg)
+        // 사용자 메시지 로컬 저장 — 실패 시 롤백 + 알림 (L7/O11)
+        do {
+            try db.saveChatMessage(&userMsg)
+        } catch {
+            appLogError("chat", "saveChatMessage(user) failed", ["error": "\(error)"])
+            errorMessage = "메시지를 저장하지 못했어요."
+            sending = false
+            return
+        }
         messages.append(userMsg)
 
         // Build history for API
@@ -267,20 +284,8 @@ struct FeedbackChatSheet: View {
                     parent_feedback_id: feedback.serverFeedbackId
                 )
 
-                let jsonData = try JSONEncoder().encode(reqBody)
-                var request = URLRequest(url: URL(string: "\(Config.apiBaseURL)/feedback/chat")!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                if let token = AuthService.shared.accessToken {
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                }
-                request.httpBody = jsonData
-
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 45
-                config.waitsForConnectivity = true
-                let (data, _) = try await URLSession(configuration: config).data(for: request)
-                let res = try JSONDecoder().decode(ChatRes.self, from: data)
+                // 오프라인 일관성·429 처리를 위해 별도 URLSession 대신 APIClient로 통일 (§5.5/F-4)
+                let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
 
                 // Save assistant message with server id
                 var assistantMsg = ChatMessageRecord(
@@ -293,7 +298,11 @@ struct FeedbackChatSheet: View {
                     userRating: nil,
                     userRatingSyncedAt: nil
                 )
-                try? db.saveChatMessage(&assistantMsg)
+                do {
+                    try db.saveChatMessage(&assistantMsg)
+                } catch {
+                    appLogError("chat", "saveChatMessage(assistant) failed", ["error": "\(error)"])
+                }
 
                 await MainActor.run {
                     messages.append(assistantMsg)
@@ -301,7 +310,14 @@ struct FeedbackChatSheet: View {
                 }
             } catch {
                 appLogError("chat", "send failed", ["error": "\(error)"])
-                await MainActor.run { sending = false }
+                await MainActor.run {
+                    if case APIError.quotaExceeded = error {
+                        errorMessage = "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+                    } else {
+                        errorMessage = (error as? LocalizedError)?.errorDescription ?? "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요."
+                    }
+                    sending = false
+                }
             }
         }
     }

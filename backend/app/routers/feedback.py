@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from anthropic import AsyncAnthropic
 
-from app.core.auth import get_current_user_id, get_tier, get_verified_payload
+from app.core.auth import get_current_user_id, get_role, get_tier, get_verified_payload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.quota import check_daily_quota
@@ -65,7 +65,7 @@ async def request_feedback(
     log.info("Feedback [%s]: start user=%s tier=%s note=%s page=%s", rid, user_id, tier, note_id, current_page)
 
     # quota 체크 — 초과 시 LLM 호출 없이 429
-    await check_daily_quota(user_id, tier, db)
+    await check_daily_quota(user_id, tier, db, is_admin=get_role(payload) == "admin")
 
     image_bytes = await image.read()
     if not image_bytes:
@@ -288,7 +288,7 @@ async def feedback_chat(
              user_id, tier, len(req.history), len(req.message), req.textbook_id)
 
     # quota 체크 — 초과 시 LLM 호출 없이 429
-    await check_daily_quota(user_id, tier, db)
+    await check_daily_quota(user_id, tier, db, is_admin=get_role(payload) == "admin")
 
     # 현재 챕터의 전체 텍스트를 컨텍스트로 주입
     textbook_context = ""

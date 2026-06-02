@@ -43,8 +43,13 @@ def _limit_for_tier(tier: str) -> float:
     return settings.DAILY_COST_LIMIT_NORMAL_USD
 
 
-async def check_daily_quota(user_id: str, tier: str, db: AsyncSession) -> None:
-    """일일 비용 한도 초과 시 HTTPException(429)를 던진다. 한도 0/미설정이면 무제한(통과)."""
+async def check_daily_quota(user_id: str, tier: str, db: AsyncSession, *, is_admin: bool = False) -> None:
+    """일일 비용 한도 초과 시 HTTPException(429)를 던진다. 한도 0/미설정이면 무제한(통과).
+
+    is_admin(검증된 JWT role=="admin")이면 한도 무관하게 무제한 — 운영자 dogfooding용.
+    """
+    if is_admin:
+        return  # 운영자(admin) 무제한
     limit = _limit_for_tier(tier)
     if not limit or limit <= 0:
         return  # 무제한 (락도 생략 — 오버헤드 회피)

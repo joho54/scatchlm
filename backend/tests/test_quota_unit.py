@@ -81,3 +81,19 @@ async def test_quota_unlimited_tier_skips_lock(monkeypatch):
 
     db.execute.assert_not_awaited()
     db.scalar.assert_not_awaited()
+
+
+async def test_quota_admin_unlimited(monkeypatch):
+    """admin(is_admin=True)은 한도가 설정·초과돼 있어도 무제한 — lock·집계 생략, 429 없음."""
+    from app.core import quota
+
+    monkeypatch.setattr(quota.settings, "DAILY_COST_LIMIT_NORMAL_USD", 1.0)  # 한도 있음
+
+    db = AsyncMock()
+    db.execute = AsyncMock()
+    db.scalar = AsyncMock(return_value=999.0)  # 한도 초과 상태여도
+
+    await check_daily_quota("admin-user", "normal", db, is_admin=True)  # 예외 없이 통과
+
+    db.execute.assert_not_awaited()
+    db.scalar.assert_not_awaited()

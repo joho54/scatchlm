@@ -29,3 +29,17 @@ def test_chapter_guide_is_subject_agnostic():
     assert "Korean" in prompt
     assert "language learning tutor" not in prompt
     assert "grammar/vocab" not in prompt
+
+
+def test_page_guide_forbids_revealing_answers():
+    """연습문제 정답을 직접 노출하지 말라는 제약이 있어야 한다 (학습 보조 앱 핵심)."""
+    prompt = _page_guide_prompt("Korean")
+    assert "do NOT reveal the answers" in prompt
+    assert "exercises" in prompt
+
+
+def test_page_guide_no_student_label():
+    """사용자를 'a student'/'학생' 3인칭으로 지칭하지 않아야 한다 (직접 대화체)."""
+    prompt = _page_guide_prompt("Korean")
+    assert "a student" not in prompt
+    assert "helping the user" in prompt

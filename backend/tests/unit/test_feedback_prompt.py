@@ -40,3 +40,12 @@ def test_system_prompt_is_subject_agnostic():
     assert "foreign language learning assistant" not in physics
     # 비언어 분야도 다룰 수 있다는 적응형 지시가 있어야 함
     assert "non-language subjects" in physics
+
+
+def test_system_prompt_no_student_label():
+    """사용자를 'a student'로 지칭하지 않고 직접 대화체로 지칭해야 한다."""
+    prompt = _build_system_prompt("물리학", "Korean")
+    assert "a student" not in prompt
+    assert "helping the user" in prompt
+    # 2인칭 직접 지칭 + '학생' 라벨 금지 지시가 명시되어야 함
+    assert "ADDRESS THE USER DIRECTLY" in prompt

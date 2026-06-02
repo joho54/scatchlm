@@ -1,6 +1,6 @@
 # ScatchLM
 
-펜 드로잉 기반 외국어 학습 보조 iPad 앱. Apple Pencil 손글씨를 Claude Vision API로 인식하고, AI 피드백을 제공한다.
+펜 드로잉 기반 학습 보조 iPad 앱. Apple Pencil 손글씨를 Claude Vision API로 인식하고, AI 피드백을 제공한다. 외국어(고전어 포함)·전공 공부·기술 심화 등 범용 학습에 쓰인다 — 손으로 쓰며 정리하고 즉시 AI 피드백을 받는 학습 루프가 핵심이며, 교재 PDF를 연결하면 RAG로 그 교재 기준 피드백·채팅을 제공한다.
 
 ## 프로젝트 구조
 

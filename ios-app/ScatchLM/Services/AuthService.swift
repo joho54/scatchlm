@@ -35,6 +35,8 @@ final class AuthService {
         let previous = DatabaseService.shared.currentUserId
         let next = syncUserId
         DatabaseService.shared.currentUserId = next
+        // Sentry 영향 유저 범위 — 식별자만(이메일·이름 금지, spec §3.2). 로그아웃 시 클리어.
+        Observability.setUser(next)
         if let next {
             if previous != next {
                 SyncService.shared.onLogin(userId: next)
@@ -73,6 +75,28 @@ final class AuthService {
 
     func signIn(email: String, password: String) async throws {
         try await client.auth.signIn(email: email, password: password)
+    }
+
+    // MARK: - 비밀번호 재설정 (OTP, 인앱)
+
+    /// 1단계: 재설정 OTP(6자리) 이메일 발송. Supabase "Reset Password" 템플릿에 {{ .Token }} 노출 필요.
+    /// 이메일 존재 여부를 노출하지 않도록 Supabase는 성공/실패와 무관하게 동일 응답을 준다(열거 방지).
+    func requestPasswordReset(email: String) async throws {
+        appLog("auth", "password reset request")
+        try await client.auth.resetPasswordForEmail(email)
+    }
+
+    /// 2단계: OTP 검증(복구 세션 확립) → 새 비밀번호로 갱신. 성공 시 로그인 상태가 된다.
+    func completePasswordReset(email: String, token: String, newPassword: String) async throws {
+        appLog("auth", "password reset verify start")
+        do {
+            try await client.auth.verifyOTP(email: email, token: token, type: .recovery)
+            try await client.auth.update(user: UserAttributes(password: newPassword))
+            appLog("auth", "password reset success")
+        } catch {
+            appLogError("auth", "password reset failed", ["error": "\(error)"])
+            throw error
+        }
     }
 
     /// Google OAuth 로그인. supabase-swift가 ASWebAuthenticationSession을 앱 내부 시트로 띄우고

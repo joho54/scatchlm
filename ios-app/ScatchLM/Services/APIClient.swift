@@ -31,9 +31,15 @@ final class APIClient {
         appLog("api", "← \(statusCode) \(method) \(path)", logData)
 
         guard 200..<300 ~= statusCode else {
-            // 429 quota 초과 — 친화 처리(§3.2-b)
+            // 429 quota 초과 — 친화 처리(§3.2-b). 정상 흐름이라 Sentry 미캡처.
             if statusCode == 429, let info = QuotaInfo.decode(from: data) {
                 throw APIError.quotaExceeded(info)
+            }
+            // 서버 5xx만 Sentry 에러로 캡처(4xx는 클라이언트 측, 노이즈 제외 — spec §B-3·§7).
+            if statusCode >= 500 {
+                Observability.captureServerError(
+                    status: statusCode, method: method, path: path, requestId: requestId
+                )
             }
             throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
         }

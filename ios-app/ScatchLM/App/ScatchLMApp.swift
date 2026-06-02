@@ -13,6 +13,11 @@ struct ScatchLMApp: App {
     @State private var auth = AuthService.shared
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // 가장 먼저 Sentry 시작 — 이후 발생하는 크래시/예외를 포착(spec §4.2·B-2).
+        Observability.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {

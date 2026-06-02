@@ -22,6 +22,24 @@ enum Config {
     // MARK: - App
     static let bundleID = "com.joho54.scatchlm"
 
+    // MARK: - Sentry (에러/크래시 리포팅, O7)
+    /// DSN 우선순위: UserDefaults `sentryDSN`(dev 임시) → Info.plist `SENTRY_DSN`(빌드설정 주입) → 빈 값.
+    /// 빈 값이면 SentrySDK.start를 호출하지 않아 SDK 완전 비활성(spec §4.2·B-2). DSN은 커밋 금지.
+    static var sentryDSN: String {
+        if let dev = UserDefaults.standard.string(forKey: "sentryDSN"), !dev.isEmpty {
+            return dev
+        }
+        if let plist = Bundle.main.object(forInfoDictionaryKey: "SENTRY_DSN") as? String {
+            return plist.trimmingCharacters(in: .whitespaces)
+        }
+        return ""
+    }
+
+    /// 백엔드 트레이스 전파 대상 호스트(spec §3.1). 외부(Anthropic 등)엔 헤더 미주입.
+    static var tracePropagationHosts: [String] {
+        ["scatchlm.duckdns.org", devApiHost]
+    }
+
     // MARK: - 약관/정책 (G-1 호스팅, Caddy 정적)
     static let privacyPolicyURL = "https://scatchlm.duckdns.org/privacy"
     static let termsOfServiceURL = "https://scatchlm.duckdns.org/terms"

@@ -109,13 +109,21 @@ final class LogService {
         queue.async { [weak self] in self?.flushLocked() }
     }
 
-    /// background/terminate 시 동기적으로 끝까지 전송 시도.
-    func flushBlocking(timeout: TimeInterval = 3.0) {
-        let sem = DispatchSemaphore(value: 0)
-        queue.async { [weak self] in
-            self?.flushLocked { sem.signal() }
+    /// background/terminate 시 best-effort 전송. **메인스레드를 블로킹하지 않는다.**
+    /// 매 enqueue마다 persistToDisk()가 돌므로 durability는 디스크 버퍼가 보장한다
+    /// (네트워크 전송 실패/미완료여도 다음 실행의 loadFromDisk로 복구). 따라서 세마포어로
+    /// 메인을 멈출 필요가 없고, beginBackgroundTask로 잠깐의 추가 실행시간만 확보한다.
+    func flushOnLifecycle() {
+        let app = UIApplication.shared
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        let endTask = {
+            if bgTask != .invalid { app.endBackgroundTask(bgTask); bgTask = .invalid }
         }
-        _ = sem.wait(timeout: .now() + timeout)
+        bgTask = app.beginBackgroundTask(withName: "logservice.flush", expirationHandler: endTask)
+        queue.async { [weak self] in
+            guard let self else { endTask(); return }
+            self.flushLocked { endTask() }
+        }
     }
 
     /// queue 위에서만 호출. 전송 성공 후에만 dequeue.
@@ -178,7 +186,7 @@ final class LogService {
 
     private func context() -> [String: Any] {
         let info = Bundle.main.infoDictionary
-        return [
+        var ctx: [String: Any] = [
             "user_id": AuthService.shared.syncUserId ?? "",
             "app_version": (info?["CFBundleShortVersionString"] as? String) ?? "",
             "build": (info?["CFBundleVersion"] as? String) ?? "",
@@ -187,6 +195,10 @@ final class LogService {
             "locale": Locale.current.identifier,
             "session_id": sessionId,
         ]
+        // FE 로그↔Sentry 트레이스 상관 — 현재 trace_id 동봉(spec §4.3). 없으면 생략.
+        let traceId = Observability.currentTraceId()
+        if !traceId.isEmpty { ctx["trace_id"] = traceId }
+        return ctx
     }
 
     private static func deviceModel() -> String {
@@ -232,10 +244,10 @@ final class LogService {
     private func registerLifecycle() {
         let nc = NotificationCenter.default
         nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
-            self?.flushBlocking()
+            self?.flushOnLifecycle()
         }
         nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
-            self?.flushBlocking()
+            self?.flushOnLifecycle()
         }
     }
 }

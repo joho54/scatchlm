@@ -345,11 +345,12 @@ async def get_page_guide(
         select(PageGuide).where(
             PageGuide.textbook_id == textbook_id,
             PageGuide.page == page,
+            PageGuide.response_language == response_language,
         )
     )
     cached = cached_result.scalar_one_or_none()
     if cached:
-        log.info("Guide cache hit: textbook=%s page=%d", textbook_id, page)
+        log.info("Guide cache hit: textbook=%s page=%d lang=%s", textbook_id, page, response_language)
         data = json.loads(cached.content)
         # LLM이 connections를 dict로 반환한 경우 문자열로 변환
         if isinstance(data.get("connections"), dict):
@@ -386,12 +387,13 @@ async def get_page_guide(
         id=str(uuid.uuid4()),
         textbook_id=textbook_id,
         page=page,
+        response_language=response_language,
         content=json.dumps(data, ensure_ascii=False),
         ai_response_id=ai_resp.id,
     )
     db.add(guide)
     await db.commit()
-    log.info("Guide generated and cached: textbook=%s page=%d", textbook_id, page)
+    log.info("Guide generated and cached: textbook=%s page=%d lang=%s", textbook_id, page, response_language)
 
     return PageGuideResponse(page=page, cached=False, feedback_id=ai_resp.id, **data)
 
@@ -449,11 +451,12 @@ async def get_chapter_guide(
         select(PageGuide).where(
             PageGuide.textbook_id == textbook_id,
             PageGuide.page == cache_key,
+            PageGuide.response_language == response_language,
         )
     )
     cached = cached_result.scalar_one_or_none()
     if cached:
-        log.info("Chapter guide cache hit: chapter=%s", chapter_id)
+        log.info("Chapter guide cache hit: chapter=%s lang=%s", chapter_id, response_language)
         data = json.loads(cached.content)
         return ChapterGuideResponse(
             chapter_id=chapter_id,
@@ -495,12 +498,13 @@ async def get_chapter_guide(
         id=str(uuid.uuid4()),
         textbook_id=textbook_id,
         page=cache_key,
+        response_language=response_language,
         content=json.dumps(data, ensure_ascii=False),
         ai_response_id=ai_resp.id,
     )
     db.add(guide)
     await db.commit()
-    log.info("Chapter guide generated and cached: chapter=%s", chapter_id)
+    log.info("Chapter guide generated and cached: chapter=%s lang=%s", chapter_id, response_language)
 
     return ChapterGuideResponse(
         chapter_id=chapter_id,

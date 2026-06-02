@@ -345,7 +345,10 @@ async def feedback_chat(
         f"You are a study tutor helping a student learn{subject_clause}, often alongside their textbook. "
         "If the subject is a language, help with translation, grammar, and vocabulary; "
         "for other subjects, focus on concepts, reasoning, and terminology.",
-        f"Respond in {req.response_language}. Use markdown formatting freely.",
+        f"Respond in {req.response_language}. Use markdown formatting freely. "
+        "For math, use LaTeX with dollar delimiters ONLY: $...$ for inline math, "
+        "and $$...$$ on their own lines for display math (matrices, fractions, aligned equations). "
+        "Never use \\( \\) or \\[ \\] delimiters.",
     ]
 
     if textbook_context:

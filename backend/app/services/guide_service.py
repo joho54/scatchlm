@@ -16,7 +16,10 @@ def _page_guide_prompt(response_language: str) -> str:
         f"Explain the page content clearly and faithfully in {response_language}. "
         f"When the source text is in another language, translate key terms and examples; "
         f"make the content accessible regardless of subject. "
-        f"Use markdown formatting freely. Be thorough — cover everything on the page."
+        f"Use markdown formatting freely. Be thorough — cover everything on the page. "
+        f"For math, use LaTeX with dollar delimiters ONLY: $...$ for inline math, "
+        f"and $$...$$ on their own lines for display math (matrices, fractions, aligned equations). "
+        f"Never use \\( \\) or \\[ \\] delimiters."
     )
 
 

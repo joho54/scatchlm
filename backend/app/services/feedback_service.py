@@ -43,7 +43,10 @@ def _build_system_prompt(subject: str, response_language: str, has_textbook: boo
         "and compare with textbook content if provided.\n\n"
         f"Respond naturally in {response_language} as a helpful tutor. "
         "Be specific about what is correct and what needs fixing. "
-        "Use markdown formatting (bold, strikethrough) freely.\n\n"
+        "Use markdown formatting (bold, strikethrough) freely.\n"
+        "For math, use LaTeX with dollar delimiters ONLY: $...$ for inline math, "
+        "and $$...$$ on their own lines for display math (matrices, fractions, aligned equations). "
+        "Never use \\( \\) or \\[ \\] delimiters.\n\n"
     )
 
     if has_textbook:

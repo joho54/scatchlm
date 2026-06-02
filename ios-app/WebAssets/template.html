@@ -60,7 +60,7 @@
 <div id="content"></div>
 <script src="marked.min.js"></script>
 <script src="katex/katex.min.js"></script>
-<script src="katex/contrib/auto-render.min.js"></script>
+<script src="marked-katex-extension.umd.js"></script>
 <script>
   (function () {
     function postHeight() {
@@ -79,23 +79,16 @@
       }
       var el = document.getElementById("content");
       try {
+        // 수식($…$ / $$…$$)을 marked 렉서 단계에서 토큰으로 잡아 KaTeX로 렌더한다.
+        // marked가 수식 내부를 일반 텍스트로 escape(& → &amp;, \\ → \)하는 것을 원천 차단
+        // → 행렬 행/열 구분자가 보존된다. 구분자는 $/$$ 로 통일(백엔드 프롬프트에서 지시).
+        // nonStandard:true 는 한글이 수식에 바로 붙는 경우($x$를)도 인식하기 위함.
+        marked.use(markedKatex({ throwOnError: false, nonStandard: true }));
         marked.setOptions({ gfm: true, breaks: true });
         el.innerHTML = marked.parse(raw);
       } catch (e) {
         el.textContent = raw;
       }
-      try {
-        renderMathInElement(el, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "\\[", right: "\\]", display: true },
-            { left: "$", right: "$", display: false },
-            { left: "\\(", right: "\\)", display: false }
-          ],
-          throwOnError: false,
-          ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"]
-        });
-      } catch (e) {}
 
       postHeight();
       if (document.fonts && document.fonts.ready) {

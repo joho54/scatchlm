@@ -130,6 +130,42 @@ final class APIClient {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
+    // MARK: - Codable JSON helpers (sync)
+
+    func postCodable<Req: Encodable, Res: Decodable>(_ path: String, body: Req) async throws -> Res {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "POST"
+        for (key, value) in await authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        appLog("api", "→ POST \(path)")
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        appLog("api", "← \(statusCode) POST \(path)", ["bytes": "\(data.count)"])
+        guard 200..<300 ~= statusCode else {
+            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return try JSONDecoder().decode(Res.self, from: data)
+    }
+
+    /// 바이너리 본문을 그대로 받는 GET (blob 다운로드, §3.2-d).
+    func getData(_ path: String) async throws -> Data {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "GET"
+        for (key, value) in await authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        appLog("api", "← \(statusCode) GET \(path)", ["bytes": "\(data.count)"])
+        guard 200..<300 ~= statusCode else {
+            throw APIError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return data
+    }
+
     // MARK: - POST file upload
 
     func uploadFile<T: Decodable>(
@@ -172,6 +208,33 @@ final class APIClient {
         }
 
         return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+
+// MARK: - SyncAPIClient 준수 (§3.2-a/b/c/d)
+
+extension APIClient: SyncAPIClient {
+    func syncPull(since: String?, limit: Int) async throws -> SyncPullResponse {
+        try await postCodable("/sync/pull", body: SyncPullRequest(since: since, limit: limit))
+    }
+
+    func syncPush(_ changes: SyncChanges) async throws -> SyncPushResponse {
+        try await postCodable("/sync/push", body: SyncPushRequest(changes: changes))
+    }
+
+    func syncUploadBlob(hash: String, data: Data) async throws -> SyncBlobResponse {
+        try await postMultipart(
+            "/sync/blob",
+            fields: ["hash": hash],
+            fileField: "file",
+            fileData: data,
+            fileName: hash,
+            mimeType: "application/octet-stream"
+        )
+    }
+
+    func syncDownloadBlob(hash: String) async throws -> Data {
+        try await getData("/sync/blob/\(hash)")
     }
 }
 

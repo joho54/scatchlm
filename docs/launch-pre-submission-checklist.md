@@ -101,3 +101,8 @@
 
 - COGS 모니터링 (`iap-spec` §10.5.1 SQL, pro 손익분기 ~10건/일).
 - Sentry(O7) · 비즈니스 지표(DAU/MAU) · 접근성(VoiceOver/Dynamic Type) · 커스텀 런치스크린/온보딩.
+
+### UI/UX 폴리시 (1.0.1 후보)
+- **노트 카드 상대시간 틱**: `HomeView.swift:214` `Text(note.updatedAt, style: .relative)` 가 매초 자동 갱신돼 "N초" 카운터처럼 틱틱 올라감 → `RelativeDateTimeFormatter`(정적) 또는 절대 날짜 표기로 교체.
+- **오프라인 응답 지연**: `APIClient` `waitsForConnectivity=true` + `timeoutIntervalForResource=120` 이라 오프라인 시 ~120초 후에야 토스트. `timeoutIntervalForResource=30` 정도로 단축 검토(현재도 동작은 정상, optics만).
+- **빌드 번호 자동화**: 매 재제출마다 `project.yml` 수동 bump 대신, git 커밋 수 기반 빌드번호 스크립트(`postCompileScripts`)로 자동화.

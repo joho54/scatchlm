@@ -164,10 +164,10 @@ SettingsSheet "Pro 구독"
 
 ### 4.4 freemium 무료 tier (config — 코드 아님)
 
-quota는 이미 tier 분기를 강제하므로 코드 변경 없음. **출시 config 결정:**
-- `DAILY_COST_LIMIT_NORMAL_USD` = COGS 방어선(예: $0.20–0.30 ≈ 하루 5–10건). 0(무제한)이면 freemium 의미 없음 — **반드시 양수**.
-- `DAILY_COST_LIMIT_PRO_USD` = 넉넉(예: $5 ≈ 100–250건).
-- 구체값은 베타 `LLMUsage.cost_usd` 데이터로 보정(§6.x-5).
+quota는 이미 tier 분기를 강제하므로 코드 변경 없음. **출시 config 결정(상세 산정·근거는 §10):**
+- `DAILY_COST_LIMIT_NORMAL_USD` = **$0.15** (≈ complex 7건/일 또는 simple 150건/일). 0(무제한)이면 freemium 의미 없음 — **반드시 양수**.
+- `DAILY_COST_LIMIT_PRO_USD` = **$1.00** (≈ complex 50건/일). 가격 산정 기준이 아니라 **abuse 상한**(§10).
+- 구체값은 베타 `LLMUsage.cost_usd` 데이터로 보정(§6.x-5). 특히 **pro 평균 사용량이 손익분기(≈10건/일)를 넘는지** 모니터링.
 
 ---
 
@@ -323,3 +323,54 @@ quota는 이미 tier 분기를 강제하므로 코드 변경 없음. **출시 co
 - **C-2:** ASSN v2 웹훅 URL `https://scatchlm.duckdns.org/api/iap/notifications`를 ASC에 Production·Sandbox 각각 등록.
 - **C-3:** 샌드박스 테스터 계정 + (로컬 테스트용) `.storekit` Configuration.
 - **C-5 배포:** `iap_entitlements` 마이그레이션 + 신규 env + 새 의존성(`app-store-server-library` 등 requirements.txt 반영됨)을 함께 배포. `APPLE_APP_APPLE_ID`(프로덕션 웹훅 검증용)는 ASC 앱 생성 후 채울 것.
+
+---
+
+## 10. 가격 정책 (2026-06-02 결정)
+
+### 10.1 단가 (코드 검증 — `feedback_service.py:60-63`)
+
+| 모델 | 용도 | input ($/1M) | output ($/1M) |
+|---|---|---|---|
+| Sonnet 4.6 | complex 피드백 | 3.0 | 15.0 |
+| Haiku 4.5 | simple 피드백·인식·쿼리리라이트 | 0.25 | 1.25 |
+
+**건당 비용(추정, 베타 데이터로 보정 — §6.x-5):**
+- complex 피드백(Sonnet, 전형 input ~2.5k / output ~600): **≈ $0.02/건** (가벼움 $0.012 ~ 무거움 $0.026). 인식 Haiku 사전패스 ~$0.0007은 무시.
+- simple 피드백(Haiku): ≈ **$0.001/건** (사실상 무시). 비용은 거의 전적으로 complex(Sonnet)가 결정.
+
+quota는 **비용 기준**이므로 `DAILY_COST_LIMIT_*` = 유저당 일일 최대 COGS. 위 건당 비용으로 "한도 ↔ 건수/일"이 환산된다.
+
+### 10.2 가격·수수료 (결정)
+
+| 항목 | 값 |
+|---|---|
+| Pro 월 구독가 | **₩9,900 / 월** (≈ $7.2, 환율 ~₩1,375/$) |
+| Apple 수수료 | **15%** (App Store Small Business Program 가입 — 연 매출 <$1M 신규 앱 해당) |
+| **순매출/구독** | ₩8,415 ≈ **$6.1 / 월** |
+
+### 10.3 핵심 원리 — 한도는 가격 기준이 아니라 abuse 상한
+
+워스트케이스(매일 한도 맥스아웃)를 가격으로 커버하는 건 **불가능**(pro $1/일 맥스 = $30/월 COGS ≫ $6.1 순매출). 따라서:
+1. **`DAILY_COST_LIMIT_PRO_USD` = abuse 천장**. 폭주/악용을 막되, 정상 유저는 도달하지 않는 선.
+2. **가격은 기대 사용량으로 산정.** 손익분기 = 순매출 ÷ 건당비용 = $6.1 ÷ $0.02 = **월 ~305건 = 평균 ~10 complex건/일**.
+   - pro 유저 평균이 **하루 10건 이하 → 흑자**, 초과 → 그 유저는 적자(가벼운 유저가 보전).
+3. **무료 tier도 실비용 발생** — $0.15/일 맥스 시 $4.6/월 COGS(유저는 $0 지불). 그래서 normal 한도는 반드시 양수 + 보수적.
+
+### 10.4 출시 권장 config (`.env.prod`)
+
+| env | 값 | 환산 | 워스트케이스 월 COGS |
+|---|---|---|---|
+| `DAILY_COST_LIMIT_NORMAL_USD` | **0.15** | complex ~7건/일 (또는 simple ~150건/일) | $4.6 (무료, 미지불) |
+| `DAILY_COST_LIMIT_PRO_USD` | **1.00** | complex ~50건/일 (abuse 천장) | $30 (실현 가능성 낮음) |
+
+- 무료 7건/일: 제품 가치 체감엔 충분, 업그레이드 압력 유지. 무료 맥스아웃 COGS 노출 $4.6/월로 제한.
+- pro 50건/일: 정상 학생은 거의 도달 안 함. 50건/일을 **매일** 지속하는 유저만 $30/월 적자 발생 → **모니터링 필수**(평균 사용량이 손익분기 10건/일 넘는지).
+
+### 10.5 모니터링·보정 (§6.x-5 연계)
+
+- 베타/출시 후 `LLMUsage.cost_usd`로 **pro 유저 일일 평균 건수 분포** 추적. 평균이 손익분기(~10건/일)를 넘으면: 가격 인상 / pro 한도 하향 / Haiku 라우팅 확대 중 택.
+- 환율·Apple 가격대(가격 티어)는 ASC 등록 시점 환율로 재확인. 건당 비용도 실데이터로 교체.
+
+### 10.6 Out of scope (이번 결정)
+연간 플랜·무료체험(intro offer)·다단계 가격은 §1.3대로 후속. 단일 월 구독 ₩9,900으로 시작.

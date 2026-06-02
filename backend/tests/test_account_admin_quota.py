@@ -42,9 +42,60 @@ async def test_delete_account_happy_path(client: AsyncClient, auth_header: dict,
     body = res.json()
     assert body["deleted"] is True
     assert body["supabase_auth_deleted"] is True
+    assert body["blobs_complete"] is True
     assert body["counts"]["llm_usage"] >= 1
     assert body["counts"]["users"] == 1
     m.assert_awaited_once()
+
+
+async def test_delete_account_blobs_complete_false_on_prefix_failure(
+    client: AsyncClient, auth_header: dict, monkeypatch
+):
+    # blob prefix 삭제가 실패하면(유저 드로잉 잔존) 삼키지 않고 blobs_complete=False로 보고.
+    # DB는 삭제됐으므로 클라 플로우(200) 유지 — 삭제 자체를 막지 않는다.
+    from app.services import account_deletion as ad
+
+    def _boom(*_a):
+        raise RuntimeError("storage down")
+
+    monkeypatch.setattr(ad.storage, "delete_prefix", _boom)
+
+    with patch("app.routers.account.delete_auth_user", new_callable=AsyncMock, return_value=True):
+        res = await client.delete("/api/account", headers=auth_header)
+
+    assert res.status_code == 200
+    assert res.json()["blobs_complete"] is False
+
+
+# --- A-1: delete_blobs 실패 surface (순수 로직 regression) ---
+
+def test_delete_blobs_surfaces_prefix_failure(monkeypatch):
+    from app.services import account_deletion as ad
+
+    def _boom(*_a):
+        raise RuntimeError("storage down")
+
+    monkeypatch.setattr(ad.storage, "delete_prefix", _boom)
+    monkeypatch.setattr(ad.storage, "delete", lambda _k: None)
+
+    count, failures = ad.delete_blobs("u1", ["k1"])
+    # prefix 실패가 삼켜지지 않고 보고돼야 한다(개인정보 삭제 완전성).
+    assert any("sync/u1/" in f for f in failures)
+
+
+def test_delete_blobs_missing_key_is_idempotent(monkeypatch):
+    from app.services import account_deletion as ad
+
+    monkeypatch.setattr(ad.storage, "delete_prefix", lambda _p: 0)
+
+    def _missing(_k):
+        raise FileNotFoundError(_k)
+
+    monkeypatch.setattr(ad.storage, "delete", _missing)
+
+    count, failures = ad.delete_blobs("u1", ["gone"])
+    assert failures == []   # 이미 없는 키는 실패가 아니라 멱등 성공
+    assert count == 1
 
 
 async def test_delete_account_partial_failure_returns_502(client: AsyncClient, auth_header: dict):

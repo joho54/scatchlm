@@ -973,6 +973,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var toolPickerVisible: Bool = true
         var lastRenderedBottom: CGFloat = 0
         var lastKnownWidth: CGFloat = 0
+        /// renderAllCards 멱등성 가드 — 카드 표시/레이아웃에 영향 주는 입력의 시그니처.
+        /// 동일하면 재생성(특히 WKWebView reload)을 건너뛴다. 필기 중 깜빡임 방지.
+        private var lastCardsSignature: String?
         var frozenBottom: CGFloat = 0
         var frozenEndIndex: Int = 0
         var previousStrokeCount: Int = 0
@@ -1066,6 +1069,20 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         /// 전체 카드를 다시 렌더링 (페이지 로드, 다크모드 전환 시)
         func renderAllCards(on canvasView: PKCanvasView, feedbacks: [FeedbackRecord]) {
+            // 멱등성 가드: 카드에 영향 주는 입력이 그대로면 재생성 스킵.
+            // (필기 중 onStrokeChanged→@State 갱신→updateUIView가 매번 들어와도 WKWebView reload 안 함)
+            if canvasView.bounds.width > 0 { lastKnownWidth = canvasView.bounds.width }
+            let effectiveWidth = lastKnownWidth > 0 ? lastKnownWidth : 800
+            let existingCardCount = canvasView.subviews.filter { $0.tag == 9999 }.count
+            let signature = "\(Int(effectiveWidth))|" + feedbacks.map {
+                "\($0.id):\($0.userRating):\($0.serverFeedbackId ?? "-"):\(Int($0.positionY)):\($0.content.hashValue)"
+            }.joined(separator: ";")
+            // 카드 수가 시그니처와 일치할 때만 스킵 — 외부에서 카드가 지워진 경우(페이지 전환 등)엔 재생성.
+            if signature == lastCardsSignature, existingCardCount == feedbacks.count {
+                return
+            }
+            lastCardsSignature = signature
+
             canvasView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
             lastRenderedBottom = 0
             for (i, fb) in feedbacks.enumerated() {

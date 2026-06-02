@@ -156,6 +156,47 @@ async def test_page_guide_returns_feedback_id_cache_miss_then_hit(
     assert rate.status_code == 204
 
 
+@pytest.mark.asyncio
+async def test_page_guide_cache_keyed_by_response_language(
+    client: AsyncClient, auth_header: dict
+):
+    """Track H: 캐시 키에 response_language 포함 — 언어 전환 시 stale 가이드 대신 신규 생성."""
+    textbook_id = await _upload_test_pdf(client, auth_header)
+
+    with patch(
+        "app.routers.pdf.generate_page_guide",
+        new_callable=AsyncMock,
+        return_value=MOCK_PAGE_GUIDE,
+    ) as gen:
+        # Korean 최초 → 생성(miss)
+        ko_miss = await client.get(
+            f"/api/pdf/{textbook_id}/guide", headers=auth_header,
+            params={"page": 1, "response_language": "Korean"},
+        )
+        # Korean 재요청 → 캐시 히트(생성 안 함)
+        ko_hit = await client.get(
+            f"/api/pdf/{textbook_id}/guide", headers=auth_header,
+            params={"page": 1, "response_language": "Korean"},
+        )
+        # English 요청 → 같은 page지만 언어가 달라 신규 생성(stale Korean 아님)
+        en_miss = await client.get(
+            f"/api/pdf/{textbook_id}/guide", headers=auth_header,
+            params={"page": 1, "response_language": "English"},
+        )
+        # English 재요청 → 캐시 히트
+        en_hit = await client.get(
+            f"/api/pdf/{textbook_id}/guide", headers=auth_header,
+            params={"page": 1, "response_language": "English"},
+        )
+
+    assert ko_miss.json()["cached"] is False
+    assert ko_hit.json()["cached"] is True
+    assert en_miss.json()["cached"] is False   # 언어 차원이 작동 → 신규 생성
+    assert en_hit.json()["cached"] is True
+    # 생성은 Korean 1회 + English 1회 = 2회 (언어별 캐시)
+    assert gen.await_count == 2
+
+
 MOCK_CHAPTER_GUIDE = {
     "topic": "ch topic",
     "key_concepts": ["a"],

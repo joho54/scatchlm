@@ -22,6 +22,10 @@ enum Config {
     // MARK: - App
     static let bundleID = "com.joho54.scatchlm"
 
+    // MARK: - 약관/정책 (G-1 호스팅, Caddy 정적)
+    static let privacyPolicyURL = "https://scatchlm.duckdns.org/privacy"
+    static let termsOfServiceURL = "https://scatchlm.duckdns.org/terms"
+
     // MARK: - User Preferences
     static var responseLanguage: String {
         get { UserDefaults.standard.string(forKey: "responseLanguage") ?? "Korean" }

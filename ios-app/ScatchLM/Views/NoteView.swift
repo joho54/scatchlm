@@ -485,7 +485,14 @@ struct NoteView: View {
             createdAt: Date(),
             serverFeedbackId: serverFeedbackId
         )
-        try? db.saveFeedback(&record)
+        do {
+            try db.saveFeedback(&record)
+        } catch {
+            // 저장 실패 시 메모리 배열에 추가하지 않음(롤백) + 사용자 알림 (L7/O11)
+            appLogError("note", "saveFeedback failed", ["error": "\(error)"])
+            showToast("피드백을 저장하지 못했어요.")
+            return
+        }
         feedbacks.append(record)
 
         // UIKit 직접 렌더 — SwiftUI updateUIView에 의존하지 않음
@@ -504,9 +511,14 @@ struct NoteView: View {
             if let card = canvasView.subviews.first(where: { $0.tag == 9999 && $0.accessibilityIdentifier == record.id }) {
                 let actualBottom = card.frame.maxY
                 record.bboxHeight = max(estimatedHeight, actualBottom - record.bboxY)
-                try? db.saveFeedback(&record)
-                if let idx = feedbacks.firstIndex(where: { $0.id == record.id }) {
-                    feedbacks[idx] = record
+                // 높이 동기화 업데이트 — 실패해도 카드는 이미 저장됨, 로깅만.
+                do {
+                    try db.saveFeedback(&record)
+                    if let idx = feedbacks.firstIndex(where: { $0.id == record.id }) {
+                        feedbacks[idx] = record
+                    }
+                } catch {
+                    appLogError("note", "saveFeedback (bbox sync) failed", ["error": "\(error)"])
                 }
             }
             coordinator.recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
@@ -548,7 +560,14 @@ struct NoteView: View {
     private func saveDrawing() {
         guard let page = currentNotePage else { return }
         let data = canvasView.drawing.dataRepresentation()
-        try? db.savePageDrawing(pageId: page.id, data: data)
+        do {
+            try db.savePageDrawing(pageId: page.id, data: data)
+        } catch {
+            // 필기 저장 실패 — 사용자에게 알려 손실 인지 (L7/O11)
+            appLogError("note", "savePageDrawing failed", ["pageId": page.id, "error": "\(error)"])
+            showToast("필기를 저장하지 못했어요. 네트워크/저장 공간을 확인해 주세요.")
+            return
+        }
         // 메모리 배열도 동기화
         if let idx = notePages.firstIndex(where: { $0.id == page.id }) {
             notePages[idx].drawingData = data
@@ -639,7 +658,13 @@ struct NoteView: View {
     }
 
     private func revertFeedback(_ fb: FeedbackRecord) {
-        try? db.deleteFeedback(id: fb.id)
+        do {
+            try db.deleteFeedback(id: fb.id)
+        } catch {
+            appLogError("note", "deleteFeedback failed", ["id": fb.id, "error": "\(error)"])
+            showToast("피드백을 삭제하지 못했어요.")
+            return
+        }
         feedbacks.removeAll { $0.id == fb.id }
         if let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator {
             coordinator.removeCard(on: canvasView, feedbackId: fb.id)
@@ -804,9 +829,18 @@ struct NoteView: View {
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])
             } catch {
                 appLogError("note", "feedback failed", ["requestId": "\(requestId)", "error": "\(error)"])
+                showToast(feedbackErrorMessage(error))
             }
             loading = false
         }
+    }
+
+    /// API 에러를 사용자 친화 토스트 문구로 변환 (L8/F-4).
+    private func feedbackErrorMessage(_ error: Error) -> String {
+        if case APIError.quotaExceeded = error {
+            return "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요."
+        }
+        return (error as? LocalizedError)?.errorDescription ?? "피드백을 받지 못했어요. 잠시 후 다시 시도해 주세요."
     }
 }
 

@@ -9,13 +9,20 @@ from sqlalchemy import select
 
 from anthropic import AsyncAnthropic
 
-from app.core.auth import get_current_user_id
+from app.core.auth import get_current_user_id, get_tier, get_verified_payload
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.quota import check_daily_quota
 from app.models.feedback import AIResponse, AIResponseRating
 from app.models.textbook import TextbookSource
 from app.models.usage import LLMUsage
-from app.services.feedback_service import get_feedback, get_recognition
+from app.core.log_sanitize import loglen
+from app.services.feedback_service import (
+    classify_anthropic_error,
+    estimate_cost,
+    get_feedback,
+    get_recognition,
+)
 from app.services.pdf_service import extract_text as extract_pdf_text
 from app.services.retrieval_service import search_relevant_chunks, format_chunks_as_context
 
@@ -49,11 +56,16 @@ async def request_feedback(
     page_end: int | None = Form(None),
     previous_context: str | None = Form(None),
     request_id: str | None = Form(None),
-    user_id: str = Depends(get_current_user_id),
+    payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
+    user_id = payload["sub"]
+    tier = get_tier(payload)
     rid = request_id or "no-id"
-    log.info("Feedback [%s]: start user=%s note=%s page=%s", rid, user_id, note_id, current_page)
+    log.info("Feedback [%s]: start user=%s tier=%s note=%s page=%s", rid, user_id, tier, note_id, current_page)
+
+    # quota 체크 — 초과 시 LLM 호출 없이 429
+    await check_daily_quota(user_id, tier, db)
 
     image_bytes = await image.read()
     if not image_bytes:
@@ -133,7 +145,8 @@ async def request_feedback(
         )
     except Exception as e:
         error_msg = str(e)
-        log.exception("Feedback API failed: user=%s note=%s", user_id, note_id)
+        error_kind = classify_anthropic_error(e)
+        log.exception("Feedback API failed: user=%s note=%s kind=%s", user_id, note_id, error_kind)
         db.add(LLMUsage(
             user_id=user_id,
             model="unknown",
@@ -265,12 +278,17 @@ class ChatResponse(BaseModel):
 @router.post("/feedback/chat", response_model=ChatResponse)
 async def feedback_chat(
     req: ChatRequest,
-    user_id: str = Depends(get_current_user_id),
+    payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
     """피드백 후속 채팅 — RAG 지원."""
-    log.info("Feedback chat: user=%s history=%d msg=%s textbook=%s",
-             user_id, len(req.history), req.message[:50], req.textbook_id)
+    user_id = payload["sub"]
+    tier = get_tier(payload)
+    log.info("Feedback chat: user=%s tier=%s history=%d msg=%s textbook=%s",
+             user_id, tier, len(req.history), len(req.message), req.textbook_id)
+
+    # quota 체크 — 초과 시 LLM 호출 없이 429
+    await check_daily_quota(user_id, tier, db)
 
     # 현재 챕터의 전체 텍스트를 컨텍스트로 주입
     textbook_context = ""
@@ -356,18 +374,37 @@ async def feedback_chat(
         messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": req.message})
 
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system="\n".join(system_parts),
-        messages=messages,
-    )
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            system="\n".join(system_parts),
+            messages=messages,
+        )
+    except Exception as e:
+        log.exception("Feedback chat API failed: user=%s kind=%s", user_id, classify_anthropic_error(e))
+        raise HTTPException(status_code=502, detail=f"LLM API error: {e}")
 
     content = response.content[0].text
     log.info("Feedback chat response: tokens=%d (in=%d out=%d) content=%s",
              response.usage.input_tokens + response.usage.output_tokens,
              response.usage.input_tokens, response.usage.output_tokens,
-             content[:800])
+             loglen(content))
+
+    # usage 기록 — 채팅 비용도 일일 quota에 합산되도록 적재
+    chat_model = "claude-sonnet-4-6"
+    db.add(LLMUsage(
+        user_id=user_id,
+        model=chat_model,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+        cost_usd=estimate_cost(chat_model, response.usage.input_tokens, response.usage.output_tokens),
+        latency_ms=0,
+        task_type="chat",
+        language="",
+        has_textbook_context=bool(textbook_context),
+    ))
 
     # AIResponse 적재 — 채팅 응답도 평가 대상으로 관리
     record = AIResponse(

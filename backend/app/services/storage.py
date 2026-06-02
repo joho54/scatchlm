@@ -22,6 +22,12 @@ class StorageBackend(Protocol):
     def save(self, key: str, data: bytes) -> None: ...
     def read(self, key: str) -> bytes: ...
     def delete(self, key: str) -> None: ...
+    def list_keys(self, prefix: str) -> list[str]:
+        """prefix로 시작하는 모든 키를 반환(페이징 처리 포함)."""
+        ...
+    def delete_prefix(self, prefix: str) -> int:
+        """prefix 하위 전체 객체를 삭제하고 삭제 개수를 반환."""
+        ...
     def local_path(self, key: str) -> str | None:
         """로컬 백엔드일 때 실제 파일 경로를 반환. S3는 None."""
         ...
@@ -53,6 +59,25 @@ class LocalStorage:
             os.remove(self._path(key))
         except FileNotFoundError:
             pass
+
+    def list_keys(self, prefix: str) -> list[str]:
+        keys: list[str] = []
+        base = self._path(prefix)
+        # prefix가 디렉토리면 그 하위 전체, 아니면 prefix로 시작하는 파일을 수집.
+        for root, _dirs, files in os.walk(self.root):
+            for name in files:
+                full = os.path.join(root, name)
+                key = os.path.relpath(full, self.root)
+                if key.startswith(prefix) or full.startswith(base):
+                    keys.append(key)
+        return keys
+
+    def delete_prefix(self, prefix: str) -> int:
+        count = 0
+        for key in self.list_keys(prefix):
+            self.delete(key)
+            count += 1
+        return count
 
     def local_path(self, key: str) -> str | None:
         return self._path(key)
@@ -87,6 +112,27 @@ class ObjectStorage:
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self.bucket, Key=key)
+
+    def list_keys(self, prefix: str) -> list[str]:
+        keys: list[str] = []
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                keys.append(obj["Key"])
+        return keys
+
+    def delete_prefix(self, prefix: str) -> int:
+        keys = self.list_keys(prefix)
+        count = 0
+        # S3 delete_objects는 1회 최대 1000개.
+        for i in range(0, len(keys), 1000):
+            batch = keys[i:i + 1000]
+            self._client.delete_objects(
+                Bucket=self.bucket,
+                Delete={"Objects": [{"Key": k} for k in batch]},
+            )
+            count += len(batch)
+        return count
 
     def local_path(self, key: str) -> str | None:
         return None

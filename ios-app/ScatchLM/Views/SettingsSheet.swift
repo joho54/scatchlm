@@ -5,6 +5,17 @@ struct SettingsSheet: View {
     @State private var responseLanguage = Config.responseLanguage
     @State private var mathRenderMode = Config.mathRenderMode
 
+    @State private var showDeleteConfirm = false
+    @State private var deleting = false
+    @State private var alertMessage: String?
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let v = (info?["CFBundleShortVersionString"] as? String) ?? "?"
+        let b = (info?["CFBundleVersion"] as? String) ?? "?"
+        return "\(v) (\(b))"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -35,6 +46,15 @@ struct SettingsSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("약관 및 정책") {
+                    Link(destination: URL(string: Config.privacyPolicyURL)!) {
+                        Label("개인정보 처리방침", systemImage: "hand.raised")
+                    }
+                    Link(destination: URL(string: Config.termsOfServiceURL)!) {
+                        Label("이용약관", systemImage: "doc.text")
+                    }
+                }
+
                 Section {
                     Button(role: .destructive) {
                         Task {
@@ -45,6 +65,29 @@ struct SettingsSheet: View {
                         Text("Sign Out")
                     }
                 }
+
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        if deleting {
+                            HStack { ProgressView(); Text("삭제 중…") }
+                        } else {
+                            Text("계정 삭제")
+                        }
+                    }
+                    .disabled(deleting)
+                } footer: {
+                    Text("계정과 모든 데이터(노트·피드백·교재)가 영구히 삭제됩니다. 되돌릴 수 없어요.")
+                }
+
+                Section {
+                    HStack {
+                        Text("버전")
+                        Spacer()
+                        Text(appVersion).foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -53,6 +96,40 @@ struct SettingsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .confirmationDialog(
+                "계정을 삭제할까요?",
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("계정 삭제", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("계정과 모든 데이터가 영구히 삭제됩니다. 이 작업은 되돌릴 수 없어요.")
+            }
+            .alert("알림", isPresented: Binding(
+                get: { alertMessage != nil },
+                set: { if !$0 { alertMessage = nil } }
+            )) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text(alertMessage ?? "")
+            }
+        }
+    }
+
+    private func deleteAccount() async {
+        deleting = true
+        defer { deleting = false }
+        do {
+            let result = try await AuthService.shared.deleteAccount()
+            if case .dataDeletedAuthRemains = result {
+                appLog("auth", "account deletion: data deleted, auth removal deferred")
+            }
+            dismiss()
+        } catch {
+            alertMessage = (error as? LocalizedError)?.errorDescription ?? "계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요."
         }
     }
 }

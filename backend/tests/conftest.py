@@ -50,7 +50,11 @@ def _make_test_jwk() -> dict:
     }
 
 
-def make_test_token(user_id: str = TEST_USER_ID, expired: bool = False) -> str:
+def make_test_token(
+    user_id: str = TEST_USER_ID,
+    expired: bool = False,
+    app_metadata: dict | None = None,
+) -> str:
     """테스트용 ES256 JWT를 생성한다."""
     now = int(time.time())
     payload = {
@@ -59,6 +63,8 @@ def make_test_token(user_id: str = TEST_USER_ID, expired: bool = False) -> str:
         "exp": now - 10 if expired else now + 3600,
         "iss": "https://test.supabase.co/auth/v1",
     }
+    if app_metadata is not None:
+        payload["app_metadata"] = app_metadata
     private_pem = _private_key.private_bytes(
         serialization.Encoding.PEM,
         serialization.PrivateFormat.PKCS8,
@@ -139,3 +145,10 @@ def auth_token() -> str:
 @pytest.fixture
 def auth_header(auth_token: str) -> dict:
     return {"Authorization": f"Bearer {auth_token}"}
+
+
+@pytest.fixture
+def admin_header() -> dict:
+    """admin role을 가진 JWT(app_metadata.role=admin) 헤더."""
+    token = make_test_token(app_metadata={"role": "admin"})
+    return {"Authorization": f"Bearer {token}"}

@@ -9,6 +9,19 @@
         output stdout
         format console
     }
+
+    # 정적 약관/정책 페이지 (G-1). /privacy, /terms → static 파일.
+    handle /privacy {
+        root * /srv/static
+        rewrite * /privacy.html
+        file_server
+    }
+    handle /terms {
+        root * /srv/static
+        rewrite * /terms.html
+        file_server
+    }
+
     reverse_proxy app:18000 {
         # PDF 업로드/스트리밍을 위한 넉넉한 타임아웃
         transport http {

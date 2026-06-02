@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 struct LoginView: View {
     @State private var email = ""
@@ -73,6 +74,20 @@ struct LoginView: View {
             .frame(maxWidth: 360)
             .disabled(loading)
 
+            // Sign in with Apple (Guideline 4.8 대응)
+            Button {
+                Task { await handleAppleSignIn() }
+            } label: {
+                Label("Sign in with Apple", systemImage: "applelogo")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .foregroundStyle(.white)
+            }
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxWidth: 360)
+            .disabled(loading)
+
             Spacer()
         }
         .padding()
@@ -88,6 +103,19 @@ struct LoginView: View {
             } else {
                 try await AuthService.shared.signIn(email: email, password: password)
             }
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func handleAppleSignIn() async {
+        loading = true
+        error = nil
+        do {
+            try await AuthService.shared.signInWithApple()
+        } catch let authError as ASAuthorizationError where authError.code == .canceled {
+            // 사용자가 취소 — 무시
         } catch {
             self.error = error.localizedDescription
         }

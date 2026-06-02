@@ -6,6 +6,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.log_sanitize import loglen
 from app.models.document import DocumentChunk
 from app.models.chapter import Chapter
 from app.services.embedding_service import embed_query
@@ -53,7 +54,7 @@ async def rewrite_query_for_search(
             messages=[{"role": "user", "content": user_query}],
         )
         rewritten = response.content[0].text.strip()
-        log.info("Query rewrite: '%s' → '%s'", user_query[:50], rewritten[:50])
+        log.info("Query rewrite: %s → %s", loglen(user_query), loglen(rewritten))
         return rewritten
     except Exception:
         log.exception("Query rewrite failed, using original")

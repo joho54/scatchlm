@@ -44,6 +44,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./static:/srv/static:ro      # 약관/정책 정적 페이지 (G-1)
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

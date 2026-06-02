@@ -459,7 +459,7 @@ struct NoteView: View {
         appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
     }
 
-    /// 피드백/박제 카드를 캔버스에 추가하는 공통 함수
+    /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수
     private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil) {
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
         // 먼저 인디케이터를 현재 스트로크/카드 기준으로 갱신해 nextCardLineY를 최신화한 뒤 그 값을 읽는다.

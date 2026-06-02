@@ -171,7 +171,7 @@ struct PdfViewerView: View {
                                 onPin?(msg.content, msg.serverId)
                                 onPinTap()
                             } label: {
-                                Label("박제", systemImage: "pin.fill")
+                                Label("스크랩", systemImage: "pin.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -243,7 +243,7 @@ struct PdfViewerView: View {
                                             onPin?(text, guide.feedbackId)
                                             showGuide = false
                                         } label: {
-                                            Label("박제", systemImage: "pin.fill")
+                                            Label("스크랩", systemImage: "pin.fill")
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -437,7 +437,7 @@ struct PdfViewerView: View {
                                             onPin?(chapterGuideText(guide), guide.feedbackId)
                                             showChapterGuide = false
                                         } label: {
-                                            Label("박제", systemImage: "pin.fill")
+                                            Label("스크랩", systemImage: "pin.fill")
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -520,7 +520,7 @@ struct PdfViewerView: View {
         .interactiveDismissDisabled(!chapterChatMessages.isEmpty)
     }
 
-    /// 챕터 가이드를 박제용 마크다운 텍스트로 직렬화
+    /// 챕터 가이드를 스크랩용 마크다운 텍스트로 직렬화
     private func chapterGuideText(_ guide: ChapterGuide) -> String {
         var parts: [String] = ["## \(guide.title)", guide.topic]
         if !guide.keyConcepts.isEmpty {

@@ -142,7 +142,7 @@ struct FeedbackChatSheet: View {
                                 onPin?(content, serverId)
                                 dismiss()
                             } label: {
-                                Label("박제", systemImage: "pin.fill")
+                                Label("스크랩", systemImage: "pin.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

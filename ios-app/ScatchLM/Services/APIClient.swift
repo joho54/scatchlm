@@ -245,6 +245,31 @@ final class APIClient {
     }
 }
 
+// MARK: - IAP (구독 검증/상태, §3.2-a/c)
+
+/// /api/iap/verify·/status 공통 응답. verify는 environment 포함, status는 active 포함(둘 다 optional).
+struct IAPEntitlement: Decodable {
+    let tier: String
+    let product_id: String?
+    let expires_at: String?
+    let environment: String?
+    let active: Bool?
+
+    var isPro: Bool { tier == "pro" }
+}
+
+extension APIClient {
+    /// 구매 트랜잭션 검증 → 서버가 tier 동기화. 200/pro면 호출부가 refreshSession()으로 JWT 갱신.
+    func iapVerify(signedTransaction: String) async throws -> IAPEntitlement {
+        try await postJSON("/iap/verify", body: ["signed_transaction": signedTransaction])
+    }
+
+    /// 현재 entitlement 조회(앱 시작/복원 시 재동기화).
+    func iapStatus() async throws -> IAPEntitlement {
+        try await get("/iap/status")
+    }
+}
+
 // MARK: - SyncAPIClient 준수 (§3.2-a/b/c/d)
 
 extension APIClient: SyncAPIClient {

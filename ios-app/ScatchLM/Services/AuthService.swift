@@ -112,6 +112,30 @@ final class AuthService {
         )
     }
 
+    /// 검증된 JWT의 app_metadata.tier (없으면 "normal"). IAP 구매 후 refreshSession으로 갱신됨.
+    var tier: String {
+        guard let md = session?.user.appMetadata,
+              let value = md["tier"]?.value as? String,
+              value == "pro" || value == "normal" else {
+            return "normal"
+        }
+        return value
+    }
+
+    /// 강제 세션 갱신 → 새 access token(갱신된 app_metadata.tier 반영) 수령 (§4.2 / B-2).
+    /// IAP `/verify` 성공 직후 호출해 tier=pro JWT를 즉시 받는다(eventually-consistent flip 단축).
+    @discardableResult
+    func refreshSession() async throws -> Session {
+        appLog("auth", "refreshSession start")
+        let refreshed = try await client.auth.refreshSession()
+        await MainActor.run {
+            self.session = refreshed
+            self.applyDBUserScope()
+        }
+        appLog("auth", "refreshSession done", ["tier": tier])
+        return refreshed
+    }
+
     func signOut() async throws {
         appLog("auth", "signOut start")
         try await client.auth.signOut()

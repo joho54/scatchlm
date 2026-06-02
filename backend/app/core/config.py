@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     DAILY_COST_LIMIT_NORMAL_USD: float = 0.0
     DAILY_COST_LIMIT_PRO_USD: float = 0.0
 
+    # IAP (Apple StoreKit 2 구독). docs/iap-subscription-spec.md §4.1/§4.3.
+    APPLE_BUNDLE_ID: str = "com.joho54.scatchlm"
+    APPLE_IAP_PRODUCT_ID_PRO_MONTHLY: str = "com.joho54.scatchlm.pro.monthly"
+    # 프로덕션 ASSN v2 알림 검증에 필요한 App Store "apple id"(숫자). 미설정이면 Sandbox만 검증 가능.
+    APPLE_APP_APPLE_ID: int | None = None
+
     # CORS 허용 오리진. 콤마 구분 문자열. 비어 있으면 와일드카드 없이 차단(iOS 네이티브는 CORS 무관).
     ALLOWED_ORIGINS: str = ""
 

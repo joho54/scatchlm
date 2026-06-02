@@ -33,6 +33,8 @@ struct ScatchLMApp: App {
             }
             .task {
                 await auth.initialize()
+                // 구독 라이프사이클 리스너 시작 + 서버 상태 동기화(§B-2). 로그인 후 호출해 status 동기화.
+                StoreKitService.shared.start()
             }
             .onChange(of: scenePhase) { _, phase in
                 handleScenePhase(phase)

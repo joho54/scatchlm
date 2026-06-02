@@ -17,6 +17,8 @@
 		30709021522A472BD55FB69E /* Observability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65C0173500BC2A857B2CCED /* Observability.swift */; };
 		3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1940235A9FDF08A1E9126 /* NoteView.swift */; };
 		355605C1914429CB5EBE47E1 /* DatabaseService+Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F87740E0CE96FF5A6E45BA6 /* DatabaseService+Sync.swift */; };
+		39DD9D8488FC008E166CF1D0 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9020268EE7920E07C66AEEA /* PaywallView.swift */; };
+		3A9A09736FAD423408D02D16 /* StoreKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F80EDAE50A5386B1588848E /* StoreKitService.swift */; };
 		3B0456884D1F535FC0CC2692 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */; };
 		3F972B478F07F438B198F02F /* PageNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 548034A17894523B72F0EE4E /* PageNavigatorView.swift */; };
 		4187D694CFA080FBD91046A2 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B227D5757F08C09540E0A7D3 /* MarkdownUI */; };
@@ -83,12 +85,14 @@
 		70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncServiceTests.swift; sourceTree = "<group>"; };
 		745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseServiceTests.swift; sourceTree = "<group>"; };
+		7F80EDAE50A5386B1588848E /* StoreKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitService.swift; sourceTree = "<group>"; };
 		83513D52E0AEE8A1123D5420 /* MarkdownContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownContentView.swift; sourceTree = "<group>"; };
 		84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sentry.xcframework; path = Vendor/Sentry.xcframework; sourceTree = "<group>"; };
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		947225FE2D686B29C56F4B97 /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = SOURCE_ROOT; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
 		B673CA2B296363A4EE359305 /* EditNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditNoteSheet.swift; sourceTree = "<group>"; };
+		B9020268EE7920E07C66AEEA /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		C37AAE771009E3533316E278 /* PdfViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfViewerView.swift; sourceTree = "<group>"; };
 		CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseService.swift; sourceTree = "<group>"; };
 		D0B1940235A9FDF08A1E9126 /* NoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteView.swift; sourceTree = "<group>"; };
@@ -134,6 +138,7 @@
 				154C163A4458A929F3381C5D /* DrawingHash.swift */,
 				E52A7F87E1D186E8DDE427CB /* LogService.swift */,
 				F65C0173500BC2A857B2CCED /* Observability.swift */,
+				7F80EDAE50A5386B1588848E /* StoreKitService.swift */,
 				1FF8A4CB8143EE7F7D7CE7FB /* SyncModels.swift */,
 				639004ECF07091105D464672 /* SyncService.swift */,
 			);
@@ -234,6 +239,7 @@
 				83513D52E0AEE8A1123D5420 /* MarkdownContentView.swift */,
 				D0B1940235A9FDF08A1E9126 /* NoteView.swift */,
 				548034A17894523B72F0EE4E /* PageNavigatorView.swift */,
+				B9020268EE7920E07C66AEEA /* PaywallView.swift */,
 				C37AAE771009E3533316E278 /* PdfViewerView.swift */,
 				1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */,
 				D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */,
@@ -384,9 +390,11 @@
 				3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */,
 				30709021522A472BD55FB69E /* Observability.swift in Sources */,
 				3F972B478F07F438B198F02F /* PageNavigatorView.swift in Sources */,
+				39DD9D8488FC008E166CF1D0 /* PaywallView.swift in Sources */,
 				CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */,
 				2E4DE5B39114BE137C2444A3 /* ScatchLMApp.swift in Sources */,
 				3B0456884D1F535FC0CC2692 /* SettingsSheet.swift in Sources */,
+				3A9A09736FAD423408D02D16 /* StoreKitService.swift in Sources */,
 				D4DFBB036249FB325D5D7802 /* SyncModels.swift in Sources */,
 				14C34B1E0B2CB242F8C0AF67 /* SyncService.swift in Sources */,
 				ECAD7C8D375493B40EB5F07F /* SyncStatusIndicator.swift in Sources */,

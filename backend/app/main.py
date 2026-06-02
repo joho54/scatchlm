@@ -9,7 +9,7 @@ from app.core.database import async_session
 from app.core.logging import setup_logging
 from app.core.sentry import init_sentry
 from app.middleware.request_log import RequestLogMiddleware
-from app.routers import account, admin, devlog, feedback, pdf, sync
+from app.routers import account, admin, devlog, feedback, iap, pdf, sync
 from app.services.storage import storage
 
 setup_logging()
@@ -40,6 +40,7 @@ app.include_router(admin.router)
 app.include_router(devlog.router)
 app.include_router(sync.router)
 app.include_router(account.router)
+app.include_router(iap.router)
 
 
 @app.on_event("startup")

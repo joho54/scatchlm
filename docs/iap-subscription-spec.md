@@ -298,3 +298,28 @@ quota는 이미 tier 분기를 강제하므로 코드 변경 없음. **출시 co
 **구독 출시 필수:** A-1~A-4(BE 검증·웹훅·entitlement) · B-1~B-3(StoreKit·UI) · C-1(ASC 상품) · C-2(웹훅 URL) · C-4(무료 한도 양수 + env).
 **fast-follow 허용:** 정기 reconciliation 잡 · App Store Server API 키 기반 보강 · PaywallView 고도화 · 연간/체험 플랜.
 **fallback:** 구독 트랙이 출시를 너무 늦추면, **무료 tier(낮은 quota)만으로 먼저 출시**하고 구독을 fast-follow — freemium 무료 측은 이미 동작(quota config만). 단 "무료→유료 배신감"(§사용자 논의)은 이 fallback의 비용.
+
+---
+
+## 9. 구현 현황 (2026-06-02)
+
+### 완료 (코드)
+- **Track A (BE) 전체:**
+  - `app/models/iap.py` + alembic `588f1d04cd22_iap_entitlements_table` (적용됨).
+  - `app/services/apple_iap.py` — Apple 공식 `app-store-server-library==3.1.2`로 JWS 서명 검증(결정 §6.x-1). root cert는 `app/services/apple_certs/AppleRootCA-G3.cer` 번들. online check off(§6.x-2 MVP). Prod/Sandbox verifier 순차 시도로 환경 분기.
+  - `app/services/supabase_admin.py::set_app_metadata` — **read-modify-write merge**로 `role` 보존(§6.x-3 방어적 선택).
+  - `app/services/iap_service.py` + `app/routers/iap.py` — verify/notifications/status 3엔드포인트. `main.py` 등록. 멱등 upsert(ON CONFLICT).
+  - 테스트: `tests/test_iap.py` 11건 통과(검증 성공/만료/위조 400/계정 불일치 409/status/웹훅 EXPIRED·DID_RENEW). 전체 스위트 93건 통과.
+- **Track B (iOS) 전체:**
+  - `Services/StoreKitService.swift`(신규) — products/purchase(appAccountToken)/Transaction.updates/currentEntitlements/AppStore.sync. 검증 성공까지 finish 보류(§7).
+  - `Services/AuthService.swift::refreshSession()` + `tier` accessor(§6.x-4 supabase-swift 2.x `refreshSession()` 사용).
+  - `Services/APIClient.swift` — `iapVerify`/`iapStatus`.
+  - `Views/PaywallView.swift`(신규) + `Views/SettingsSheet.swift` "구독" 섹션 + `NoteView` 429→Paywall CTA.
+  - `App/ScatchLMApp.swift` — 시작 시 `StoreKitService.shared.start()`. 시뮬레이터 빌드 성공.
+- **C-4 config:** `core/config.py`에 `APPLE_BUNDLE_ID`/`APPLE_IAP_PRODUCT_ID_PRO_MONTHLY`/`APPLE_APP_APPLE_ID`. `.env.prod.example`에 IAP 블록 + freemium 양수 한도 NOTE.
+
+### 남은 수동 작업 (Track C — App Store Connect UI / 배포, 코드 외)
+- **C-1:** ASC에서 자동갱신 구독 그룹 + `com.joho54.scatchlm.pro.monthly` 상품·가격·로컬라이즈·심사 스크린샷 등록. (IAP capability는 App ID에 활성 — automatic signing이 처리. `.entitlements` 키 불필요.)
+- **C-2:** ASSN v2 웹훅 URL `https://scatchlm.duckdns.org/api/iap/notifications`를 ASC에 Production·Sandbox 각각 등록.
+- **C-3:** 샌드박스 테스터 계정 + (로컬 테스트용) `.storekit` Configuration.
+- **C-5 배포:** `iap_entitlements` 마이그레이션 + 신규 env + 새 의존성(`app-store-server-library` 등 requirements.txt 반영됨)을 함께 배포. `APPLE_APP_APPLE_ID`(프로덕션 웹훅 검증용)는 ASC 앱 생성 후 채울 것.

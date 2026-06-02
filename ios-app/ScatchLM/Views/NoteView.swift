@@ -22,6 +22,7 @@ struct NoteView: View {
     @State private var ratingSheetFeedback: FeedbackRecord?
     @State private var toastMessage: String?
     @State private var pendingRevert: FeedbackRecord?
+    @State private var showPaywall = false
     private static let toastDedupeWindow: TimeInterval = 2.0
     @State private var lastToastShownAt: Date?
     @State private var lastToastMessage: String?
@@ -160,6 +161,9 @@ struct NoteView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.container, edges: .bottom)
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(reason: "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요.")
+        }
         .sheet(item: $chatFeedback) { fb in
             FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, subject: note?.language, onPin: { content, responseId in
                 pinToCanvas(content: content, serverFeedbackId: responseId)
@@ -829,7 +833,12 @@ struct NoteView: View {
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])
             } catch {
                 appLogError("note", "feedback failed", ["requestId": "\(requestId)", "error": "\(error)"])
-                showToast(feedbackErrorMessage(error))
+                // quota 429: 무료 한도 초과 → 업그레이드 Paywall 노출(§B-3).
+                if case APIError.quotaExceeded = error, !StoreKitService.shared.isPro {
+                    showPaywall = true
+                } else {
+                    showToast(feedbackErrorMessage(error))
+                }
             }
             loading = false
         }

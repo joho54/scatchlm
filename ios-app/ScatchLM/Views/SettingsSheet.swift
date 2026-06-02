@@ -9,6 +9,10 @@ struct SettingsSheet: View {
     @State private var deleting = false
     @State private var alertMessage: String?
 
+    @State private var store = StoreKitService.shared
+    @State private var showPaywall = false
+    @State private var restoring = false
+
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
         let v = (info?["CFBundleShortVersionString"] as? String) ?? "?"
@@ -44,6 +48,39 @@ struct SettingsSheet: View {
                     Text("자동: 수식이 있으면 KaTeX로 렌더. 수식 안 보기는 가볍게 텍스트만 표시합니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                Section("구독") {
+                    HStack {
+                        Text("현재 플랜")
+                        Spacer()
+                        Text(store.isPro ? "Pro" : "무료")
+                            .foregroundStyle(store.isPro ? Color.accentColor : .secondary)
+                            .fontWeight(store.isPro ? .semibold : .regular)
+                    }
+
+                    if !store.isPro {
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            Label("Pro 구독하기", systemImage: "sparkles")
+                        }
+                    } else {
+                        Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
+                            Label("구독 관리", systemImage: "creditcard")
+                        }
+                    }
+
+                    Button {
+                        Task { await restorePurchases() }
+                    } label: {
+                        if restoring {
+                            HStack { ProgressView(); Text("복원 중…") }
+                        } else {
+                            Text("구매 복원")
+                        }
+                    }
+                    .disabled(restoring)
                 }
 
                 Section("약관 및 정책") {
@@ -116,7 +153,18 @@ struct SettingsSheet: View {
             } message: {
                 Text(alertMessage ?? "")
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+            }
+            .task { await store.refreshFromServer() }
         }
+    }
+
+    private func restorePurchases() async {
+        restoring = true
+        defer { restoring = false }
+        let ok = await store.restore()
+        alertMessage = ok ? "구독이 복원되었어요." : (store.lastError ?? "복원할 구독을 찾지 못했어요.")
     }
 
     private func deleteAccount() async {

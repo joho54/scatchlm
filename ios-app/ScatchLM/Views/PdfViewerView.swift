@@ -106,11 +106,11 @@ struct PdfViewerView: View {
                         Text(ch.title)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .layoutPriority(1)
-                        Spacer(minLength: 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Text("p.\(ch.pageStart)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .fixedSize()
                         if ch.level == 1 {
                             Button {
                                 showToc = false

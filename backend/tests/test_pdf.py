@@ -1,5 +1,6 @@
 import io
 from unittest.mock import AsyncMock, patch
+from urllib.parse import quote
 
 import pytest
 from httpx import AsyncClient
@@ -94,6 +95,42 @@ async def test_upload_requires_auth(client: AsyncClient):
         data={"note_id": "note-1"},
     )
     assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_serve_pdf_file_non_ascii_filename_streaming(
+    client: AsyncClient, auth_header: dict
+):
+    """회귀: 비-ASCII 파일명 + S3(StreamingResponse) 경로에서 /file이 500이 아니라 200을 반환.
+
+    Content-Disposition 헤더는 latin-1로만 인코딩되므로 한글/아랍어 파일명을 날것으로
+    실으면 UnicodeEncodeError(500)가 났다. RFC 5987(filename*=UTF-8'') 인코딩으로 수정.
+    """
+    pdf_bytes = make_test_pdf()
+    filename = "2026 수능완성 아랍어 I.pdf"
+    upload = await client.post(
+        "/api/pdf/upload",
+        headers=auth_header,
+        files={"file": (filename, io.BytesIO(pdf_bytes), "application/pdf")},
+        data={"note_id": "note-1"},
+    )
+    assert upload.status_code == 200
+    textbook_id = upload.json()["id"]
+
+    # 운영(S3) 환경을 흉내: 로컬 파일이 없어 StreamingResponse 분기를 타게 강제
+    def fake_stream(key: str):
+        yield pdf_bytes
+
+    with patch("app.routers.pdf.storage.local_path", return_value=None), \
+         patch("app.routers.pdf.os.path.exists", return_value=False), \
+         patch("app.routers.pdf.storage.stream", side_effect=fake_stream):
+        res = await client.get(f"/api/pdf/{textbook_id}/file", headers=auth_header)
+
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+    # 파일명이 RFC 5987 방식으로 인코딩돼 헤더에 안전하게 실려야 함
+    assert "filename*=UTF-8''" in res.headers["content-disposition"]
+    assert quote(filename) in res.headers["content-disposition"]
 
 
 MOCK_PAGE_GUIDE = {"topic": "테스트 주제", "content": "테스트 가이드 본문"}

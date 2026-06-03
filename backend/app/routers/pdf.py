@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -232,10 +233,15 @@ async def serve_pdf_file(
         return FileResponse(local, media_type="application/pdf", filename=source.file_name)
     if os.path.exists(source.server_path):  # 레거시 행: server_path가 실제 파일 경로
         return FileResponse(source.server_path, media_type="application/pdf", filename=source.file_name)
+    # Content-Disposition 헤더는 latin-1로만 인코딩되므로(RFC 7230) 비-ASCII 파일명은
+    # RFC 5987 방식(filename*=UTF-8''<percent-encoded>)으로 실어야 한다.
+    # FileResponse는 starlette가 내부에서 처리하지만 StreamingResponse는 직접 만들어야 한다.
     return StreamingResponse(
         storage.stream(source.server_path),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{source.file_name}"'},
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(source.file_name)}"
+        },
     )
 
 

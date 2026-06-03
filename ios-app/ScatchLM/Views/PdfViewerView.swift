@@ -368,20 +368,7 @@ struct PdfViewerView: View {
                     parent_feedback_id: pageGuide?.feedbackId
                 )
 
-                let jsonData = try JSONEncoder().encode(reqBody)
-                var request = URLRequest(url: URL(string: "\(Config.apiBaseURL)/feedback/chat")!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                if let token = AuthService.shared.accessToken {
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                }
-                request.httpBody = jsonData
-
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 45
-                config.waitsForConnectivity = true
-                let (data, _) = try await URLSession(configuration: config).data(for: request)
-                let res = try JSONDecoder().decode(ChatRes.self, from: data)
+                let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
 
                 await MainActor.run {
                     guideChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
@@ -579,20 +566,7 @@ struct PdfViewerView: View {
                     parent_feedback_id: chapterGuide?.feedbackId
                 )
 
-                let jsonData = try JSONEncoder().encode(reqBody)
-                var request = URLRequest(url: URL(string: "\(Config.apiBaseURL)/feedback/chat")!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                if let token = AuthService.shared.accessToken {
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                }
-                request.httpBody = jsonData
-
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 45
-                config.waitsForConnectivity = true
-                let (data, _) = try await URLSession(configuration: config).data(for: request)
-                let res = try JSONDecoder().decode(ChatRes.self, from: data)
+                let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
 
                 await MainActor.run {
                     chapterChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
@@ -823,18 +797,29 @@ struct NativePdfView: UIViewRepresentable {
         let cacheDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let cachedFile = cacheDir.appendingPathComponent("pdf_\(textbookId).pdf")
 
-        // Check local cache
+        // Check local cache — but validate it actually parses as a PDF.
+        // 과거 버그(서버 /file 500/401 등)로 에러 응답 본문이 PDF로 캐시되면 영구히
+        // cache hit → 빈 화면이 됐다. 파싱 안 되는 캐시는 오염된 것으로 보고 제거 후 재다운로드.
         if fm.fileExists(atPath: cachedFile.path) {
-            appLog("pdf", "cache hit", ["textbookId": textbookId])
-            return try? Data(contentsOf: cachedFile)
+            if let data = try? Data(contentsOf: cachedFile), PDFDocument(data: data) != nil {
+                appLog("pdf", "cache hit", ["textbookId": textbookId])
+                return data
+            }
+            appLog("pdf", "cache invalid, evicting", ["textbookId": textbookId])
+            try? fm.removeItem(at: cachedFile)
         }
 
-        // Download from backend
-        let token = AuthService.shared.accessToken ?? ""
-        let urlString = "\(Config.apiBaseURL)/pdf/\(textbookId)/file?token=\(token)"
+        // APIClient 경유로 다운로드 — 공용 status 가드(비-2xx면 throw)와 Authorization 헤더를
+        // 상속받는다. (과거엔 ?token= 쿼리 + 손수 짠 URLSession이라 status를 안 보고 에러 본문을
+        // 캐시했다. 토큰을 URL에 싣지 않으니 access 로그 JWT 누출도 사라진다.)
         appLog("pdf", "downloading", ["textbookId": textbookId])
         do {
-            let (data, _) = try await URLSession.shared.data(from: URL(string: urlString)!)
+            let data = try await APIClient.shared.getData("/pdf/\(textbookId)/file")
+            // status는 통과했어도 본문이 유효 PDF일 때만 캐시 (S3 stream 깨짐 등 방어).
+            guard PDFDocument(data: data) != nil else {
+                appLogError("pdf", "download not a valid PDF", ["bytes": "\(data.count)", "textbookId": textbookId])
+                return nil
+            }
             try data.write(to: cachedFile)
             appLog("pdf", "downloaded & cached", ["bytes": "\(data.count)"])
             return data

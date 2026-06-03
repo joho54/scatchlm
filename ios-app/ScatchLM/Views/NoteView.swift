@@ -873,7 +873,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
         #if targetEnvironment(simulator)
         canvasView.drawingPolicy = .anyInput
         #else
-        canvasView.drawingPolicy = .pencilOnly
+        // 펜 페어링 시 펜 전용(팜 리젝션 자동), 펜 없으면 손가락 필기 허용.
+        // App Review G4: 펜 없는 기기에서도 사용 가능해야 함 (.pencilOnly 리젝 → .default)
+        canvasView.drawingPolicy = .default
         #endif
         canvasView.backgroundColor = isDark ? .black : .white
         canvasView.isScrollEnabled = true

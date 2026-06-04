@@ -52,3 +52,48 @@ async def test_log_batch_missing_logs_wrapper_is_422(client: AsyncClient):
     detail = res.json()["detail"]
     assert any(err["loc"][-1] == "logs" and err["type"] == "missing"
                for err in detail)
+
+
+# --- 로그 포맷 회귀 (spec §3.2-a): prefix 12자리화 + provider 토큰 ---
+
+_FULL_UID = "66d2d3d1d71d4c8e9f0a1b2c3d4e5f60"   # 32 hex
+_FULL_SID = "4E8D80F4ABCD1234EF56"               # 20 hex
+
+
+async def test_emit_truncates_prefixes_to_12(client: AsyncClient, caplog):
+    """user_id·session_id는 12자리로 절단되어 로그에 찍힌다(8자리 아님)."""
+    with caplog.at_level("INFO", logger="fe"):
+        res = await client.post("/api/dev/log/batch", json={
+            "logs": [_entry(level="info")],
+            "context": {"user_id": _FULL_UID, "session_id": _FULL_SID},
+        })
+    assert res.status_code == 200
+    line = "\n".join(r.message for r in caplog.records)
+    assert f"[u:{_FULL_UID[:12]}]" in line
+    assert f"[sess:{_FULL_SID[:12]}]" in line
+    # 전체 UUID는 절단되어 그대로 노출되지 않는다.
+    assert f"[u:{_FULL_UID}]" not in line
+
+
+async def test_emit_includes_provider_token_when_present(client: AsyncClient, caplog):
+    with caplog.at_level("INFO", logger="fe"):
+        res = await client.post("/api/dev/log/batch", json={
+            "logs": [_entry(level="info")],
+            "context": {"user_id": _FULL_UID, "provider": "email"},
+        })
+    assert res.status_code == 200
+    line = "\n".join(r.message for r in caplog.records)
+    # [prov:]는 [u:] 뒤에 온다.
+    assert f"[u:{_FULL_UID[:12]}] [prov:email]" in line
+
+
+async def test_emit_omits_provider_token_when_absent(client: AsyncClient, caplog):
+    """provider 없으면 [prov:] 토큰을 생략한다(하위호환)."""
+    with caplog.at_level("INFO", logger="fe"):
+        res = await client.post("/api/dev/log/batch", json={
+            "logs": [_entry(level="info")],
+            "context": {"user_id": _FULL_UID},
+        })
+    assert res.status_code == 200
+    line = "\n".join(r.message for r in caplog.records)
+    assert "[prov:" not in line

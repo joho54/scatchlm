@@ -28,6 +28,15 @@ final class AuthService {
     /// Supabase `UUID.uuidString`은 대문자라 서버 측 lowercase sub와 어긋나므로 소문자화한다.
     var syncUserId: String? { session?.user.id.uuidString.lowercased() }
 
+    /// 현재 인증 provider — FE 로그 텔레메트리용 (spec §3.2-a). "apple"|"google"|"email" 등.
+    /// 출처: `app_metadata.provider`(Supabase가 채움) 우선, 없으면 가장 최근 identity의 provider.
+    /// 미인증 시 nil → LogService가 [prov:] 토큰을 생략한다(단일 프로퍼티, 호출부 무수정).
+    var authProvider: String? {
+        guard let user = session?.user else { return nil }
+        if let provider = user.appMetadata["provider"]?.value as? String { return provider }
+        return user.identities?.last?.provider
+    }
+
     /// 세션 변화 시 DatabaseService에 현재 user_id를 주입하고 sync를 구동한다 (§4.5 / D-1).
     /// - 로그인/세션 복원(이전과 다른 uid): currentUserId 주입 → 레거시 claim + 최초 sync(onLogin).
     /// - 로그아웃: sync 중단·커서 클리어(onLogout) 후 스코프 해제. 로컬 데이터는 보존(§4.5).

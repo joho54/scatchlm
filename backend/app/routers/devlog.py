@@ -31,6 +31,8 @@ class LogContext(BaseModel):
     session_id: str | None = None
     # FE Sentry trace_id (spec §4.3). FE 로그↔Sentry 트레이스 상관.
     trace_id: str | None = None
+    # 인증 provider (spec §3.2-a): "apple"|"google"|"email"|null. 미인증/미상이면 None → 토큰 생략.
+    provider: str | None = None
 
 
 class LogBatch(BaseModel):
@@ -60,9 +62,12 @@ def _emit(entry: LogEntry, context: "LogContext | None"):
     if trace_id:
         parts.append(f"[trace:{trace_id}]")
     if context and context.session_id:
-        parts.append(f"[sess:{context.session_id[:8]}]")
+        parts.append(f"[sess:{context.session_id[:12]}]")
     if context and context.user_id:
-        parts.append(f"[u:{context.user_id[:8]}]")
+        parts.append(f"[u:{context.user_id[:12]}]")
+    # provider 있으면 [u:] 뒤에 [prov:] 토큰 추가 (spec §3.2-a). 없으면 생략(하위호환).
+    if context and context.provider:
+        parts.append(f"[prov:{context.provider}]")
     if entry.request_id:
         parts.append(f"[rid:{entry.request_id}]")
     if entry.tag:

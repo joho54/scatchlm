@@ -198,6 +198,8 @@ final class LogService {
         // FE 로그↔Sentry 트레이스 상관 — 현재 trace_id 동봉(spec §4.3). 없으면 생략.
         let traceId = Observability.currentTraceId()
         if !traceId.isEmpty { ctx["trace_id"] = traceId }
+        // 인증 provider 동봉 — BE가 [prov:] 토큰으로 기록(spec §3.2-a). 미인증이면 생략.
+        if let provider = AuthService.shared.authProvider { ctx["provider"] = provider }
         return ctx
     }
 

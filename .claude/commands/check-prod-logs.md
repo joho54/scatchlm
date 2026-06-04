@@ -105,6 +105,9 @@ grep -oE '\[u:[0-9a-f]+\] \[[a-z]+\] [a-zA-Z][a-zA-Z0-9 :=_-]*' prodlogs_users.t
 
 echo "===== uxTrack 인증/액션 결과 (ok/cancel/fail) ====="
 grep -oE '\[ux(Error)?\] [a-z.]+ (ok|cancel|fail)' prodlogs_users.txt | sort | uniq -c | sort -rn
+
+echo "===== 인증 provider 분포 ([prov:]) ====="   # apple|google|email — 미인증 로그엔 토큰 없음
+grep -oE '\[prov:[a-z]+\]' prodlogs_users.txt | sort | uniq -c | sort -rn
 ```
 
 사용자별 상세(특정 유저만):

@@ -1160,10 +1160,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
             host.contentSize = CGSize(width: w * s, height: h * s)
         }
 
-        /// contentView 높이가 h보다 작으면 확장.
-        func ensureContentHeight(_ h: CGFloat) {
-            guard let contentView else { return }
-            if contentView.bounds.height < h { setContentHeight(h) }
+        /// contentView 높이가 h보다 작으면 확장. host/contentView 미연결(단위 테스트 등) 시엔
+        /// fallbackCanvas(또는 self.canvas)의 contentSize로 직접 확장.
+        func ensureContentHeight(_ h: CGFloat, fallbackCanvas: PKCanvasView? = nil) {
+            if let contentView {
+                if contentView.bounds.height < h { setContentHeight(h) }
+            } else if let cv = fallbackCanvas ?? canvas {
+                if cv.contentSize.height < h { cv.contentSize.height = h }
+            }
         }
 
         /// 빈 페이지에서도 종이가 viewport를 채우도록 최소 높이(현재 줌 기준 1.5화면) 보장.
@@ -1437,7 +1441,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             container(canvasView).addSubview(card)
 
             let cardBottom = fb.positionY + cardHeight
-            ensureContentHeight(cardBottom + 200)
+            ensureContentHeight(cardBottom + 200, fallbackCanvas: canvasView)
             lastRenderedBottom = max(lastRenderedBottom, cardBottom)
             updateNextPositionIndicator(on: canvasView)
         }
@@ -1555,7 +1559,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            ensureContentHeight(drawingBottom + viewportInContent * 2)
+            ensureContentHeight(drawingBottom + viewportInContent * 2, fallbackCanvas: canvasView)
 
             updateNextPositionIndicator(on: canvasView)
 

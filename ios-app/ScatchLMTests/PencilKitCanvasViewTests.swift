@@ -111,11 +111,13 @@ final class PencilKitCanvasViewTests: XCTestCase {
         XCTAssertEqual(cardCount(in: canvas), 0)
     }
 
-    // MARK: - bounds=0 재현 (PDF 열기 시)
+    // MARK: - 카드 폭은 논리폭 상수 (bounds 무관) — 네이티브 줌
+    // 네이티브 줌 전환 후 카드 폭 = Config.logicalCanvasWidth - 32. bounds.width를 더 이상 추종하지 않으므로
+    // PDF 열림으로 bounds가 0이 되거나 회전/divider로 bounds가 바뀌어도 폭이 흔들리지 않는다.
 
     @MainActor
-    func testRenderCardWithZeroBoundsUsesMinWidth() {
-        // PDF 뷰어 열릴 때 SwiftUI가 bounds를 (0,0)으로 만드는 상황 재현
+    func testRenderCardWidthIsLogicalConstantWhenBoundsZero() {
+        // PDF 뷰어 열릴 때 SwiftUI가 bounds를 (0,0)으로 만들어도 카드 폭은 논리폭 상수.
         let canvas = PKCanvasView(frame: .zero) // bounds = (0, 0, 0, 0)
         let coordinator = makeCoordinator()
 
@@ -123,48 +125,46 @@ final class PencilKitCanvasViewTests: XCTestCase {
 
         let card = canvas.subviews.first { $0.tag == 9999 }
         XCTAssertNotNil(card)
-        // 최소 300 이상이어야 함 — 0이나 -32가 되면 안 됨
-        XCTAssertGreaterThanOrEqual(card!.frame.width, 300,
-            "bounds=0일 때도 카드 width는 최소값 이상이어야 함")
+        XCTAssertEqual(card!.frame.width, Config.logicalCanvasWidth - 32, accuracy: 1.0,
+            "bounds=0이어도 카드 폭은 논리폭-32 상수")
     }
 
     @MainActor
-    func testRenderAllCardsAfterBoundsRestore() {
+    func testRenderAllCardsWidthUnaffectedByBoundsChange() {
         let canvas = PKCanvasView(frame: .zero)
         let coordinator = makeCoordinator()
 
-        // bounds=0 상태에서 렌더
         coordinator.renderCard(on: canvas, feedback: makeFeedback(y: 200))
         let narrowCard = canvas.subviews.first { $0.tag == 9999 }
         let narrowWidth = narrowCard?.frame.width ?? 0
 
-        // bounds 복원 후 renderAllCards
+        // bounds가 바뀌어도 폭은 동일(논리폭-32) — 줌이 표시 폭을 흡수하므로 좌표폭은 불변.
         canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 1200)
         coordinator.renderAllCards(on: canvas, feedbacks: [makeFeedback(y: 200)])
 
         let restoredCard = canvas.subviews.first { $0.tag == 9999 }
         XCTAssertNotNil(restoredCard)
-        XCTAssertEqual(restoredCard!.frame.width, 768, accuracy: 1.0,
-            "bounds 복원 후 renderAllCards는 정상 width(800-32)로 렌더")
+        XCTAssertEqual(restoredCard!.frame.width, Config.logicalCanvasWidth - 32, accuracy: 1.0,
+            "bounds 변경과 무관하게 카드 폭은 논리폭-32 상수")
+        XCTAssertEqual(narrowWidth, restoredCard!.frame.width, accuracy: 1.0,
+            "bounds=0이든 복원 후든 폭이 동일")
     }
 
     @MainActor
-    func testRenderCardPreservesLastKnownWidth() {
+    func testRenderCardWidthStableAcrossBounds() {
         let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 800, height: 1200))
         let coordinator = makeCoordinator()
 
-        // 정상 bounds에서 먼저 렌더 → lastKnownWidth 저장
         coordinator.renderCard(on: canvas, feedback: makeFeedback(y: 100))
 
-        // bounds가 0이 된 상태에서 렌더
+        // bounds가 0이 된 상태에서 렌더해도 동일 폭(논리폭-32).
         canvas.frame = .zero
         coordinator.renderCard(on: canvas, feedback: makeFeedback(y: 500))
 
         let cards = canvas.subviews.filter { $0.tag == 9999 }
-        let secondCard = cards.last!
-        // 이전에 알고 있던 width(768)를 사용해야 함
-        XCTAssertEqual(secondCard.frame.width, 768, accuracy: 1.0,
-            "bounds=0이어도 마지막으로 알려진 width로 렌더")
+        XCTAssertEqual(cards.first!.frame.width, cards.last!.frame.width, accuracy: 1.0,
+            "bounds가 바뀌어도 카드 폭은 항상 논리폭-32 상수로 동일")
+        XCTAssertEqual(cards.last!.frame.width, Config.logicalCanvasWidth - 32, accuracy: 1.0)
     }
 
     @MainActor
@@ -250,38 +250,27 @@ final class PencilKitCanvasViewTests: XCTestCase {
             "수정 후 로직: nextY(\(fixedNextY)) > strokeMaxY(\(strokeMaxY)) — 필기 아래 배치")
     }
 
-    // MARK: - 폭 SSOT (currentWidth) — Track P
+    // MARK: - 폭 SSOT (currentWidth) — 네이티브 줌(논리폭 상수)
+    // 네이티브 줌 전환(canvas-native-zoom-spec §4.2): contentView 폭이 항상 논리폭이므로
+    // currentWidth는 bounds.width 추종을 버리고 Config.logicalCanvasWidth 상수를 반환한다.
+    // (줌 중 bounds가 흔들려도 카드/오버레이/indicator가 동일 폭을 본다.)
 
     @MainActor
-    func testCurrentWidthUsesBoundsWidth() {
+    func testCurrentWidthIsLogicalConstantForValidBounds() {
         let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 640, height: 1000))
         let coordinator = makeCoordinator()
 
-        XCTAssertEqual(coordinator.currentWidth(canvas), 640, accuracy: 0.5,
-            "bounds.width가 유효하면 그 값을 폭 SSOT로 사용")
+        XCTAssertEqual(coordinator.currentWidth(canvas), Config.logicalCanvasWidth, accuracy: 0.5,
+            "bounds.width와 무관하게 논리폭 상수를 폭 SSOT로 사용")
     }
 
     @MainActor
-    func testCurrentWidthFallsBackToLastKnownWhenBoundsZero() {
-        let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 640, height: 1000))
-        let coordinator = makeCoordinator()
-
-        // 유효 bounds에서 한 번 읽어 lastKnownWidth 기억
-        _ = coordinator.currentWidth(canvas)
-
-        // bounds가 0이 되어도 마지막으로 알려진 폭으로 폴백
-        canvas.frame = .zero
-        XCTAssertEqual(coordinator.currentWidth(canvas), 640, accuracy: 0.5,
-            "bounds=0이면 마지막으로 알려진 폭으로 폴백")
-    }
-
-    @MainActor
-    func testCurrentWidthDefaultsWhenNeverKnown() {
+    func testCurrentWidthIsLogicalConstantWhenBoundsZero() {
         let canvas = PKCanvasView(frame: .zero)
         let coordinator = makeCoordinator()
 
-        XCTAssertEqual(coordinator.currentWidth(canvas), 800, accuracy: 0.5,
-            "유효 폭을 한 번도 못 본 상태에선 기본값 800으로 폴백")
+        XCTAssertEqual(coordinator.currentWidth(canvas), Config.logicalCanvasWidth, accuracy: 0.5,
+            "bounds=0이어도 논리폭 상수 — 줌 중 bounds가 흔들려도 안전")
     }
 
     // MARK: - 논리폭 상수 (Option A)

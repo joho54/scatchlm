@@ -264,3 +264,48 @@ func appLogWarn(_ tag: String, _ message: String, _ data: [String: Any]? = nil) 
 func appLogError(_ tag: String, _ message: String, _ data: [String: Any]? = nil) {
     LogService.shared.error(tag, message, data)
 }
+
+// MARK: - UX 액션 인터셉터
+//
+// APIClient가 모든 네트워크 요청을 한 곳에서 로깅하는 "인터셉터"라면, `uxTrack`은
+// APIClient를 우회하는 사용자 흐름(supabase-swift auth / ASAuthorization / ASWebAuthenticationSession 등)을
+// 위한 단일 관측 지점이다. 흩어진 start/success/failed 로그를 매번 손으로 박는 대신,
+// 사용자 액션을 이 래퍼로 감싸면 시작·성공·실패·취소 + latency + 에러 domain/code가 일관 포맷으로 남는다.
+//
+// 의도적 취소(사용자가 시트를 닫음 등)는 실패와 구분해 `ux` info로, 실제 실패는 `uxError`로 기록한다.
+@discardableResult
+func uxTrack<T>(_ event: String, _ meta: [String: Any] = [:],
+                _ op: () async throws -> T) async rethrows -> T {
+    let start = Date()
+    func ms() -> Int { Int(Date().timeIntervalSince(start) * 1000) }
+    func merged(_ extra: [String: Any]) -> [String: Any] {
+        meta.merging(extra) { _, new in new }
+    }
+    appLog("ux", "\(event) start", meta.isEmpty ? nil : meta)
+    do {
+        let result = try await op()
+        appLog("ux", "\(event) ok", merged(["ms": ms()]))
+        return result
+    } catch {
+        let ns = error as NSError
+        let fields = merged(["ms": ms(), "domain": ns.domain, "code": ns.code])
+        if isUserCancel(ns) {
+            appLog("ux", "\(event) cancel", fields)
+        } else {
+            appLogError("uxError", "\(event) fail", fields)
+        }
+        throw error
+    }
+}
+
+/// 사용자가 의도적으로 취소한 케이스(에러 표시·실패 집계에서 제외). 도메인 문자열만으로 판별해
+/// LogService를 AuthenticationServices에 결합하지 않는다.
+private func isUserCancel(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    let ns = error as NSError
+    // Apple Sign in: ASAuthorizationError.canceled == 1001
+    if ns.domain == "com.apple.AuthenticationServices.AuthorizationError" && ns.code == 1001 { return true }
+    // Google(ASWebAuthenticationSession): 사용자가 시트를 닫음 == code 1
+    if ns.domain == "com.apple.AuthenticationServices.WebAuthenticationSession" && ns.code == 1 { return true }
+    return false
+}

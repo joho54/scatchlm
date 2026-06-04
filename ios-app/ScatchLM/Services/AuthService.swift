@@ -80,11 +80,15 @@ final class AuthService {
     }
 
     func signUp(email: String, password: String) async throws {
-        try await client.auth.signUp(email: email, password: password)
+        try await uxTrack("auth.email.signup") {
+            try await client.auth.signUp(email: email, password: password)
+        }
     }
 
     func signIn(email: String, password: String) async throws {
-        try await client.auth.signIn(email: email, password: password)
+        try await uxTrack("auth.email.signin") {
+            try await client.auth.signIn(email: email, password: password)
+        }
     }
 
     // MARK: - 비밀번호 재설정 (OTP, 인앱)
@@ -92,34 +96,31 @@ final class AuthService {
     /// 1단계: 재설정 OTP(6자리) 이메일 발송. Supabase "Reset Password" 템플릿에 {{ .Token }} 노출 필요.
     /// 이메일 존재 여부를 노출하지 않도록 Supabase는 성공/실패와 무관하게 동일 응답을 준다(열거 방지).
     func requestPasswordReset(email: String) async throws {
-        appLog("auth", "password reset request")
-        try await client.auth.resetPasswordForEmail(email)
+        try await uxTrack("auth.password.reset") {
+            try await client.auth.resetPasswordForEmail(email)
+        }
     }
 
     /// 2단계: OTP 검증(복구 세션 확립) → 새 비밀번호로 갱신. 성공 시 로그인 상태가 된다.
     func completePasswordReset(email: String, token: String, newPassword: String) async throws {
-        appLog("auth", "password reset verify start")
-        do {
+        try await uxTrack("auth.password.verify") {
             try await client.auth.verifyOTP(email: email, token: token, type: .recovery)
             try await client.auth.update(user: UserAttributes(password: newPassword))
-            appLog("auth", "password reset success")
-        } catch {
-            appLogError("auth", "password reset failed", ["error": "\(error)"])
-            throw error
         }
     }
 
     /// Google OAuth 로그인. supabase-swift가 ASWebAuthenticationSession을 앱 내부 시트로 띄우고
     /// redirectTo의 scheme으로 콜백을 가로챈다. authStateChanges 리스너가 새 세션을 반영함.
     func signInWithGoogle() async throws {
-        appLog("auth", "google oauth start")
-        try await client.auth.signInWithOAuth(
-            provider: .google,
-            redirectTo: URL(string: "com.joho54.scatchlm://login-callback"),
-            // prompt=select_account: Google이 캐시된 계정으로 바로 통과시키지 않고
-            // 항상 계정 선택창을 띄우게 강제 (다른 계정/가입 테스트 가능)
-            queryParams: [(name: "prompt", value: "select_account")]
-        )
+        try await uxTrack("auth.google") {
+            try await client.auth.signInWithOAuth(
+                provider: .google,
+                redirectTo: URL(string: "com.joho54.scatchlm://login-callback"),
+                // prompt=select_account: Google이 캐시된 계정으로 바로 통과시키지 않고
+                // 항상 계정 선택창을 띄우게 강제 (다른 계정/가입 테스트 가능)
+                queryParams: [(name: "prompt", value: "select_account")]
+            )
+        }
     }
 
     /// 검증된 JWT의 app_metadata.tier (없으면 "normal"). IAP 구매 후 refreshSession으로 갱신됨.
@@ -147,13 +148,13 @@ final class AuthService {
     }
 
     func signOut() async throws {
-        appLog("auth", "signOut start")
-        try await client.auth.signOut()
-        session = nil
-        // 로컬 데이터는 보존하되(다음 로그인 시 user_id 필터로 자동 격리, §4.5),
-        // 현재 스코프는 즉시 해제해 미로그인 상태에서 타 유저 데이터가 노출되지 않게 한다.
-        applyDBUserScope()
-        appLog("auth", "signOut done")
+        try await uxTrack("auth.signout") {
+            try await client.auth.signOut()
+            session = nil
+            // 로컬 데이터는 보존하되(다음 로그인 시 user_id 필터로 자동 격리, §4.5),
+            // 현재 스코프는 즉시 해제해 미로그인 상태에서 타 유저 데이터가 노출되지 않게 한다.
+            applyDBUserScope()
+        }
     }
 
     // MARK: - Sign in with Apple (D-2, Guideline 4.8 대응)
@@ -163,15 +164,14 @@ final class AuthService {
     /// 네이티브 Sign in with Apple → Supabase signInWithIdToken(.apple).
     /// nonce를 sha256으로 묶어 리플레이를 방지한다.
     func signInWithApple() async throws {
-        appLog("auth", "apple sign-in start")
-        let rawNonce = Self.randomNonce()
-        let hashedNonce = Self.sha256(rawNonce)
+        try await uxTrack("auth.apple") {
+            let rawNonce = Self.randomNonce()
+            let hashedNonce = Self.sha256(rawNonce)
 
-        let coordinator = AppleSignInCoordinator()
-        appleCoordinator = coordinator
-        defer { appleCoordinator = nil }
+            let coordinator = AppleSignInCoordinator()
+            appleCoordinator = coordinator
+            defer { appleCoordinator = nil }
 
-        do {
             let credential = try await coordinator.requestCredential(nonce: hashedNonce)
             guard let tokenData = credential.identityToken,
                   let idToken = String(data: tokenData, encoding: .utf8) else {
@@ -181,10 +181,6 @@ final class AuthService {
             try await client.auth.signInWithIdToken(
                 credentials: .init(provider: .apple, idToken: idToken, nonce: rawNonce)
             )
-            appLog("auth", "apple sign-in success")
-        } catch {
-            appLogError("auth", "apple sign-in failed", ["error": "\(error)"])
-            throw error
         }
     }
 

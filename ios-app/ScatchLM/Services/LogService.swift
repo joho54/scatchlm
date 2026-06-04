@@ -48,6 +48,13 @@ final class LogService {
 
     // MARK: - Public API (동기 fire-and-forget)
 
+    /// 고빈도 렌더/내부 디버그 로그용. Release(prod)에선 백엔드로 **전송하지 않고**
+    /// 콘솔에만 남는다(DEBUG 빌드). 정상 상태 텔레메트리 노이즈·전송 비용·버퍼 압박을 막는다.
+    /// 사고 분석은 info/warn/error + Sentry로 본다 — 렌더 로그는 incident 도구가 아니다.
+    func debug(_ tag: String, _ message: String, _ data: [String: Any]? = nil) {
+        enqueue(level: "debug", tag: tag, message: message, data: data)
+    }
+
     func info(_ tag: String, _ message: String, _ data: [String: Any]? = nil) {
         enqueue(level: "info", tag: tag, message: message, data: data)
     }
@@ -75,6 +82,10 @@ final class LogService {
         } else {
             print("[\(tag)] \(message)")
         }
+        #else
+        // Release(prod): debug 레벨은 콘솔만(위 #if에서 제외됨)이고 백엔드 전송도 건너뛴다.
+        // 렌더 디버그 로그가 2초마다 prod로 흘러 노이즈·비용·버퍼 압박을 만드는 걸 차단.
+        if level == "debug" { return }
         #endif
         queue.async { [weak self] in
             guard let self else { return }
@@ -257,6 +268,11 @@ final class LogService {
 // 편의 함수
 func appLog(_ tag: String, _ message: String, _ data: [String: Any]? = nil) {
     LogService.shared.info(tag, message, data)
+}
+
+/// 고빈도 렌더/내부 상태 로그용 — Release에선 prod 전송 안 함(콘솔 전용). 사용처: canvas/indicator 등.
+func appLogDebug(_ tag: String, _ message: String, _ data: [String: Any]? = nil) {
+    LogService.shared.debug(tag, message, data)
 }
 
 func appLogWarn(_ tag: String, _ message: String, _ data: [String: Any]? = nil) {

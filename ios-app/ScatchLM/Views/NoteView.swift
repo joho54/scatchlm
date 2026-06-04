@@ -893,7 +893,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             canvasView.drawing = drawing
         }
 
-        appLog("canvas", "makeUIView", [
+        appLogDebug("canvas", "makeUIView", [
             "bounds": "\(canvasView.bounds)",
             "drawingPolicy": "\(canvasView.drawingPolicy.rawValue)",
             "hasDrawing": "\(initialDrawingData != nil)",
@@ -906,7 +906,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             toolPicker.addObserver(canvasView)
             context.coordinator.toolPicker = toolPicker
             let became = canvasView.becomeFirstResponder()
-            appLog("canvas", "toolPicker setup", [
+            appLogDebug("canvas", "toolPicker setup", [
                 "becameFirstResponder": "\(became)",
                 "window": "\(canvasView.window != nil)",
                 "bounds": "\(canvasView.bounds)",
@@ -947,7 +947,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         // Render feedback cards — coordinator에 위임
         let existingCards = uiView.subviews.filter { $0.tag == 9999 }.count
-        appLog("canvas", "updateUIView", ["feedbacks": "\(feedbacks.count)", "existingCards": "\(existingCards)", "bounds": "\(uiView.bounds)"])
+        appLogDebug("canvas", "updateUIView", ["feedbacks": "\(feedbacks.count)", "existingCards": "\(existingCards)", "bounds": "\(uiView.bounds)"])
         context.coordinator.renderAllCards(on: uiView, feedbacks: feedbacks)
         context.coordinator.updateFrozenOverlay(on: uiView)
     }
@@ -1023,7 +1023,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             frozenEndIndex = feedbacks.map { $0.strokeRangeEnd }.max() ?? 0
             previousStrokeCount = canvasView.drawing.strokes.count
             updateFrozenOverlay(on: canvasView)
-            appLog("canvas", "frozen recalc", [
+            appLogDebug("canvas", "frozen recalc", [
                 "bottom": "\(Int(frozenBottom))",
                 "endIndex": "\(frozenEndIndex)",
                 "strokes": "\(previousStrokeCount)",
@@ -1243,7 +1243,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             }
             let width = lastKnownWidth
             guard width > 0 else {
-                appLog("indicator", "skip: width=0", ["bounds": "\(canvasView.bounds)"])
+                appLogDebug("indicator", "skip: width=0", ["bounds": "\(canvasView.bounds)"])
                 return
             }
 
@@ -1258,7 +1258,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let allIndicators = canvasView.subviews.filter { $0.tag == 9998 }
             if allIndicators.count > 1 {
                 allIndicators.dropFirst().forEach { $0.removeFromSuperview() }
-                appLog("indicator", "stale removed", ["count": "\(allIndicators.count - 1)"])
+                appLogDebug("indicator", "stale removed", ["count": "\(allIndicators.count - 1)"])
             }
             let existingInCanvas = allIndicators.first
 
@@ -1299,7 +1299,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
             canvasView.bringSubviewToFront(indicator)
 
-            appLog("indicator", isNew ? "created" : "updated", [
+            appLogDebug("indicator", isNew ? "created" : "updated", [
                 "y": "\(Int(y))",
                 "strokeMaxY": "\(Int(strokeMaxY))",
                 "lastCardBottom": "\(Int(lastRenderedBottom))",

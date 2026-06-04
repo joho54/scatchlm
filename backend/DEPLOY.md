@@ -203,6 +203,35 @@ ssh scatchlm 'bash /opt/scatchlm/scripts/restore_db.sh --from-bucket 2026-06-04'
 > 먼저 `CREATE EXTENSION IF NOT EXISTS vector`를 돌린다. **복구 드릴(§A.5)을 분기 1회 수행**해
 > 스키마·row 수·소요시간을 검증할 것 — 안 돌려보면 사고 당일에 발견한다.
 
+#### 복구 드릴 (§A.5) — 운영 DB 절대 미접촉, 로컬 격리 컨테이너에서
+
+`restore_db.sh`는 `--clean --if-exists`로 대상을 DROP·재생성한다 → **운영엔 절대 드릴로 돌리지 말 것**.
+드릴은 버킷 덤프를 **일회용 pgvector 컨테이너**에 복원해 검증하고 파기한다(재해 시 "새 박스 복원"과 동일).
+
+```bash
+# 1) 버킷 덤프를 로컬로 (VM app 컨테이너 boto3 경유 — 로컬엔 boto3 불필요)
+ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T app python3 -c \"
+import os,sys,boto3
+c=boto3.client('s3',endpoint_url=os.environ['OBJECT_STORAGE_ENDPOINT'],region_name=os.environ['OBJECT_STORAGE_REGION'],aws_access_key_id=os.environ['OBJECT_STORAGE_ACCESS_KEY'],aws_secret_access_key=os.environ['OBJECT_STORAGE_SECRET_KEY'])
+c.download_fileobj(os.environ['OBJECT_STORAGE_BUCKET'],'backups/db/scatchlm-<DATE>.dump',sys.stdout.buffer)\"" > /tmp/drill.dump
+# 2) 일회용 컨테이너 (포트 미노출, prod와 격리)
+docker run -d --name scatchlm-drill -e POSTGRES_PASSWORD=drill pgvector/pgvector:pg17
+until docker exec scatchlm-drill pg_isready -U postgres; do sleep 1; done
+# 3) DB + pgvector 확장 선행 → 복원(소요시간 측정)
+docker exec scatchlm-drill psql -U postgres -c "CREATE DATABASE scatchlm;"
+docker exec scatchlm-drill psql -U postgres -d scatchlm -c "CREATE EXTENSION IF NOT EXISTS vector;"
+time docker exec -i scatchlm-drill pg_restore -U postgres -d scatchlm --no-owner < /tmp/drill.dump
+# 4) 검증: row 수를 prod(SELECT relname,n_live_tup FROM pg_stat_user_tables)와 대조
+docker exec scatchlm-drill psql -U postgres -d scatchlm -c "ANALYZE; SELECT relname,n_live_tup FROM pg_stat_user_tables ORDER BY relname;"
+# 5) 파기
+docker rm -f scatchlm-drill && rm -f /tmp/drill.dump
+```
+
+> **드릴 기록 2026-06-04** (덤프 `scatchlm-2026-06-04.dump`, 3.2MB): 복원 exit 0·무에러, 15개
+> 테이블 row 수 prod와 **완전 일치**(users 7 / chapters 2790 / document_chunks 772 / ai_response 169 …),
+> `document_chunks.embedding = vector(512)` 정상 복원(확장 선행 필수 확인), `alembic_version=d4e5f6a7b8c9`,
+> 소요 ~0.15s. **백업은 복원 가능함이 검증됨.** 다음 드릴: 분기 1회 권장.
+
 #### `.env.prod` 시크릿 보관 (복구 전제)
 
 `.env.prod`는 VM 로컬·git 제외라 **VM 유실 시 함께 사라지면 위 복구가 막힌다**. 시크릿

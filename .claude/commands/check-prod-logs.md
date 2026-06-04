@@ -120,13 +120,33 @@ grep -iE 'error|exception|traceback|-> [45][0-9][0-9]|performSync failed| fail '
   | grep -ivE 'Sentry disabled' | tail -30
 ```
 
-**prefix → 실제 계정 식별(트리아지):** 로그는 가명(UUID prefix)뿐이라 이메일은 DB join 필요.
-`/check-prod-db`로:
-```sql
-SELECT id, email, created_at FROM users WHERE id LIKE '66d2d3d1%';
+**prefix → 실제 계정 식별(자동 DB join):** 로그는 가명(UUID prefix)뿐이라 이메일은 `users`
+테이블 join이 필요하다. `users`/`stats` 분석 시 **이 단계를 항상 함께 수행**해 prefix에
+이메일을 붙인다. 로그에서 등장한 prefix 전부를 한 번에 모아 단일 쿼리로 조회한다(유저당
+쿼리 X). prefix 폭(8/12)에 무관하게 `id::text`의 좌측 일치로 매칭한다.
+
+```bash
+# 로그에서 등장한 고유 user prefix 추출 → '|'로 묶어 OR 정규식 생성
+PREFIXES=$(grep -oE '\[u:[0-9a-f]+\]' /tmp/prodlogs_users.txt \
+  | sed -E 's/\[u:([0-9a-f]+)\]/\1/' | sort -u | paste -sd'|' -)
+echo "조회 대상 prefix: $PREFIXES"
+
+# 단일 쿼리로 매칭 (id 텍스트가 어떤 prefix로 시작하는지). 결과는 PII이므로 외부 유출 금지.
+ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres psql -U postgres -d scatchlm -c \"SELECT left(id::text,12) AS prefix, email, created_at FROM users WHERE id::text ~ '^($PREFIXES)' ORDER BY created_at;\""
 ```
-> 결과 보고 시: 고유 유저 수, 세션 수, 시간 범위, 상위 액션/API, 에러 요약, (있으면) uxTrack
-> ok/cancel/fail 분포를 표로 정리. 식별이 필요하면 prefix를 뽑아 DB join을 안내/수행.
+
+> - `id::text ~ '^(p1|p2|...)'` 는 prefix 어느 하나로 시작하는 row만 반환 — 로그에 없는
+>   유저는 제외된다.
+> - **매칭 안 되는 prefix 주의**: 로그엔 있는데 결과에 없으면 = 가입 실패(회원가입 전
+>   인증 단계 이탈) 또는 계정 삭제. 위 Apple sign-in 실패 케이스(`66d2d3d1`)가 전형적 —
+>   이때는 "DB row 없음 = 미가입"으로 보고한다.
+> - 직접 `/check-prod-db`를 거쳐도 되지만, 위처럼 로그 fetch와 같은 흐름에서 자동 join하는
+>   것을 기본으로 한다.
+
+> 결과 보고 시: 고유 유저 수(+이메일 매칭), 세션 수, 시간 범위, 상위 액션/API, 에러 요약,
+> (있으면) uxTrack ok/cancel/fail 분포를 표로 정리. 사용자 표에는 prefix·이메일·로그량·
+> 세션수를 함께 싣고, 매칭 실패 prefix는 "미가입/삭제"로 명시한다. **이메일은 PII이므로
+> 결과를 외부(이슈/PR/채팅 등)에 붙여넣지 않는다.**
 
 ### 실시간 스트림 (follow)
 ```bash
@@ -140,7 +160,8 @@ ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --en
   - 비어있음 → app 서비스 최근 50줄
   - `follow` → 실시간 스트림
   - `service=<name>` → 해당 서비스 로그
-  - `users` / `stats` (+ 선택 윈도우, 예: `users 48h`) → 사용자 활동 분석 (위 섹션)
+  - `users` / `stats` (+ 선택 윈도우, 예: `users 48h`) → 사용자 활동 분석 (위 섹션). 등장한
+    user prefix를 `users` 테이블과 자동 join해 이메일까지 매칭(미가입/삭제 prefix는 명시)
   - 그 외 → 키워드 grep
 
 ## 실행 로직

@@ -9,7 +9,8 @@
 - **논리폭(SSOT):** `Config.logicalCanvasWidth` = 기기 세로폭(짧은 변). 세로 모드는 오늘과 동일(여백/클리핑 없음), 가로 모드에서만 종이가 이 폭으로 가운데 정렬되고 양옆 레터박스. (820 상한은 13" 세로에서 기존 필기 클리핑 위험이 있어 폐기.)
 - **Track P:** `contentSize.width`가 항상 `bounds.width`를 추종(버그 ① 해소). frozen/카드/indicator 폭을 `Coordinator.currentWidth(_:)` 단일 함수로 통일(P-2).
 - **Track A:** `canvasPanel`이 `PencilKitCanvasView`를 논리폭으로 `frame` 후 `systemGray5` 레터박스 위에 중앙 배치. 캔버스 `bounds.width`가 논리폭에 고정 → stroke/카드 좌표 재계산 0.
-- **Track R:** `pdfFraction`(@State, 세션 휘발) + 드래그 핸들. 가로=폭, 세로=높이. 세로 clamp `[0.2,0.7]`. 가로는 캔버스가 논리폭보다 좁아지지 않도록 상한(`1 - logical/total`)을 둠 → 이로써 가로 드래그 중에도 캔버스 폭이 안 변해 카드 재렌더 churn이 원천 차단(R-3가 디바운스 없이 충족).
+- **Track R:** `pdfFraction`(@State, 세션 휘발) + 드래그 핸들. 가로=폭, 세로=높이. clamp 가로/세로 공통 `[0.2,0.7]`.
+- **zoom-to-fit 보강(가로 PDF 확장 제약 해소):** 초기엔 가로 clamp 상한을 `1 - logical/total`로 둬 캔버스가 논리폭 미만이 안 되게 했으나, 그 결과 가로 PDF 최대 폭이 ~25–30%로 너무 제한적이었다. 이를 풀어 PDF를 70%까지 허용하되, 캔버스 패널이 논리폭보다 좁아지는 구간에선 `canvasPanel`이 **캔버스 레이어 전체를 `scaleEffect(panelW/logical, anchor:.topLeading)`로 축소**한다. 좌표계는 논리폭 그대로(클리핑·카드 리플로우 없음), 표시만 축소 — 사실상 Option C(zoom-to-fit)를 "좁아질 때만" 부분 적용. stroke·카드·오버레이가 한 레이어로 같이 축소돼 정렬 유지. 세로 뷰포트는 `panelH/scale`로 키워 축소 후 정확히 패널 높이를 채움. **펜 입력의 `scaleEffect` 매핑은 실기기 검증 권장**(시뮬레이터 빌드까지 검증 완료).
 
 이 스펙은 연관된 두 묶음을 다룬다:
 - **묶음 1 (논의 필요):** 가로 모드 캔버스 auto-fit — §1~§7 본문.

@@ -199,17 +199,15 @@ struct NoteView: View {
 
     // MARK: - Split Divider (PDF/캔버스 분할 리사이즈)
 
-    /// 세로 모드 PDF 비율 clamp. 캔버스는 아래로 무한 확장형이라 높이 변경은 폭 좌표계와 무관 → 단순 [0.2,0.7].
-    private var clampedPortraitFraction: CGFloat {
-        min(max(pdfFraction, 0.2), 0.7)
+    /// PDF 분할 비율 clamp — 가로/세로 공통 [0.2, 0.7].
+    /// 가로에서 캔버스 패널이 논리폭보다 좁아지면 canvasPanel이 캔버스 전체를 zoom-to-fit으로 축소하므로
+    /// (좌표계는 논리폭 유지) 더 이상 폭 상한이 필요 없다 — PDF를 70%까지 넓힐 수 있다.
+    private func clampFraction(_ fraction: CGFloat) -> CGFloat {
+        min(max(fraction, 0.2), 0.7)
     }
 
-    /// 가로 모드 PDF 비율 clamp. 캔버스 패널이 논리폭(SSOT)보다 좁아지지 않도록 상한을 둔다 —
-    /// 이로써 캔버스 bounds.width가 항상 논리폭에 고정되어 좌표 재계산/드래그 중 카드 재렌더 churn이 사라진다.
-    private func clampedLandscapeFraction(_ totalWidth: CGFloat) -> CGFloat {
-        guard totalWidth > 0 else { return min(max(pdfFraction, 0.2), 0.7) }
-        return clampLandscape(pdfFraction, totalWidth)
-    }
+    private var clampedPortraitFraction: CGFloat { clampFraction(pdfFraction) }
+    private func clampedLandscapeFraction(_ totalWidth: CGFloat) -> CGFloat { clampFraction(pdfFraction) }
 
     /// 드래그 가능한 분할 핸들. isVertical=true → 가로 모드(폭 조정), false → 세로 모드(높이 조정).
     @ViewBuilder
@@ -235,17 +233,10 @@ struct NoteView: View {
                     if dragStartFraction == nil { dragStartFraction = start }
                     let delta = (isVertical ? value.translation.width : value.translation.height) / total
                     let raw = start + delta
-                    pdfFraction = isVertical ? clampLandscape(raw, total) : min(max(raw, 0.2), 0.7)
+                    pdfFraction = clampFraction(raw)
                 }
                 .onEnded { _ in dragStartFraction = nil }
         )
-    }
-
-    /// 가로 모드 비율 clamp — 캔버스 패널이 논리폭(SSOT)보다 좁아지지 않는 상한 적용.
-    private func clampLandscape(_ fraction: CGFloat, _ totalWidth: CGFloat) -> CGFloat {
-        let maxByCanvas = 1 - Config.logicalCanvasWidth / totalWidth   // 캔버스 = 논리폭이 되는 한계
-        let upper = min(0.7, max(0.2, maxByCanvas))
-        return min(max(fraction, 0.2), upper)
     }
 
     // MARK: - Canvas Panel
@@ -253,14 +244,23 @@ struct NoteView: View {
     @ViewBuilder
     private func canvasPanel(note: Note) -> some View {
         GeometryReader { panelGeo in
-            let canvasWidth = min(Config.logicalCanvasWidth, panelGeo.size.width)
+            let logical = Config.logicalCanvasWidth
+            let panelW = panelGeo.size.width
+            let panelH = panelGeo.size.height
+            // 패널이 논리폭보다 넓으면 1:1 + 레터박스, 좁으면 zoom-to-fit(<1)으로 페이지 전체를 축소.
+            // scale은 좌표계가 아니라 표시에만 영향 — stroke/카드는 논리폭 좌표 그대로라 잘리거나 리플로우되지 않는다.
+            let scale = panelW < logical && logical > 0 ? panelW / logical : 1
             ZStack {
                 // 레터박스 여백 — 논리폭보다 넓은 가용 공간(가로 전체/큰 iPad)에서 종이 양옆 회색 배경.
                 // ignoresSafeArea를 주면 캔버스는 safe area 아래인데 회색만 상태바까지 올라가 띠가 생긴다.
                 // 패널은 부모 ZStack의 ignoresSafeArea(.bottom)로 이미 하단까지 차므로 여기선 추가 확장 불필요.
                 Color(uiColor: .systemGray5)
+                // 캔버스는 항상 논리폭으로 렌더(bounds.width=논리폭 고정) 후, 좁을 때만 레이어 전체를 축소.
+                // 세로 뷰포트는 panelH/scale로 키워 축소 후 정확히 panelH를 채우게 한다.
                 canvasContent(note: note)
-                    .frame(width: canvasWidth)
+                    .frame(width: logical, height: panelH / scale)
+                    .scaleEffect(scale, anchor: .topLeading)
+                    .frame(width: logical * scale, height: panelH, alignment: .topLeading)
                     .clipped()
             }
             .overlay(alignment: .topLeading) { canvasTopControls() }

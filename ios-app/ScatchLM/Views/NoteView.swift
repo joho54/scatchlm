@@ -204,11 +204,10 @@ struct NoteView: View {
         min(max(pdfFraction, 0.2), 0.7)
     }
 
-    /// 가로 모드 PDF 비율 clamp. 캔버스 패널이 논리폭(SSOT)보다 좁아지지 않도록 상한을 둔다 —
-    /// 이로써 캔버스 bounds.width가 항상 논리폭에 고정되어 좌표 재계산/드래그 중 카드 재렌더 churn이 사라진다.
+    /// 가로 모드 PDF 비율 clamp. 네이티브 줌이 좁은 캔버스 폭을 흡수하므로 더 이상 논리폭 상한이
+    /// 필요 없다 — 단순 [0.2,0.7]. (캔버스가 논리폭보다 좁아지면 host가 zoom-to-fit으로 페이지 전체를 축소.)
     private func clampedLandscapeFraction(_ totalWidth: CGFloat) -> CGFloat {
-        guard totalWidth > 0 else { return min(max(pdfFraction, 0.2), 0.7) }
-        return clampLandscape(pdfFraction, totalWidth)
+        clampLandscape(pdfFraction, totalWidth)
     }
 
     /// 드래그 가능한 분할 핸들. isVertical=true → 가로 모드(폭 조정), false → 세로 모드(높이 조정).
@@ -241,11 +240,9 @@ struct NoteView: View {
         )
     }
 
-    /// 가로 모드 비율 clamp — 캔버스 패널이 논리폭(SSOT)보다 좁아지지 않는 상한 적용.
+    /// 가로 모드 비율 clamp — 네이티브 줌 도입으로 상한 단순화 [0.2,0.7]. (totalWidth는 시그니처 호환용)
     private func clampLandscape(_ fraction: CGFloat, _ totalWidth: CGFloat) -> CGFloat {
-        let maxByCanvas = 1 - Config.logicalCanvasWidth / totalWidth   // 캔버스 = 논리폭이 되는 한계
-        let upper = min(0.7, max(0.2, maxByCanvas))
-        return min(max(fraction, 0.2), upper)
+        min(max(fraction, 0.2), 0.7)
     }
 
     // MARK: - Canvas Panel
@@ -253,24 +250,22 @@ struct NoteView: View {
     @ViewBuilder
     private func canvasPanel(note: Note) -> some View {
         GeometryReader { panelGeo in
-            let canvasWidth = min(Config.logicalCanvasWidth, panelGeo.size.width)
             ZStack {
-                // 레터박스 여백 — 논리폭보다 넓은 가용 공간(가로 전체/큰 iPad)에서 종이 양옆 회색 배경.
-                // ignoresSafeArea를 주면 캔버스는 safe area 아래인데 회색만 상태바까지 올라가 띠가 생긴다.
-                // 패널은 부모 ZStack의 ignoresSafeArea(.bottom)로 이미 하단까지 차므로 여기선 추가 확장 불필요.
+                // 레터박스 여백 — 논리폭보다 넓은 가용 공간에서 종이 양옆 회색 배경.
+                // 네이티브 줌 구조에선 host(UIScrollView)가 패널 폭을 가득 채우고 contentInset으로
+                // 종이를 가운데 정렬하므로, 이 Color는 host 바깥(투명)으로 비치는 레터박스 배경이다.
                 Color(uiColor: .systemGray5)
-                canvasContent(note: note)
-                    .frame(width: canvasWidth)
-                    .clipped()
+                canvasContent(note: note, panelWidth: panelGeo.size.width)
             }
             .overlay(alignment: .topLeading) { canvasTopControls() }
         }
     }
 
     @ViewBuilder
-    private func canvasContent(note: Note) -> some View {
+    private func canvasContent(note: Note, panelWidth: CGFloat) -> some View {
         PencilKitCanvasView(
             canvasView: $canvasView,
+            panelWidth: panelWidth,
             onDrawingChanged: {
                 saveDrawing()
                 refreshUndoState()
@@ -532,6 +527,12 @@ struct NoteView: View {
         appLog("note", "loadPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
     }
 
+    /// 카드·오버레이·indicator가 사는 컨테이너. 네이티브 줌 구조에서는 contentView(줌 대상)이며,
+    /// coordinator가 아직 연결 전이면 canvasView로 폴백.
+    private func cardContainer() -> UIView {
+        (canvasView.delegate as? PencilKitCanvasView.Coordinator)?.contentView ?? canvasView
+    }
+
     /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수
     private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil) {
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
@@ -542,7 +543,7 @@ struct NoteView: View {
             nextCardY = coordinator.nextCardLineY
         }
 
-        let width = canvasView.bounds.width - 32
+        let width = Config.logicalCanvasWidth - 32
         let totalStrokes = canvasView.drawing.strokes.count
         let rangeStart = strokeRangeStart ?? (coordinator?.frozenEndIndex ?? 0)
         let rangeEnd = strokeRangeEnd ?? totalStrokes
@@ -575,7 +576,7 @@ struct NoteView: View {
         // UIKit 직접 렌더 — SwiftUI updateUIView에 의존하지 않음
         if let coordinator {
             // 이전 "마지막" 카드의 되돌리기 버튼 제거 — revert는 가장 마지막 피드백에서만 허용
-            for card in canvasView.subviews where card.tag == 9999 {
+            for card in cardContainer().subviews where card.tag == 9999 {
                 func stripRevert(_ v: UIView) {
                     for sub in v.subviews {
                         if sub.tag == 8888 { sub.removeFromSuperview() } else { stripRevert(sub) }
@@ -585,7 +586,7 @@ struct NoteView: View {
             }
             coordinator.renderCard(on: canvasView, feedback: record, isLast: true)
             // 실제 렌더 후 bbox 높이 동기화 → frozenBottom 재계산
-            if let card = canvasView.subviews.first(where: { $0.tag == 9999 && $0.accessibilityIdentifier == record.id }) {
+            if let card = cardContainer().subviews.first(where: { $0.tag == 9999 && $0.accessibilityIdentifier == record.id }) {
                 let actualBottom = card.frame.maxY
                 record.bboxHeight = max(estimatedHeight, actualBottom - record.bboxY)
                 // 높이 동기화 업데이트 — 실패해도 카드는 이미 저장됨, 로깅만.
@@ -600,23 +601,12 @@ struct NoteView: View {
             }
             coordinator.recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
             nextCardY = coordinator.lastRenderedBottom + 24
+
+            // 콘텐츠 높이 확장 + 새 카드가 viewport 안에 들어오도록 자동 스크롤(줌 배율 반영)
+            coordinator.ensureContentHeight(nextCardY + 200)
+            coordinator.scrollCardIntoView(positionY: record.positionY)
         } else {
             nextCardY += estimatedHeight + 24
-        }
-
-        // 캔버스 확장
-        if nextCardY + 200 > canvasView.contentSize.height {
-            canvasView.contentSize.height = nextCardY + 200
-        }
-
-        // 새 카드가 viewport 안에 들어오도록 자동 스크롤 — 카드 상단이 화면 1/3 지점에 오게
-        let visibleHeight = canvasView.bounds.height
-        if visibleHeight > 0 {
-            let targetOffsetY = max(0, record.positionY - visibleHeight / 3)
-            let maxOffsetY = max(0, canvasView.contentSize.height - visibleHeight)
-            let clamped = min(targetOffsetY, maxOffsetY)
-            canvasView.setContentOffset(CGPoint(x: 0, y: clamped), animated: true)
-            appLog("note", "auto scroll", ["targetY": "\(Int(clamped))", "cardY": "\(Int(record.positionY))"])
         }
 
         appLog("note", "card appended", ["y": "\(record.positionY)", "nextY": "\(nextCardY)", "contentLen": "\(content.count)"])
@@ -689,16 +679,14 @@ struct NoteView: View {
 
         // 진단: 새 페이지 진입 시점에 남아 있는 피드백 카드(tag 9999) 수.
         // feedbacks=[] 이후 updateUIView→renderAllCards([])가 안 돌면 0이 안 됨 → "카드 따라옴" 버그.
-        let lingeringCards = canvasView.subviews.filter { $0.tag == 9999 }.count
+        let lingeringCards = cardContainer().subviews.filter { $0.tag == 9999 }.count
         appLog("note", "newPage", ["index": "\(newIndex)", "lingeringCards": "\(lingeringCards)"])
     }
 
     /// 캔버스를 기본 높이로 축소하고 스크롤을 최상단으로 되돌린다.
-    /// updateUIView는 contentSize가 확장된 상태(> bounds)면 축소하지 않으므로 여기서 명시적으로 리셋.
+    /// 네이티브 줌 구조에선 host/contentView 기준으로 리셋 — coordinator에 위임.
     private func resetCanvasToTop() {
-        let height = canvasView.bounds.height > 0 ? canvasView.bounds.height * 5 : canvasView.contentSize.height
-        canvasView.contentSize = CGSize(width: canvasView.bounds.width, height: height)
-        canvasView.setContentOffset(.zero, animated: false)
+        (canvasView.delegate as? PencilKitCanvasView.Coordinator)?.resetToTop()
     }
 
     private func goToPage(index: Int) {
@@ -730,7 +718,7 @@ struct NoteView: View {
         // 페이지 전환 시에도 최상단·기본 사이즈에서 시작 (이전 페이지 상태 전이 방지)
         resetCanvasToTop()
 
-        let lingeringCards = canvasView.subviews.filter { $0.tag == 9999 }.count
+        let lingeringCards = cardContainer().subviews.filter { $0.tag == 9999 }.count
         appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)", "lingeringCards": "\(lingeringCards)"])
     }
 
@@ -926,10 +914,24 @@ struct NoteView: View {
     }
 }
 
+// MARK: - Host scroll view (native zoom)
+
+/// 줌/팬/세로스크롤 주체. SwiftUI가 frame을 잡아 레이아웃할 때마다 zoom-to-fit·중앙정렬을
+/// 재계산해야 하므로(updateUIView가 레이아웃 전에 올 수 있음) layoutSubviews에서 콜백한다.
+final class HostScrollView: UIScrollView {
+    var onLayout: (() -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
 // MARK: - PencilKit UIViewRepresentable
 
 struct PencilKitCanvasView: UIViewRepresentable {
     @Binding var canvasView: PKCanvasView
+    /// 캔버스 패널의 가용 폭(SwiftUI 레이아웃에서 결정). host가 이 폭을 채우고 zoom-to-fit을 계산한다.
+    var panelWidth: CGFloat
     var onDrawingChanged: () -> Void
     var onStrokeChanged: (() -> Void)? = nil
     var initialDrawingData: Data?
@@ -941,8 +943,34 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeUIView(context: Context) -> PKCanvasView {
+    /// 루트는 host(UIScrollView). 그 안에 contentView(줌 대상, 논리폭) > PKCanvasView(그리기 전용) 중첩.
+    /// PencilKit은 스크롤 주체에서 강등되어(`isScrollEnabled=false`) 그리기만 담당하고,
+    /// 줌/팬/세로스크롤은 host가 네이티브로 처리한다(GoodNotes식 오버레이 구조).
+    func makeUIView(context: Context) -> UIScrollView {
+        let coordinator = context.coordinator
         let isDark = colorScheme == .dark
+        let logical = Config.logicalCanvasWidth
+
+        // Host scroll view — 줌/팬/세로스크롤 주체
+        let host = HostScrollView()
+        host.onLayout = { [weak coordinator] in coordinator?.hostDidLayout() }
+        host.delegate = coordinator
+        host.backgroundColor = .clear          // 바깥은 SwiftUI 레터박스(systemGray5)가 비친다
+        host.contentInsetAdjustmentBehavior = .never
+        host.bounces = true
+        host.alwaysBounceVertical = true
+        host.showsVerticalScrollIndicator = true
+        host.showsHorizontalScrollIndicator = false
+        host.bouncesZoom = true
+
+        // Content view — 줌 대상(viewForZooming). 폭=논리폭 고정, 높이는 동적.
+        let contentView = UIView()
+        contentView.backgroundColor = isDark ? .black : .white   // 종이
+        contentView.frame = CGRect(x: 0, y: 0, width: logical, height: logical * 2)
+        host.addSubview(contentView)
+        host.contentSize = contentView.bounds.size
+
+        // PencilKit — 그리기 전용 오버레이
         #if targetEnvironment(simulator)
         canvasView.drawingPolicy = .anyInput
         #else
@@ -950,14 +978,18 @@ struct PencilKitCanvasView: UIViewRepresentable {
         // App Review G4: 펜 없는 기기에서도 사용 가능해야 함 (.pencilOnly 리젝 → .default)
         canvasView.drawingPolicy = .default
         #endif
-        canvasView.backgroundColor = isDark ? .black : .white
-        canvasView.isScrollEnabled = true
-        canvasView.alwaysBounceVertical = false
-        canvasView.bounces = true
+        canvasView.isScrollEnabled = false     // 강등: 스크롤/줌은 host가 담당
+        canvasView.backgroundColor = .clear     // 종이는 contentView가 그린다
+        canvasView.isOpaque = false
         canvasView.contentInsetAdjustmentBehavior = .never
-        canvasView.isOpaque = true
         canvasView.tool = PKInkingTool(.pen, color: isDark ? .white : .black, width: 3)
-        canvasView.delegate = context.coordinator
+        canvasView.delegate = coordinator
+        canvasView.frame = contentView.bounds
+        contentView.addSubview(canvasView)
+
+        coordinator.host = host
+        coordinator.contentView = contentView
+        coordinator.canvas = canvasView
 
         // Load saved drawing — only if canvas is empty (avoid overwriting on rotation)
         if canvasView.drawing.strokes.isEmpty,
@@ -967,7 +999,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         appLogDebug("canvas", "makeUIView", [
-            "bounds": "\(canvasView.bounds)",
+            "logical": "\(Int(logical))",
             "drawingPolicy": "\(canvasView.drawingPolicy.rawValue)",
             "hasDrawing": "\(initialDrawingData != nil)",
         ])
@@ -977,51 +1009,42 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let toolPicker = PKToolPicker()
             toolPicker.setVisible(true, forFirstResponder: canvasView)
             toolPicker.addObserver(canvasView)
-            context.coordinator.toolPicker = toolPicker
+            coordinator.toolPicker = toolPicker
             let became = canvasView.becomeFirstResponder()
             appLogDebug("canvas", "toolPicker setup", [
                 "becameFirstResponder": "\(became)",
                 "window": "\(canvasView.window != nil)",
                 "bounds": "\(canvasView.bounds)",
-                "contentSize": "\(canvasView.contentSize)",
                 "isUserInteractionEnabled": "\(canvasView.isUserInteractionEnabled)",
             ])
         }
 
-        return canvasView
+        return host
     }
 
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {
-        // Dark mode: update canvas background + default pen color
+    func updateUIView(_ host: UIScrollView, context: Context) {
+        let coordinator = context.coordinator
         let isDark = colorScheme == .dark
-        uiView.backgroundColor = isDark ? .black : .white
-        context.coordinator.isDarkMode = isDark
-        context.coordinator.onFeedbackTapped = onFeedbackTapped
-        context.coordinator.onFeedbackRevert = onFeedbackRevert
-        context.coordinator.onStrokeRejected = onStrokeRejected
+        coordinator.isDarkMode = isDark
+        coordinator.onFeedbackTapped = onFeedbackTapped
+        coordinator.onFeedbackRevert = onFeedbackRevert
+        coordinator.onStrokeRejected = onStrokeRejected
+        coordinator.contentView?.backgroundColor = isDark ? .black : .white
         // Only update tool color if user hasn't picked a custom color via tool picker
-        if let inkTool = uiView.tool as? PKInkingTool,
+        if let inkTool = canvasView.tool as? PKInkingTool,
            inkTool.color == .black || inkTool.color == .white {
-            uiView.tool = PKInkingTool(inkTool.inkType, color: isDark ? .white : .black, width: inkTool.width)
+            canvasView.tool = PKInkingTool(inkTool.inkType, color: isDark ? .white : .black, width: inkTool.width)
         }
 
-        // 폭 SSOT: contentSize.width는 항상 현재 bounds.width를 따른다.
-        // Option A에서 bounds.width는 논리폭에 고정되므로 이 값도 안정적 — 회전/divider로 폭이
-        // 안 바뀌면 stroke/카드 좌표계가 그대로 유지된다. (가드가 width==0에서만 발동하던 버그 ① 해소.)
-        if uiView.bounds.width > 0 {
-            let targetHeight = max(uiView.bounds.height * 5, uiView.contentSize.height)
-            if uiView.contentSize.width != uiView.bounds.width {
-                uiView.contentSize = CGSize(width: uiView.bounds.width, height: targetHeight)
-            } else if uiView.contentSize.height < uiView.bounds.height {
-                uiView.contentSize.height = uiView.bounds.height * 5
-            }
-        }
+        // 줌-투-핏 + 레터박스 중앙정렬 (회전·divider로 panelWidth가 바뀌면 zoomScale=fit)
+        coordinator.applyPanelLayout(panelWidth: panelWidth)
+        // 빈 페이지에서도 종이가 viewport를 채우도록 최소 높이 보장
+        coordinator.ensureMinimumContentHeight()
 
         // Render feedback cards — coordinator에 위임
-        let existingCards = uiView.subviews.filter { $0.tag == 9999 }.count
-        appLogDebug("canvas", "updateUIView", ["feedbacks": "\(feedbacks.count)", "existingCards": "\(existingCards)", "bounds": "\(uiView.bounds)"])
-        context.coordinator.renderAllCards(on: uiView, feedbacks: feedbacks)
-        context.coordinator.updateFrozenOverlay(on: uiView)
+        appLogDebug("canvas", "updateUIView", ["feedbacks": "\(feedbacks.count)", "panelWidth": "\(Int(panelWidth))", "zoom": "\(host.zoomScale)"])
+        context.coordinator.renderAllCards(on: canvasView, feedbacks: feedbacks)
+        context.coordinator.updateFrozenOverlay(on: canvasView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1035,7 +1058,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         return c
     }
 
-    class Coordinator: NSObject, PKCanvasViewDelegate {
+    class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
         let onDrawingChanged: () -> Void
         var onStrokeChanged: (() -> Void)?
         var onFeedbackTapped: ((FeedbackRecord) -> Void)?
@@ -1047,6 +1070,16 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var toolPickerVisible: Bool = true
         var lastRenderedBottom: CGFloat = 0
         var lastKnownWidth: CGFloat = 0
+
+        // MARK: - Native zoom hierarchy (host > contentView > canvas)
+        /// 줌/팬/세로스크롤 주체. makeUIView에서 설정.
+        weak var host: UIScrollView?
+        /// 줌 대상(viewForZooming). 카드·오버레이·indicator가 사는 컨테이너. 폭=논리폭 고정.
+        weak var contentView: UIView?
+        /// 그리기 전용 PencilKit. contentView의 자식.
+        weak var canvas: PKCanvasView?
+        /// 마지막으로 적용한 패널 폭 — 변하면 zoom-to-fit 재적용.
+        private var lastPanelWidth: CGFloat = 0
         /// renderAllCards 멱등성 가드 — 카드 표시/레이아웃에 영향 주는 입력의 시그니처.
         /// 동일하면 재생성(특히 WKWebView reload)을 건너뛴다. 필기 중 깜빡임 방지.
         private var lastCardsSignature: String?
@@ -1064,12 +1097,113 @@ struct PencilKitCanvasView: UIViewRepresentable {
             self.onDrawingChanged = onDrawingChanged
         }
 
-        /// 폭의 단일 진실(SSOT). frozen 오버레이·카드·indicator가 모두 이 값을 쓴다.
-        /// bounds.width가 유효하면 그 값을 채택·기억하고, 일시적으로 0이면 마지막 값으로 폴백.
-        /// Option A에서 bounds.width는 논리폭에 고정되므로 결과적으로 모든 소비처가 동일 폭을 본다.
+        /// 폭의 단일 진실(SSOT) = 논리폭 상수. contentView 폭이 항상 논리폭이므로 줌 중 bounds가
+        /// 흔들려도 안전하다. frozen 오버레이·카드·indicator가 모두 이 값을 쓴다.
         func currentWidth(_ canvasView: PKCanvasView) -> CGFloat {
-            if canvasView.bounds.width > 0 { lastKnownWidth = canvasView.bounds.width }
-            return lastKnownWidth > 0 ? lastKnownWidth : 800
+            Config.logicalCanvasWidth
+        }
+
+        // MARK: - Native zoom helpers
+
+        /// 카드·오버레이·indicator가 사는 컨테이너 — contentView. 폴백으로 canvasView.
+        private func container(_ canvasView: PKCanvasView) -> UIView {
+            contentView ?? canvasView
+        }
+
+        /// 줌-투-핏: 폭이 바뀌면 fit=min(1, 폭/논리폭)으로 zoomScale을 맞춘다.
+        /// 패널이 논리폭보다 넓으면 zoom=1 + contentInset으로 가운데 정렬(레터박스).
+        private func fitAndCenter(forWidth width: CGFloat) {
+            guard let host, width > 0 else { return }
+            let logical = Config.logicalCanvasWidth
+            let fit = min(1, width / logical)
+            host.minimumZoomScale = fit
+            host.maximumZoomScale = max(fit, 3.0)   // 핀치 줌 허용
+            if abs(width - lastPanelWidth) > 0.5 {
+                lastPanelWidth = width
+                host.zoomScale = fit
+            }
+            centerContent()
+        }
+
+        /// SwiftUI(updateUIView)에서 패널 폭 전달 — 회전/divider 변경 시.
+        func applyPanelLayout(panelWidth: CGFloat) {
+            fitAndCenter(forWidth: panelWidth)
+        }
+
+        /// host 레이아웃 완료 시 — 실제 bounds 기준으로 재-fit·중앙정렬·최소높이 보장.
+        func hostDidLayout() {
+            fitAndCenter(forWidth: host?.bounds.width ?? 0)
+            ensureMinimumContentHeight()
+        }
+
+        /// 줌 시(scrollViewDidZoom) 및 패널 변경 시 — 콘텐츠가 viewport보다 좁으면 가로 가운데 정렬.
+        func centerContent() {
+            guard let host, let contentView else { return }
+            let scaledW = contentView.bounds.width * host.zoomScale
+            let insetX = max(0, (host.bounds.width - scaledW) / 2)
+            // 세로는 상단 정렬(종이는 위에서 시작) → top inset 0.
+            let newInset = UIEdgeInsets(top: 0, left: insetX, bottom: 0, right: insetX)
+            if host.contentInset != newInset {
+                host.contentInset = newInset
+            }
+        }
+
+        /// contentView 높이를 h로 설정 — 줌 transform이 걸린 상태에서도 top-left를 고정한 채 아래로 확장.
+        func setContentHeight(_ h: CGFloat) {
+            guard let host, let contentView else { return }
+            let s = host.zoomScale
+            let w = contentView.bounds.width
+            let origin = contentView.frame.origin
+            contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+            contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
+            canvas?.frame = contentView.bounds
+            host.contentSize = CGSize(width: w * s, height: h * s)
+        }
+
+        /// contentView 높이가 h보다 작으면 확장.
+        func ensureContentHeight(_ h: CGFloat) {
+            guard let contentView else { return }
+            if contentView.bounds.height < h { setContentHeight(h) }
+        }
+
+        /// 빈 페이지에서도 종이가 viewport를 채우도록 최소 높이(현재 줌 기준 1.5화면) 보장.
+        func ensureMinimumContentHeight() {
+            guard let host else { return }
+            let s = max(host.zoomScale, 0.01)
+            let minH = max((host.bounds.height / s) * 1.5, Config.logicalCanvasWidth)
+            ensureContentHeight(minH)
+        }
+
+        /// 페이지 전환 시 — 기본 높이로 축소하고 최상단으로.
+        func resetToTop() {
+            guard let host else { return }
+            let s = max(host.zoomScale, 0.01)
+            let h = max((host.bounds.height / s) * 1.5, Config.logicalCanvasWidth)
+            setContentHeight(h)
+            host.setContentOffset(CGPoint(x: -host.contentInset.left, y: -host.contentInset.top), animated: false)
+        }
+
+        /// 새 카드가 viewport 안에 들어오도록 자동 스크롤 — 카드 상단이 화면 1/3 지점에(줌 배율 반영).
+        func scrollCardIntoView(positionY: CGFloat) {
+            guard let host else { return }
+            let s = host.zoomScale
+            let vh = host.bounds.height
+            guard vh > 0 else { return }
+            let targetY = max(-host.contentInset.top, positionY * s - vh / 3)
+            let maxY = max(-host.contentInset.top, host.contentSize.height - vh)
+            let clamped = min(targetY, maxY)
+            host.setContentOffset(CGPoint(x: -host.contentInset.left, y: clamped), animated: true)
+            appLog("note", "auto scroll", ["targetY": "\(Int(clamped))", "cardY": "\(Int(positionY))", "zoom": "\(s)"])
+        }
+
+        // MARK: - UIScrollViewDelegate
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            contentView
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            centerContent()
         }
 
         @objc func feedbackCardTapped(_ gesture: FeedbackTapGesture) {
@@ -1111,21 +1245,22 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         func removeCard(on canvasView: PKCanvasView, feedbackId: String) {
-            canvasView.subviews
+            let c = container(canvasView)
+            c.subviews
                 .filter { $0.tag == 9999 && $0.accessibilityIdentifier == feedbackId }
                 .forEach { $0.removeFromSuperview() }
             // lastRenderedBottom 재계산 (남은 카드 기준)
-            let remaining = canvasView.subviews.filter { $0.tag == 9999 }
+            let remaining = c.subviews.filter { $0.tag == 9999 }
             lastRenderedBottom = remaining.map { $0.frame.maxY }.max() ?? 0
         }
 
         func updateFrozenOverlay(on canvasView: PKCanvasView) {
-            // 폭 SSOT 사용 — 기존 max(lastKnownWidth, contentSize.width) 혼용 제거(P-2).
             let width = currentWidth(canvasView)
             guard width > 0 else { return }
+            let c = container(canvasView)
 
             // 중복 제거
-            let existing = canvasView.subviews.filter { $0.tag == 9997 }
+            let existing = c.subviews.filter { $0.tag == 9997 }
             if existing.count > 1 {
                 existing.dropFirst().forEach { $0.removeFromSuperview() }
             }
@@ -1136,8 +1271,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 overlay = UIView()
                 overlay.tag = 9997
                 overlay.isUserInteractionEnabled = false
-                canvasView.addSubview(overlay)
-                canvasView.sendSubviewToBack(overlay)
+                c.addSubview(overlay)
+                c.sendSubviewToBack(overlay)
             }
             let alpha: CGFloat = isDarkMode ? 0.10 : 0.07
             overlay.backgroundColor = UIColor.systemGray.withAlphaComponent(alpha)
@@ -1152,7 +1287,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
             // 멱등성 가드: 카드에 영향 주는 입력이 그대로면 재생성 스킵.
             // (필기 중 onStrokeChanged→@State 갱신→updateUIView가 매번 들어와도 WKWebView reload 안 함)
             let effectiveWidth = currentWidth(canvasView)
-            let existingCardCount = canvasView.subviews.filter { $0.tag == 9999 }.count
+            let c = container(canvasView)
+            let existingCardCount = c.subviews.filter { $0.tag == 9999 }.count
             let signature = "\(Int(effectiveWidth))|" + feedbacks.map {
                 "\($0.id):\($0.userRating):\($0.serverFeedbackId ?? "-"):\(Int($0.positionY)):\($0.content.hashValue)"
             }.joined(separator: ";")
@@ -1162,7 +1298,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             }
             lastCardsSignature = signature
 
-            canvasView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
+            c.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
             lastRenderedBottom = 0
             for (i, fb) in feedbacks.enumerated() {
                 renderCard(on: canvasView, feedback: fb, isLast: i == feedbacks.count - 1)
@@ -1298,12 +1434,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let cardHeight = labelSize.height + 48
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
-            canvasView.addSubview(card)
+            container(canvasView).addSubview(card)
 
             let cardBottom = fb.positionY + cardHeight
-            if cardBottom + 200 > canvasView.contentSize.height {
-                canvasView.contentSize.height = cardBottom + 200
-            }
+            ensureContentHeight(cardBottom + 200)
             lastRenderedBottom = max(lastRenderedBottom, cardBottom)
             updateNextPositionIndicator(on: canvasView)
         }
@@ -1322,9 +1456,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 ? CGFloat(0)
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
 
-            // canvasView에서 직접 indicator 조회 — Coordinator 재생성 시에도 안전
+            // container(contentView)에서 직접 indicator 조회 — Coordinator 재생성 시에도 안전
             // 중복(stale)이 있으면 첫 번째만 남기고 모두 제거
-            let allIndicators = canvasView.subviews.filter { $0.tag == 9998 }
+            let c = container(canvasView)
+            let allIndicators = c.subviews.filter { $0.tag == 9998 }
             if allIndicators.count > 1 {
                 allIndicators.dropFirst().forEach { $0.removeFromSuperview() }
                 appLogDebug("indicator", "stale removed", ["count": "\(allIndicators.count - 1)"])
@@ -1351,7 +1486,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 line.lineDashPattern = [4, 4]
                 indicator.layer.addSublayer(line)
 
-                canvasView.addSubview(indicator)
+                c.addSubview(indicator)
                 nextPositionIndicator = indicator
                 isNew = true
             }
@@ -1366,7 +1501,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 line.path = path.cgPath
             }
 
-            canvasView.bringSubviewToFront(indicator)
+            c.bringSubviewToFront(indicator)
 
             appLogDebug("indicator", isNew ? "created" : "updated", [
                 "y": "\(Int(y))",
@@ -1397,11 +1532,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            // Prevent upward expansion — clamp contentOffset to >= 0
-            if canvasView.contentOffset.y < 0 {
-                canvasView.contentOffset.y = 0
-            }
-
             // Frozen 영역 입력 차단 — 새로 추가된 stroke만 검사
             let strokes = canvasView.drawing.strokes
             if frozenBottom > 0, strokes.count > previousStrokeCount {
@@ -1420,14 +1550,12 @@ struct PencilKitCanvasView: UIViewRepresentable {
             }
             previousStrokeCount = canvasView.drawing.strokes.count
 
-            // Auto-expand content size (downward only)
+            // Auto-expand content height (downward only). 버퍼는 viewport를 콘텐츠 좌표로 환산(줌 반영).
+            let viewportInContent = host.map { $0.bounds.height / max($0.zoomScale, 0.01) } ?? canvasView.bounds.height
             let drawingBottom = canvasView.drawing.strokes.isEmpty
-                ? canvasView.bounds.height
+                ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            let requiredHeight = drawingBottom + canvasView.bounds.height * 2
-            if requiredHeight > canvasView.contentSize.height {
-                canvasView.contentSize.height = requiredHeight
-            }
+            ensureContentHeight(drawingBottom + viewportInContent * 2)
 
             updateNextPositionIndicator(on: canvasView)
 

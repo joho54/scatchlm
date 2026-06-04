@@ -256,8 +256,9 @@ struct NoteView: View {
             let canvasWidth = min(Config.logicalCanvasWidth, panelGeo.size.width)
             ZStack {
                 // 레터박스 여백 — 논리폭보다 넓은 가용 공간(가로 전체/큰 iPad)에서 종이 양옆 회색 배경.
+                // ignoresSafeArea를 주면 캔버스는 safe area 아래인데 회색만 상태바까지 올라가 띠가 생긴다.
+                // 패널은 부모 ZStack의 ignoresSafeArea(.bottom)로 이미 하단까지 차므로 여기선 추가 확장 불필요.
                 Color(uiColor: .systemGray5)
-                    .ignoresSafeArea()
                 canvasContent(note: note)
                     .frame(width: canvasWidth)
                     .clipped()

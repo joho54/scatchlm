@@ -249,4 +249,47 @@ final class PencilKitCanvasViewTests: XCTestCase {
         XCTAssertGreaterThan(fixedNextY, strokeMaxY,
             "수정 후 로직: nextY(\(fixedNextY)) > strokeMaxY(\(strokeMaxY)) — 필기 아래 배치")
     }
+
+    // MARK: - 폭 SSOT (currentWidth) — Track P
+
+    @MainActor
+    func testCurrentWidthUsesBoundsWidth() {
+        let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 640, height: 1000))
+        let coordinator = makeCoordinator()
+
+        XCTAssertEqual(coordinator.currentWidth(canvas), 640, accuracy: 0.5,
+            "bounds.width가 유효하면 그 값을 폭 SSOT로 사용")
+    }
+
+    @MainActor
+    func testCurrentWidthFallsBackToLastKnownWhenBoundsZero() {
+        let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 640, height: 1000))
+        let coordinator = makeCoordinator()
+
+        // 유효 bounds에서 한 번 읽어 lastKnownWidth 기억
+        _ = coordinator.currentWidth(canvas)
+
+        // bounds가 0이 되어도 마지막으로 알려진 폭으로 폴백
+        canvas.frame = .zero
+        XCTAssertEqual(coordinator.currentWidth(canvas), 640, accuracy: 0.5,
+            "bounds=0이면 마지막으로 알려진 폭으로 폴백")
+    }
+
+    @MainActor
+    func testCurrentWidthDefaultsWhenNeverKnown() {
+        let canvas = PKCanvasView(frame: .zero)
+        let coordinator = makeCoordinator()
+
+        XCTAssertEqual(coordinator.currentWidth(canvas), 800, accuracy: 0.5,
+            "유효 폭을 한 번도 못 본 상태에선 기본값 800으로 폴백")
+    }
+
+    // MARK: - 논리폭 상수 (Option A)
+
+    func testLogicalCanvasWidthIsDevicePortraitWidth() {
+        let screen = UIScreen.main.bounds
+        let expected = min(screen.width, screen.height)
+        XCTAssertEqual(Config.logicalCanvasWidth, expected, accuracy: 0.5,
+            "논리폭은 기기 세로폭(짧은 변)에 고정 — orientation 무관 단일 좌표계")
+    }
 }

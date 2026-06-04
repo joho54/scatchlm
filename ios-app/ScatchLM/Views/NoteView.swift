@@ -37,6 +37,10 @@ struct NoteView: View {
     @State private var pageNavOpen: Bool = false
     @State private var canUndo: Bool = false
     @State private var canRedo: Bool = false
+    // PDF/캔버스 분할 비율 (PDF 쪽 비율). 드래그 가능한 divider로 조정. 세션 휘발(영속 안 함).
+    @State private var pdfFraction: CGFloat = 0.4
+    // 드래그 시작 시점의 비율 앵커 — translation은 누적값이라 시작값 기준으로 계산.
+    @State private var dragStartFraction: CGFloat?
 
     private let db = DatabaseService.shared
 
@@ -56,15 +60,15 @@ struct NoteView: View {
                     if isLandscape && pdfOpen {
                         HStack(spacing: 0) {
                             pdfPanel(note: note)
-                                .frame(width: geo.size.width * 0.4)
-                            Divider()
+                                .frame(width: geo.size.width * clampedLandscapeFraction(geo.size.width))
+                            dividerHandle(isVertical: true, total: geo.size.width)
                             canvasPanel(note: note)
                         }
                     } else if pdfOpen {
                         VStack(spacing: 0) {
                             pdfPanel(note: note)
-                                .frame(height: geo.size.height * 0.4)
-                            Divider()
+                                .frame(height: geo.size.height * clampedPortraitFraction)
+                            dividerHandle(isVertical: false, total: geo.size.height)
                             canvasPanel(note: note)
                         }
                     } else {
@@ -193,10 +197,77 @@ struct NoteView: View {
         .onDisappear { saveDrawing() }
     }
 
+    // MARK: - Split Divider (PDF/캔버스 분할 리사이즈)
+
+    /// 세로 모드 PDF 비율 clamp. 캔버스는 아래로 무한 확장형이라 높이 변경은 폭 좌표계와 무관 → 단순 [0.2,0.7].
+    private var clampedPortraitFraction: CGFloat {
+        min(max(pdfFraction, 0.2), 0.7)
+    }
+
+    /// 가로 모드 PDF 비율 clamp. 캔버스 패널이 논리폭(SSOT)보다 좁아지지 않도록 상한을 둔다 —
+    /// 이로써 캔버스 bounds.width가 항상 논리폭에 고정되어 좌표 재계산/드래그 중 카드 재렌더 churn이 사라진다.
+    private func clampedLandscapeFraction(_ totalWidth: CGFloat) -> CGFloat {
+        guard totalWidth > 0 else { return min(max(pdfFraction, 0.2), 0.7) }
+        return clampLandscape(pdfFraction, totalWidth)
+    }
+
+    /// 드래그 가능한 분할 핸들. isVertical=true → 가로 모드(폭 조정), false → 세로 모드(높이 조정).
+    @ViewBuilder
+    private func dividerHandle(isVertical: Bool, total: CGFloat) -> some View {
+        let thickness: CGFloat = 16
+        ZStack {
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(width: isVertical ? 1 : nil, height: isVertical ? nil : 1)
+            Capsule()
+                .fill(Color.secondary.opacity(0.45))
+                .frame(width: isVertical ? 4 : 44, height: isVertical ? 44 : 4)
+        }
+        .frame(width: isVertical ? thickness : nil, height: isVertical ? nil : thickness)
+        .frame(maxWidth: isVertical ? nil : .infinity, maxHeight: isVertical ? .infinity : nil)
+        .contentShape(Rectangle())
+        .background(Color(uiColor: .systemBackground).opacity(0.001))
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    guard total > 0 else { return }
+                    let start = dragStartFraction ?? pdfFraction
+                    if dragStartFraction == nil { dragStartFraction = start }
+                    let delta = (isVertical ? value.translation.width : value.translation.height) / total
+                    let raw = start + delta
+                    pdfFraction = isVertical ? clampLandscape(raw, total) : min(max(raw, 0.2), 0.7)
+                }
+                .onEnded { _ in dragStartFraction = nil }
+        )
+    }
+
+    /// 가로 모드 비율 clamp — 캔버스 패널이 논리폭(SSOT)보다 좁아지지 않는 상한 적용.
+    private func clampLandscape(_ fraction: CGFloat, _ totalWidth: CGFloat) -> CGFloat {
+        let maxByCanvas = 1 - Config.logicalCanvasWidth / totalWidth   // 캔버스 = 논리폭이 되는 한계
+        let upper = min(0.7, max(0.2, maxByCanvas))
+        return min(max(fraction, 0.2), upper)
+    }
+
     // MARK: - Canvas Panel
 
     @ViewBuilder
     private func canvasPanel(note: Note) -> some View {
+        GeometryReader { panelGeo in
+            let canvasWidth = min(Config.logicalCanvasWidth, panelGeo.size.width)
+            ZStack {
+                // 레터박스 여백 — 논리폭보다 넓은 가용 공간(가로 전체/큰 iPad)에서 종이 양옆 회색 배경.
+                Color(uiColor: .systemGray5)
+                    .ignoresSafeArea()
+                canvasContent(note: note)
+                    .frame(width: canvasWidth)
+                    .clipped()
+            }
+            .overlay(alignment: .topLeading) { canvasTopControls() }
+        }
+    }
+
+    @ViewBuilder
+    private func canvasContent(note: Note) -> some View {
         PencilKitCanvasView(
             canvasView: $canvasView,
             onDrawingChanged: {
@@ -224,9 +295,11 @@ struct NoteView: View {
                 ratingSheetFeedback = fb
             }
         )
-        .clipped()
-        .overlay(alignment: .topLeading) {
-            HStack(spacing: 8) {
+    }
+
+    @ViewBuilder
+    private func canvasTopControls() -> some View {
+        HStack(spacing: 8) {
                 Button {
                     saveDrawing()
                     dismiss()
@@ -260,7 +333,6 @@ struct NoteView: View {
             }
             .padding(.leading, 12)
             .padding(.top, 12)
-        }
     }
 
     // MARK: - PDF Panel
@@ -932,17 +1004,16 @@ struct PencilKitCanvasView: UIViewRepresentable {
             uiView.tool = PKInkingTool(inkTool.inkType, color: isDark ? .white : .black, width: inkTool.width)
         }
 
-        if uiView.bounds.width > 0 && uiView.contentSize.width == 0 {
-            uiView.contentSize = CGSize(
-                width: uiView.bounds.width,
-                height: max(uiView.bounds.height * 5, uiView.contentSize.height)
-            )
-        }
-        if uiView.bounds.height > 0 && uiView.contentSize.height <= uiView.bounds.height {
-            uiView.contentSize = CGSize(
-                width: uiView.bounds.width,
-                height: uiView.bounds.height * 5
-            )
+        // 폭 SSOT: contentSize.width는 항상 현재 bounds.width를 따른다.
+        // Option A에서 bounds.width는 논리폭에 고정되므로 이 값도 안정적 — 회전/divider로 폭이
+        // 안 바뀌면 stroke/카드 좌표계가 그대로 유지된다. (가드가 width==0에서만 발동하던 버그 ① 해소.)
+        if uiView.bounds.width > 0 {
+            let targetHeight = max(uiView.bounds.height * 5, uiView.contentSize.height)
+            if uiView.contentSize.width != uiView.bounds.width {
+                uiView.contentSize = CGSize(width: uiView.bounds.width, height: targetHeight)
+            } else if uiView.contentSize.height < uiView.bounds.height {
+                uiView.contentSize.height = uiView.bounds.height * 5
+            }
         }
 
         // Render feedback cards — coordinator에 위임
@@ -990,6 +1061,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         init(onDrawingChanged: @escaping () -> Void) {
             self.onDrawingChanged = onDrawingChanged
+        }
+
+        /// 폭의 단일 진실(SSOT). frozen 오버레이·카드·indicator가 모두 이 값을 쓴다.
+        /// bounds.width가 유효하면 그 값을 채택·기억하고, 일시적으로 0이면 마지막 값으로 폴백.
+        /// Option A에서 bounds.width는 논리폭에 고정되므로 결과적으로 모든 소비처가 동일 폭을 본다.
+        func currentWidth(_ canvasView: PKCanvasView) -> CGFloat {
+            if canvasView.bounds.width > 0 { lastKnownWidth = canvasView.bounds.width }
+            return lastKnownWidth > 0 ? lastKnownWidth : 800
         }
 
         @objc func feedbackCardTapped(_ gesture: FeedbackTapGesture) {
@@ -1040,10 +1119,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         func updateFrozenOverlay(on canvasView: PKCanvasView) {
-            if canvasView.bounds.width > 0 {
-                lastKnownWidth = canvasView.bounds.width
-            }
-            let width = max(lastKnownWidth, canvasView.contentSize.width)
+            // 폭 SSOT 사용 — 기존 max(lastKnownWidth, contentSize.width) 혼용 제거(P-2).
+            let width = currentWidth(canvasView)
             guard width > 0 else { return }
 
             // 중복 제거
@@ -1073,8 +1150,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         func renderAllCards(on canvasView: PKCanvasView, feedbacks: [FeedbackRecord]) {
             // 멱등성 가드: 카드에 영향 주는 입력이 그대로면 재생성 스킵.
             // (필기 중 onStrokeChanged→@State 갱신→updateUIView가 매번 들어와도 WKWebView reload 안 함)
-            if canvasView.bounds.width > 0 { lastKnownWidth = canvasView.bounds.width }
-            let effectiveWidth = lastKnownWidth > 0 ? lastKnownWidth : 800
+            let effectiveWidth = currentWidth(canvasView)
             let existingCardCount = canvasView.subviews.filter { $0.tag == 9999 }.count
             let signature = "\(Int(effectiveWidth))|" + feedbacks.map {
                 "\($0.id):\($0.userRating):\($0.serverFeedbackId ?? "-"):\(Int($0.positionY)):\($0.content.hashValue)"
@@ -1096,12 +1172,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         /// 단일 카드를 캔버스에 추가 (피드백 수신 시 직접 호출)
         func renderCard(on canvasView: PKCanvasView, feedback fb: FeedbackRecord, isLast: Bool = true) {
-            // bounds.width가 유효하면 저장, 0이면 마지막으로 알려진 값 사용
-            if canvasView.bounds.width > 0 {
-                lastKnownWidth = canvasView.bounds.width
-            }
-            let effectiveWidth = lastKnownWidth > 0 ? lastKnownWidth : 800
-            let cardWidth = effectiveWidth - 32
+            let cardWidth = currentWidth(canvasView) - 32
             let parsed = try? JSONDecoder().decode(AIResponse.self, from: fb.content.data(using: .utf8) ?? Data())
 
             let card = UIView()
@@ -1238,10 +1309,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         /// 다음 피드백 카드가 들어갈 위치를 dashed line + 라벨로 표시 — 스트로크/카드 변동 시마다 갱신
         func updateNextPositionIndicator(on canvasView: PKCanvasView) {
-            if canvasView.bounds.width > 0 {
-                lastKnownWidth = canvasView.bounds.width
-            }
-            let width = lastKnownWidth
+            let width = currentWidth(canvasView)
             guard width > 0 else {
                 appLogDebug("indicator", "skip: width=0", ["bounds": "\(canvasView.bounds)"])
                 return

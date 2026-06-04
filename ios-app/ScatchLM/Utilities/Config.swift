@@ -1,6 +1,18 @@
 import Foundation
+import UIKit
 
 enum Config {
+    // MARK: - Canvas Layout (Option A: 고정 논리폭 + 레터박스)
+    /// 펜 캔버스의 논리 페이지 폭(SSOT). orientation/divider 비율과 무관하게 고정되어,
+    /// stroke·피드백 카드 좌표가 회전/분할 리사이즈에도 단일 좌표계에 머문다.
+    /// 기기 세로폭(짧은 변)으로 고정 — 세로 모드는 오늘과 동일(여백/클리핑 없음), 가로 모드에서만
+    /// 종이가 이 폭으로 가운데 정렬되고 양옆이 레터박스. (Option A는 ②strokes 절대좌표 제약상 이 폭보다
+    /// 넓게 쓴 가로 필기는 잘리지만, 대부분의 필기가 일어나는 세로 폭을 보존하는 게 충격이 가장 작다.)
+    /// 가용 폭이 이 값보다 좁아지는 극단 분할에선 canvasPanel이 가용 폭으로 자연 축소.
+    static var logicalCanvasWidth: CGFloat {
+        min(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
+    }
+
     // MARK: - Backend API
     /// 개발 시 사용할 호스트. UserDefaults `devApiHost`로 덮어쓸 수 있음 (예: 같은 Wi-Fi의 Mac IP).
     static var devApiHost: String {

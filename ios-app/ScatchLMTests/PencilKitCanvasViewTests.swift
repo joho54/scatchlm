@@ -281,4 +281,109 @@ final class PencilKitCanvasViewTests: XCTestCase {
         XCTAssertEqual(Config.logicalCanvasWidth, expected, accuracy: 0.5,
             "논리폭은 기기 세로폭(짧은 변)에 고정 — orientation 무관 단일 좌표계")
     }
+
+    // MARK: - 네이티브 줌: zoom-to-fit / 중앙정렬 / 좌표 불변 (canvas-native-zoom-spec §4.3, §6-7)
+    // 실기기 전용(펜 선명도·툴피커)이 아닌, host/contentView 좌표·줌 수식 부분을 단위 레벨로 검증.
+
+    /// makeUIView와 동일한 host > contentView > canvas 계층을 구성하고 coordinator에 연결.
+    @MainActor
+    private func makeWiredCoordinator(panelWidth: CGFloat, panelHeight: CGFloat = 1000)
+        -> (PencilKitCanvasView.Coordinator, UIScrollView, UIView, PKCanvasView) {
+        let coordinator = makeCoordinator()
+        let logical = Config.logicalCanvasWidth
+        let host = UIScrollView(frame: CGRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        let contentView = UIView(frame: CGRect(x: 0, y: 0, width: logical, height: logical * 2))
+        host.addSubview(contentView)
+        host.contentSize = contentView.bounds.size
+        let canvas = PKCanvasView(frame: contentView.bounds)
+        canvas.isScrollEnabled = false
+        contentView.addSubview(canvas)
+        host.delegate = coordinator
+        coordinator.host = host
+        coordinator.contentView = contentView
+        coordinator.canvas = canvas
+        return (coordinator, host, contentView, canvas)
+    }
+
+    @MainActor
+    func testApplyPanelLayoutWidePanelZoom1AndCenters() {
+        let logical = Config.logicalCanvasWidth
+        let panel = logical + 200
+        let (coordinator, host, _, _) = makeWiredCoordinator(panelWidth: panel)
+
+        coordinator.applyPanelLayout(panelWidth: panel)
+
+        XCTAssertEqual(host.zoomScale, 1.0, accuracy: 0.001,
+            "패널이 논리폭보다 넓으면 zoom=1 (확대하지 않음)")
+        XCTAssertEqual(host.contentInset.left, 100, accuracy: 0.5,
+            "남는 폭(200)의 절반(100)을 좌우 인셋으로 — 레터박스 중앙정렬")
+        XCTAssertEqual(host.contentInset.right, 100, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testApplyPanelLayoutNarrowPanelZoomsToFit() {
+        let logical = Config.logicalCanvasWidth
+        let panel = logical / 2
+        let (coordinator, host, _, _) = makeWiredCoordinator(panelWidth: panel)
+
+        coordinator.applyPanelLayout(panelWidth: panel)
+
+        XCTAssertEqual(host.zoomScale, 0.5, accuracy: 0.001,
+            "패널이 논리폭의 절반이면 zoom=0.5로 페이지 전체 축소")
+        XCTAssertEqual(host.minimumZoomScale, 0.5, accuracy: 0.001,
+            "minimumZoomScale = fit")
+        XCTAssertEqual(host.contentInset.left, 0, accuracy: 0.5,
+            "축소되면 콘텐츠가 패널을 가득 채우므로 가로 인셋 없음")
+    }
+
+    @MainActor
+    func testSetContentHeightExpandsAndPreservesTopLeft() {
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, host, contentView, canvas) = makeWiredCoordinator(panelWidth: logical)
+        // zoom=1 (기본)
+
+        coordinator.setContentHeight(3000)
+
+        XCTAssertEqual(contentView.bounds.height, 3000, accuracy: 0.5,
+            "contentView 높이 확장")
+        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5,
+            "canvas는 contentView.bounds를 추종")
+        XCTAssertEqual(host.contentSize.height, 3000, accuracy: 0.5,
+            "host.contentSize = 높이 × zoom(1)")
+        XCTAssertEqual(contentView.frame.origin.y, 0, accuracy: 0.5,
+            "아래로만 확장 — top-left 고정")
+    }
+
+    @MainActor
+    func testCardPositionInvariantUnderZoom() {
+        // 줌은 표시만 — 카드의 contentView 좌표(positionY)는 zoom과 무관하게 그대로.
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, _, contentView, canvas) = makeWiredCoordinator(panelWidth: logical / 2)
+        coordinator.applyPanelLayout(panelWidth: logical / 2) // zoom=0.5
+
+        coordinator.renderCard(on: canvas, feedback: makeFeedback(y: 600))
+
+        let card = contentView.subviews.first { $0.tag == 9999 }
+        XCTAssertNotNil(card)
+        XCTAssertEqual(card!.frame.origin.y, 600, accuracy: 1.0,
+            "zoom=0.5여도 카드 Y는 contentView 좌표 600 그대로 (줌은 표시만)")
+        XCTAssertEqual(card!.frame.width, logical - 32, accuracy: 1.0,
+            "카드 폭도 zoom과 무관하게 논리폭-32")
+    }
+
+    @MainActor
+    func testResetToTopResetsHeightAndOffset() {
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, host, contentView, _) = makeWiredCoordinator(panelWidth: logical / 2)
+        coordinator.applyPanelLayout(panelWidth: logical / 2) // zoom=0.5, inset.left=0
+        coordinator.ensureContentHeight(8000)
+
+        coordinator.resetToTop()
+
+        // h = max((vh/zoom)*1.5, logical) = max((1000/0.5)*1.5, logical) = 3000
+        XCTAssertEqual(contentView.bounds.height, 3000, accuracy: 1.0,
+            "기본 높이((viewport/zoom)*1.5)로 축소")
+        XCTAssertEqual(host.contentOffset.y, 0, accuracy: 0.5,
+            "최상단으로(-contentInset.top=0)")
+    }
 }

@@ -71,85 +71,65 @@ ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --en
 ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod logs --no-color --tail=100 caddy' | tail -30
 ```
 
-### 사용자 활동 분석 (`users` / `stats`)
+### 사용자 활동 분석 (`users` / `stats`) — SQL 집계 (app_logs)
 
-FE 로그의 `[u:<id>]`(유저 prefix)·`[sess:<id>]`(세션)·`[tag]`(액션) 토큰을 집계해
-"최근 N시간 동안 누가 / 몇 명이 / 무엇을 했나"를 통계로 낸다. **prefix 폭(8/12)에
-무관하게** `[0-9a-f]+`로 매칭하므로 백엔드 절단폭이 바뀌어도 그대로 동작한다.
+> **2026-06-04 전환(data-durability-spec §B.4 Track B):** FE 텔레메트리가 `app_logs` 테이블에
+> 영속 적재되므로 **활동 집계는 grep이 아니라 SQL**이다. `app_logs`는 배포(컨테이너 재생성)에
+> 살아남고, `user_id`/`session_id`를 **절단 없이 전체값**으로 저장해 `users`와 equi-join한다
+> (prefix LIKE 우회 불필요). 윈도우 경계도 컨테이너 재시작과 무관 — DB ts 기준.
+>
+> **이원화:** 활동 집계 = SQL(아래). **라이브 tail(`follow`)·단발 키워드 grep·백엔드
+> `[access]` API 호출 집계는 여전히 json-log grep**(아래 "백엔드 [access]는 grep 유지" 참고).
+> `[access]`는 `_emit`을 안 거쳐 `app_logs`에 없다(§B.5 한계).
 
-먼저 윈도우만큼 로그를 파일로 저장(여러 번 grep하므로 1회만 fetch):
+모든 쿼리는 `/check-prod-db` 경로(SSH → docker compose exec postgres psql)로 실행한다.
+윈도우(`users 48h`)는 `interval` 값으로 치환한다(기본 `24 hours`).
+
 ```bash
-WIN=24h   # users 뒤 인자로 받은 값, 기본 24h
-ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod logs --no-color --since $WIN app" 2>/dev/null > /tmp/prodlogs_users.txt
-echo "수집: $(wc -l < /tmp/prodlogs_users.txt) 줄 / 범위: $(grep -oE '2026-[0-9-]+ [0-9:]+' /tmp/prodlogs_users.txt | head -1) ~ $(grep -oE '2026-[0-9-]+ [0-9:]+' /tmp/prodlogs_users.txt | tail -1)"
+WIN="24 hours"   # users 뒤 인자(예: 48h → '48 hours'), 기본 24h
+PSQL() { ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres psql -U postgres -d scatchlm -c \"$1\""; }
 ```
-> ⚠️ `--since`는 **컨테이너 재시작 이후**만 보장된다(재시작 시 이전 로그 유실). 범위 출력의
-> 시작 시각이 요청 윈도우보다 늦으면 그 사이 app이 재시작된 것 — 그 한계를 사용자에게 알린다.
 
-집계:
 ```bash
-cd /tmp
-echo "===== 고유 사용자 (로그량 순) ====="
-grep -oE '\[u:[0-9a-f]+\]' prodlogs_users.txt | sort | uniq -c | sort -rn
+# 1) 고유 사용자 + 이메일 + 로그량 + 세션수 + 활동 구간 (핵심 표)
+PSQL "SELECT l.user_id, u.email, count(*) AS log_count,
+       count(DISTINCT l.session_id) AS sessions,
+       min(l.ts) AS first_seen, max(l.ts) AS last_seen
+FROM app_logs l LEFT JOIN users u ON u.id = l.user_id
+WHERE l.ts > now() - interval '$WIN'
+GROUP BY l.user_id, u.email ORDER BY log_count DESC;"
 
-echo "===== 세션 → 사용자 매핑 ====="
-grep -oE '\[sess:[0-9A-F]+\] \[u:[0-9a-f]+\]' prodlogs_users.txt | sort | uniq -c | sort -rn
+# 2) 액션 태그 빈도 (FE)
+PSQL "SELECT tag, count(*) FROM app_logs
+WHERE ts > now() - interval '$WIN' AND tag <> ''
+GROUP BY tag ORDER BY count DESC LIMIT 40;"
 
-echo "===== 핵심 백엔드 API 호출 (로그 배치 제외) ====="
-grep -E '\[access\]' prodlogs_users.txt | grep -oE '(GET|POST|PUT|DELETE) /api/[a-zA-Z0-9/_-]+' \
+# 3) uxTrack 결과 분포 (ok/cancel/fail 등)
+PSQL "SELECT data->>'result' AS result, count(*) FROM app_logs
+WHERE ts > now() - interval '$WIN' AND tag IN ('ux','uxError')
+GROUP BY 1 ORDER BY 2 DESC;"
+
+# 4) 에러
+PSQL "SELECT ts, user_id, tag, message FROM app_logs
+WHERE ts > now() - interval '$WIN' AND level = 'error'
+ORDER BY ts DESC LIMIT 30;"
+```
+
+> - **`LEFT JOIN`이라 `email IS NULL`인 row = 로그엔 있으나 `users`에 없는 user_id**
+>   (가입 실패/삭제) — grep 시절 "미가입 prefix" 수기 판정을 SQL이 흡수한다. 보고 시 명시.
+> - **prefix→이메일 자동 JOIN 단계 불필요**: 전체값 저장이라 `u.id = l.user_id` equi-join.
+> - 사용자별 상세: 위 쿼리에 `AND l.user_id = '<full-uuid>'`를 붙이거나 태그별로 `GROUP BY tag`.
+
+**백엔드 `[access]` API 호출 집계는 grep 유지** (app_logs에 없음 — §B.5):
+```bash
+ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod logs --no-color --since 24h app" 2>/dev/null \
+  | grep -E '\[access\]' | grep -oE '(GET|POST|PUT|DELETE) /api/[a-zA-Z0-9/_-]+' \
   | grep -v '/api/dev/log/batch' | sort | uniq -c | sort -rn | head -30
-
-echo "===== 액션 태그 빈도 (FE) ====="
-grep -oE '\[u:[0-9a-f]+\] \[[a-z]+\] [a-zA-Z][a-zA-Z0-9 :=_-]*' prodlogs_users.txt \
-  | sed -E 's/\[u:[0-9a-f]+\] //' | sort | uniq -c | sort -rn | head -40
-
-echo "===== uxTrack 인증/액션 결과 (ok/cancel/fail) ====="
-grep -oE '\[ux(Error)?\] [a-z.]+ (ok|cancel|fail)' prodlogs_users.txt | sort | uniq -c | sort -rn
-
-echo "===== 인증 provider 분포 ([prov:]) ====="   # apple|google|email — 미인증 로그엔 토큰 없음
-grep -oE '\[prov:[a-z]+\]' prodlogs_users.txt | sort | uniq -c | sort -rn
 ```
 
-사용자별 상세(특정 유저만):
-```bash
-U=66d2d3d1   # 분석할 유저 prefix
-grep "\[u:$U" /tmp/prodlogs_users.txt | grep -oE '\[[a-z]+\] [a-zA-Z][a-zA-Z0-9 :=_-]*' \
-  | sort | uniq -c | sort -rn | head -25
-```
-
-에러/실패:
-```bash
-grep -iE 'error|exception|traceback|-> [45][0-9][0-9]|performSync failed| fail ' /tmp/prodlogs_users.txt \
-  | grep -ivE 'Sentry disabled' | tail -30
-```
-
-**prefix → 실제 계정 식별(자동 DB join):** 로그는 가명(UUID prefix)뿐이라 이메일은 `users`
-테이블 join이 필요하다. `users`/`stats` 분석 시 **이 단계를 항상 함께 수행**해 prefix에
-이메일을 붙인다. 로그에서 등장한 prefix 전부를 한 번에 모아 단일 쿼리로 조회한다(유저당
-쿼리 X). prefix 폭(8/12)에 무관하게 `id::text`의 좌측 일치로 매칭한다.
-
-```bash
-# 로그에서 등장한 고유 user prefix 추출 → '|'로 묶어 OR 정규식 생성
-PREFIXES=$(grep -oE '\[u:[0-9a-f]+\]' /tmp/prodlogs_users.txt \
-  | sed -E 's/\[u:([0-9a-f]+)\]/\1/' | sort -u | paste -sd'|' -)
-echo "조회 대상 prefix: $PREFIXES"
-
-# 단일 쿼리로 매칭 (id 텍스트가 어떤 prefix로 시작하는지). 결과는 PII이므로 외부 유출 금지.
-ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres psql -U postgres -d scatchlm -c \"SELECT left(id::text,12) AS prefix, email, created_at FROM users WHERE id::text ~ '^($PREFIXES)' ORDER BY created_at;\""
-```
-
-> - `id::text ~ '^(p1|p2|...)'` 는 prefix 어느 하나로 시작하는 row만 반환 — 로그에 없는
->   유저는 제외된다.
-> - **매칭 안 되는 prefix 주의**: 로그엔 있는데 결과에 없으면 = 가입 실패(회원가입 전
->   인증 단계 이탈) 또는 계정 삭제. 위 Apple sign-in 실패 케이스(`66d2d3d1`)가 전형적 —
->   이때는 "DB row 없음 = 미가입"으로 보고한다.
-> - 직접 `/check-prod-db`를 거쳐도 되지만, 위처럼 로그 fetch와 같은 흐름에서 자동 join하는
->   것을 기본으로 한다.
-
-> 결과 보고 시: 고유 유저 수(+이메일 매칭), 세션 수, 시간 범위, 상위 액션/API, 에러 요약,
-> (있으면) uxTrack ok/cancel/fail 분포를 표로 정리. 사용자 표에는 prefix·이메일·로그량·
-> 세션수를 함께 싣고, 매칭 실패 prefix는 "미가입/삭제"로 명시한다. **이메일은 PII이므로
-> 결과를 외부(이슈/PR/채팅 등)에 붙여넣지 않는다.**
+> 결과 보고 시: 고유 유저 수(+이메일 매칭), 세션 수, 시간 범위, 상위 액션 태그, (grep) 상위 API,
+> 에러 요약, uxTrack 결과 분포를 표로 정리. 매칭 실패(`email IS NULL`)는 "미가입/삭제"로 명시.
+> **이메일은 PII이므로 결과를 외부(이슈/PR/채팅 등)에 붙여넣지 않는다.**
 
 ### 실시간 스트림 (follow)
 ```bash
@@ -177,11 +157,11 @@ if [ -z "$ARGUMENTS" ]; then
 elif [ "$ARGUMENTS" = "follow" ]; then
   eval "$SSH_BASE -f --tail=20 app'"
 elif echo "$ARGUMENTS" | grep -qE "^(users|stats)( |$)"; then
-  # 사용자 활동 분석 — "사용자 활동 분석" 섹션의 절차를 따른다.
-  # 윈도우는 두 번째 토큰(예: "users 48h"), 없으면 24h.
-  WIN=$(echo "$ARGUMENTS" | awk '{print $2}'); WIN=${WIN:-24h}
-  ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod logs --no-color --since $WIN app" 2>/dev/null > /tmp/prodlogs_users.txt
-  # → 이후 위 섹션의 집계 grep들을 /tmp/prodlogs_users.txt에 대해 실행
+  # 사용자 활동 분석 — "사용자 활동 분석" 섹션의 SQL 집계(app_logs)를 따른다.
+  # 윈도우는 두 번째 토큰(예: "users 48h" → '48 hours'), 없으면 '24 hours'.
+  W=$(echo "$ARGUMENTS" | awk '{print $2}'); W=${W:-24h}
+  WIN="${W%h} hours"   # "48h" → "48 hours"
+  # → 위 섹션의 PSQL 쿼리들을 interval '$WIN'로 실행. [access] 집계만 json-log grep 유지.
 elif echo "$ARGUMENTS" | grep -q "^service="; then
   svc=$(echo "$ARGUMENTS" | sed 's/^service=//')
   eval "$SSH_BASE --tail=100 $svc'"

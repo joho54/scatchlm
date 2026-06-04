@@ -164,12 +164,51 @@ ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --en
 docker image prune -af   # 사용 안 하는 이미지 삭제
 ```
 
-### 백업
+### 백업 / 복구 (data-durability-spec)
+
+> 상세 근거·트레이드오프: `docs/data-durability-spec.md`. 여기엔 운영 절차만 둔다.
+> **VM 유실 시 user 데이터 복원 경로는 버킷의 pg_dump 덤프뿐**이다(pgdata는 VM 로컬 볼륨).
+
+#### 자동 백업 (일배치 cron — `scripts/backup_db.sh`)
+
+`pg_dump -Fc`(MVCC 스냅샷, 실행 중에도 일관 사본)를 **스트림으로** NCP Object Storage에
+올린다. VM 디스크엔 덤프를 남기지 않는다(루트 9.8G 경쟁 회피). 자격증명은 `.env.prod`의
+`OBJECT_STORAGE_*` 재사용. 업로더(`scripts/upload_stream.py`)는 app 이미지에 동봉(`COPY . .`).
+
+VM 설치(수동, 1회):
 ```bash
-# Postgres 덤프
-docker exec scatchlm-prod-postgres-1 pg_dump -U postgres scatchlm | gzip > backup-$(date +%F).sql.gz
+# 스크립트는 app 이미지엔 들어가지만 cron 셸은 VM에 직접 배치
+scp backend/scripts/backup_db.sh backend/scripts/prune_app_logs.sh backend/scripts/restore_db.sh \
+    scatchlm:/opt/scatchlm/scripts/
+ssh scatchlm 'chmod +x /opt/scatchlm/scripts/*.sh'
+# crontab 등록 (매일 03:17, app_logs prune 주1회)
+ssh scatchlm 'crontab -l 2>/dev/null; echo "17 3 * * * /opt/scatchlm/scripts/backup_db.sh >> /var/log/scatchlm-backup.log 2>&1"; echo "23 4 * * 0 /opt/scatchlm/scripts/prune_app_logs.sh >> /var/log/scatchlm-prune.log 2>&1"' # 그 뒤 crontab -e로 확정
+# 수동 1회 검증
+ssh scatchlm 'bash /opt/scatchlm/scripts/backup_db.sh'
 ```
-Object Storage의 PDF는 NCP에서 라이프사이클/버전 관리.
+
+> **보존(retention)** 은 스크립트가 아니라 **버킷 lifecycle 규칙**으로 관리(§A.3, 일14/주8 초안).
+> NCP Object Storage 콘솔에서 `backups/db/` prefix에 만료 규칙을 설정한다(아직 미설정 — 수동 TODO).
+
+#### 복구 (`scripts/restore_db.sh`)
+
+**동일 VM 롤백:**
+```bash
+ssh scatchlm 'bash /opt/scatchlm/scripts/restore_db.sh --from-bucket 2026-06-04'
+```
+**VM 통째 유실 시:** 새 VM 프로비저닝 → `.env.prod` 배치(§시크릿 보관) → compose 기동(빈 pgdata)
+→ `restore_db.sh --from-bucket <DATE>` → app 재연결. **진짜 자산은 버킷의 덤프, VM은 일회용.**
+
+> **pgvector 함정**: 복원 대상에 `CREATE EXTENSION vector`가 선행돼야 한다. `restore_db.sh`가
+> 먼저 `CREATE EXTENSION IF NOT EXISTS vector`를 돌린다. **복구 드릴(§A.5)을 분기 1회 수행**해
+> 스키마·row 수·소요시간을 검증할 것 — 안 돌려보면 사고 당일에 발견한다.
+
+#### `.env.prod` 시크릿 보관 (복구 전제)
+
+`.env.prod`는 VM 로컬·git 제외라 **VM 유실 시 함께 사라지면 위 복구가 막힌다**. 시크릿
+매니저(1Password 등)에 사본을 두되 **DB 덤프 버킷과 분리**(권한 경계). 새 VM 복구의 0단계 = `.env.prod` 확보.
+
+Object Storage의 PDF 원본은 이미 버킷(`STORAGE_BACKEND=s3`)이라 별도 백업 불필요(버킷 durability).
 
 ### iOS Config
 `ios-app/ScatchLM/Utilities/Config.swift`:

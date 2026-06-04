@@ -1,12 +1,29 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.models.app_log import AppLog
 
 log = logging.getLogger("fe")
 
 router = APIRouter(prefix="/api/dev", tags=["devlog"])
+
+
+def _parse_ts(raw: str | None, fallback: datetime) -> datetime:
+    """FE entry.ts/timestamp(ISO8601)를 naive UTC datetime으로 파싱. 실패 시 fallback."""
+    if not raw:
+        return fallback
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return fallback
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 class LogEntry(BaseModel):
@@ -47,10 +64,46 @@ async def receive_log(entry: LogEntry):
 
 
 @router.post("/log/batch")
-async def receive_log_batch(batch: LogBatch):
+async def receive_log_batch(batch: LogBatch, db: AsyncSession = Depends(get_db)):
     for entry in batch.logs:
         _emit(entry, batch.context)
+    # best-effort DB 적재 (§B.4 Track A): 실패해도 엔드포인트는 정상 반환.
+    await _persist(batch, db)
     return {"received": len(batch.logs)}
+
+
+async def _persist(batch: "LogBatch", db: AsyncSession) -> None:
+    """entry+context → AppLog row 배치 적재. DB 실패는 삼키고 콘솔 로그만 남긴다."""
+    if not batch.logs:
+        return
+    ctx = batch.context
+    received_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        rows = [
+            AppLog(
+                ts=_parse_ts(entry.ts or entry.timestamp, received_at),
+                received_at=received_at,
+                level=entry.level or "info",
+                tag=entry.tag or "",
+                message=entry.message,
+                data=entry.data,
+                user_id=(ctx.user_id if ctx and ctx.user_id else None),
+                session_id=(ctx.session_id if ctx else None),
+                trace_id=entry.trace_id or (ctx.trace_id if ctx else None),
+                request_id=entry.request_id,
+                app_version=(ctx.app_version if ctx else None),
+                build=(ctx.build if ctx else None),
+                os_version=(ctx.os_version if ctx else None),
+                device_model=(ctx.device_model if ctx else None),
+                locale=(ctx.locale if ctx else None),
+            )
+            for entry in batch.logs
+        ]
+        db.add_all(rows)
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — best-effort, 적재 실패가 수집을 깨면 안 됨
+        await db.rollback()
+        log.warning(f"[devlog] app_logs 적재 실패(무시): {type(exc).__name__}: {exc}")
 
 
 def _emit(entry: LogEntry, context: "LogContext | None"):

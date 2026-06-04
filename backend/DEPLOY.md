@@ -347,6 +347,12 @@ Apple Developer Portal이 해당 bundle ID를 우리 팀에 등록 못 함. proj
 
 ## NCP 특이점 메모
 
+- **Object Storage lifecycle은 S3 표준 API로 안 됨** — `PutBucketLifecycleConfiguration`은
+  `operation not supported`, 레거시 `PutBucketLifecycle`은 `MalformedXML`, `Get...`은 콘솔에서
+  걸어도 `NoSuchLifecycleConfiguration`을 돌려준다(NCP가 S3 lifecycle 표면을 노출 안 함).
+  → **lifecycle은 콘솔에서만 설정·확인**하고 CLI 검증은 포기한다. 보존 규칙 미작동의 실패
+  모드는 양성(덤프 누적, 데이터 손실 아님)이라 치명적이지 않다. (2026-06-04: `scatchlm-prod`
+  `backups/db/` 60일 만료를 콘솔에서 설정 — API로는 검증 불가)
 - pgvector는 NCP Cloud DB for PostgreSQL이 미지원 → **컨테이너로 직접 운영**
 - NCP Container Registry는 Object Storage 백엔드 + 콘솔 UI 활성화 quirk가 있어 GHCR로 우회
 - `.pem`은 root 비밀번호 복호화용. SSH 키 자체가 아님

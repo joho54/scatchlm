@@ -1227,12 +1227,15 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let oldH = contentView.bounds.height
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
-            // canvas.frame은 "커질 때만" 재할당 — 같은/작은 높이로 다시 세팅하면 PencilKit이 전체
-            // 스트로크를 재래스터화해 깜빡인다(슬라이더 드래그 중 contentView가 1640으로 churn해도
-            // 캔버스는 안 건드림). 페이지보다 큰 캔버스는 도달 불가 영역일 뿐 무해.
-            let canvasFrameReset = (canvas?.frame.height ?? 0) < h
+            // canvas.frame은 큰 청크(20000pt) 단위로만 키운다. contentView는 필기/스크롤에 따라 자주
+            // 미세 성장하지만, 그때마다 canvas.frame을 재할당하면 PencilKit이 전체 스트로크를
+            // 재래스터화해 "필기 중 기존 스트로크 깜빡임"이 난다. 청크 단위라 사실상 거의 안 바뀜.
+            // (페이지보다 큰 캔버스는 도달 불가 영역일 뿐 무해 — PencilKit은 타일 렌더라 비용 없음.)
+            let canvasChunk: CGFloat = 20000
+            let neededCanvasH = ceil(h / canvasChunk) * canvasChunk
+            let canvasFrameReset = (canvas?.frame.height ?? 0) < neededCanvasH
             if canvasFrameReset {
-                canvas?.frame = CGRect(x: 0, y: 0, width: w, height: h)
+                canvas?.frame = CGRect(x: 0, y: 0, width: w, height: neededCanvasH)
             }
             host.contentSize = CGSize(width: w * s, height: h * s)
             // [diag] 호출 빈도/캔버스 프레임 재할당 추적 (슬라이더 깜빡임 원인)

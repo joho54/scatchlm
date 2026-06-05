@@ -1032,10 +1032,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
             canvasView.drawing = drawing
         }
 
-        appLogDebug("canvas", "makeUIView", [
-            "logical": "\(Int(logical))",
-            "drawingPolicy": "\(canvasView.drawingPolicy.rawValue)",
-            "hasDrawing": "\(initialDrawingData != nil)",
+        // [diag] 재생성 관측 — makeUIView가 다시 불리면 host/contentView가 새로 만들어지고
+        // 기존 canvasView가 재부모화된다(=플래시 후보). hadSuperview=true면 캔버스가 옮겨진 것.
+        Self.makeUIViewCount += 1
+        appLog("hierdiag", "makeUIView", [
+            "count": "\(Self.makeUIViewCount)",
+            "panelWidth": "\(Int(panelWidth))",
+            "strokes": "\(canvasView.drawing.strokes.count)",
+            "hadSuperview": "\(canvasView.superview != nil)",
         ])
 
         // Tool picker setup after view is in window
@@ -1093,7 +1097,12 @@ struct PencilKitCanvasView: UIViewRepresentable {
         context.coordinator.updateFrozenOverlay(on: canvasView)
     }
 
+    static var makeUIViewCount = 0
+    static var makeCoordinatorCount = 0
+
     func makeCoordinator() -> Coordinator {
+        Self.makeCoordinatorCount += 1
+        appLog("hierdiag", "makeCoordinator", ["count": "\(Self.makeCoordinatorCount)"])
         let c = Coordinator(onDrawingChanged: onDrawingChanged)
         c.onStrokeChanged = onStrokeChanged
         c.onFeedbackTapped = onFeedbackTapped

@@ -715,15 +715,31 @@ struct NoteView: View {
         }
     }
 
+    /// 페이지 전환 시 PencilKit이 drawing 교체 후에도 이전 렌더 타일을 화면에 남기는 캐시 잔존을 비운다.
+    /// (hierdump로 확정: 캔버스 1개·strokes=0인데 옛 글씨 표시 = 순수 렌더 캐시.)
+    /// frame(bounds) 변경이 PencilKit 재래스터화를 유발함이 깜빡임 로그에서 관측됨 → frame을 바꿨다 복원.
+    /// outer-async: newPage의 resetCanvasToTop 등 동기 frame 세팅이 끝난 뒤 적용해 상쇄(coalesce) 방지.
+    private func forceCanvasRedraw() {
+        DispatchQueue.main.async { [self] in
+            let target = canvasView.frame
+            guard target.height > 2 else { return }
+            canvasView.frame = CGRect(x: target.minX, y: target.minY, width: target.width, height: target.height - 1)
+            DispatchQueue.main.async { [self] in canvasView.frame = target }
+            appLog("note", "forceCanvasRedraw", ["h": "\(Int(target.height))"])
+        }
+    }
+
     /// DB에서 특정 페이지의 드로잉을 로드하여 캔버스에 적용
     private func loadDrawingFromDB(pageId: String) {
         if let page = try? db.page(noteId: noteId, pageIndex: currentPageIndex),
            let data = page.drawingData,
            let drawing = try? PKDrawing(data: data) {
             canvasView.drawing = drawing
+            forceCanvasRedraw()
             appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "strokes": "\(drawing.strokes.count)"])
         } else {
             canvasView.drawing = PKDrawing()
+            forceCanvasRedraw()
             appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "empty": "true"])
         }
     }
@@ -739,6 +755,7 @@ struct NoteView: View {
         try? db.updateCurrentPageIndex(noteId: noteId, index: newIndex)
 
         canvasView.drawing = PKDrawing()
+        forceCanvasRedraw()
         feedbacks = []
         nextCardY = 100
         if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {

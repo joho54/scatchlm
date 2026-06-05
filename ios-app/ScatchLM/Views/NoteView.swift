@@ -1649,10 +1649,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            // [diag] 그리기 변경 발화 빈도/목표 높이 추적 — setContentHeight가 매 발화마다 도는지 대조
+            // 목표 높이를 청크(viewport) 단위로 올림 — 그러지 않으면 drawBottom이 매 스트로크 조금씩
+            // 커져 contentView가 매번 성장(bounds/center/contentSize 갱신)하고, 이 churn이 PencilKit
+            // 스트로크 깜빡임을 유발한다. 청크 경계를 넘을 때만 contentView가 성장한다.
+            let heightChunk = max(viewportInContent, 600)
             drawChangeCount += 1
             let cvH = contentView?.bounds.height ?? -1
-            let target = drawingBottom + viewportInContent * 2
+            let target = ceil((drawingBottom + viewportInContent * 2) / heightChunk) * heightChunk
             appLog("flickerdiag", "drawDidChange", [
                 "n": "\(drawChangeCount)",
                 "strokes": "\(strokes.count)",

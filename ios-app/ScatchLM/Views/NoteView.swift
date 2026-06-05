@@ -179,16 +179,6 @@ struct NoteView: View {
                     ProgressView()
                 }
             }
-            .onChange(of: geo.size) { _, s in
-                // [diag] 회전/리사이즈 관측 — geo 기준 방향 vs isLandscape(UIScreen 기준) 불일치 추적
-                appLog("layoutdiag", "geo changed", [
-                    "w": "\(Int(s.width))", "h": "\(Int(s.height))",
-                    "geoLandscape": "\(s.width > s.height)",
-                    "propLandscape": "\(isLandscape)",
-                    "pdfOpen": "\(pdfOpen)",
-                    "pdfFraction": String(format: "%.2f", pdfFraction),
-                ])
-            }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
@@ -261,16 +251,13 @@ struct NoteView: View {
                     let start = dragStartFraction ?? pdfFraction
                     if dragStartFraction == nil {
                         dragStartFraction = start
-                        dividerDragging = true   // 드래그 중 zoom-fit 보류
-                        // [diag] 드래그 시작 — 회전 후 핸들이 제스처를 받는지/축(isVertical)이 맞는지 확인
-                        appLog("dividerdiag", "drag begin", ["isVertical": "\(isVertical)", "total": "\(Int(total))", "startFraction": String(format: "%.2f", start)])
+                        dividerDragging = true   // 드래그 중 zoom-fit 보류(R-3 디바운스)
                     }
                     let delta = (isVertical ? value.translation.width : value.translation.height) / total
                     let raw = start + delta
                     pdfFraction = isVertical ? clampLandscape(raw, total) : min(max(raw, 0.2), 0.7)
                 }
                 .onEnded { _ in
-                    appLog("dividerdiag", "drag end", ["isVertical": "\(isVertical)", "fraction": String(format: "%.2f", pdfFraction)])
                     dragStartFraction = nil
                     dividerDragging = false   // 종료 시 zoom-fit 1회 적용(updateUIView 재호출)
                 }
@@ -314,7 +301,9 @@ struct NoteView: View {
             onStrokeChanged: {
                 refreshUndoState()
             },
-            initialDrawingData: currentNotePage?.drawingData ?? note.drawingData,
+            // 페이지 그림만 로드. note.drawingData(레거시 노트레벨 그림) 폴백은 page 0에만 적용 —
+            // 새 페이지(index>0)가 옛 노트 그림을 ghost로 로드하던 경로를 차단.
+            initialDrawingData: currentNotePage?.drawingData ?? (currentPageIndex == 0 ? note.drawingData : nil),
             feedbacks: feedbacks,
             onFeedbackTapped: { fb in
                 chatFeedback = fb
@@ -332,6 +321,9 @@ struct NoteView: View {
                 ratingSheetFeedback = fb
             }
         )
+        // 페이지가 바뀌면 .id 변경 → SwiftUI가 옛 캔버스를 dismantle하고 새로 makeUIView(언마운트/리마운트).
+        // PDF토글·회전은 같은 page id라 재생성 안 함(정체성 안정 유지).
+        .id(currentNotePage?.id ?? "no-page")
     }
 
     @ViewBuilder
@@ -685,71 +677,8 @@ struct NoteView: View {
         appLog("note", "saveDrawing", ["pageId": page.id, "strokes": "\(canvasView.drawing.strokes.count)"])
     }
 
-    /// 진단: ghost가 어느 뷰에 있는지 추적 — window 아래 PKCanvasView/host/contentView 인스턴스 수와
-    /// 각 캔버스의 strokes·frame·superview를 덤프한다. 새 페이지인데 strokes>0인 캔버스가 있거나
-    /// PKCanvasView가 2개 이상이면 lingering 인스턴스가 ghost의 정체다.
-    private func dumpCanvasHierarchy(_ tag: String) {
-        guard let window = canvasView.window else {
-            appLog("hierdump", tag, ["window": "nil"])
-            return
-        }
-        var canvases: [PKCanvasView] = []
-        func walk(_ v: UIView) {
-            if let c = v as? PKCanvasView { canvases.append(c) }
-            v.subviews.forEach(walk)
-        }
-        walk(window)
-        appLog("hierdump", tag, [
-            "pkCanvasCount": "\(canvases.count)",
-            "boundCanvasStrokes": "\(canvasView.drawing.strokes.count)",
-        ])
-        for (i, c) in canvases.enumerated() {
-            appLog("hierdump", "\(tag).canvas[\(i)]", [
-                "isBound": "\(c === canvasView)",
-                "strokes": "\(c.drawing.strokes.count)",
-                "frame": "\(Int(c.frame.width))x\(Int(c.frame.height))",
-                "hidden": "\(c.isHidden)",
-                "superview": "\(type(of: c.superview ?? UIView()))",
-                "inWindow": "\(c.window != nil)",
-            ])
-        }
-    }
-
-    /// 페이지 전환 시 PencilKit이 drawing 교체 후에도 이전 렌더 타일을 화면에 남기는 캐시 잔존을 비운다.
-    /// (hierdump로 확정: 캔버스 1개·strokes=0인데 옛 글씨 표시 = 순수 렌더 캐시. isHidden·1px frame 무효.)
-    /// → 렌더 레이어를 처음부터 다시 만들기: superview에서 떼었다 다시 붙인다(remove + re-add).
-    /// outer-async로 동기 레이아웃이 끝난 뒤 적용. 첫 responder였으면 복원(툴피커 유지).
-    private func forceCanvasRedraw() {
-        DispatchQueue.main.async { [self] in
-            guard let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator,
-                  let contentView = coordinator.contentView else { return }
-            let wasFirstResponder = canvasView.isFirstResponder
-            let f = canvasView.frame
-            canvasView.removeFromSuperview()
-            canvasView.frame = f
-            contentView.addSubview(canvasView)
-            if wasFirstResponder { canvasView.becomeFirstResponder() }
-            appLog("note", "forceCanvasRedraw(re-add)", ["fr": "\(wasFirstResponder)", "strokes": "\(canvasView.drawing.strokes.count)"])
-        }
-    }
-
-    /// DB에서 특정 페이지의 드로잉을 로드하여 캔버스에 적용
-    private func loadDrawingFromDB(pageId: String) {
-        if let page = try? db.page(noteId: noteId, pageIndex: currentPageIndex),
-           let data = page.drawingData,
-           let drawing = try? PKDrawing(data: data) {
-            canvasView.drawing = drawing
-            forceCanvasRedraw()
-            appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "strokes": "\(drawing.strokes.count)"])
-        } else {
-            canvasView.drawing = PKDrawing()
-            forceCanvasRedraw()
-            appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "empty": "true"])
-        }
-    }
-
     private func newPage() {
-        saveDrawing()
+        saveDrawing()   // 현재(옛) 페이지 저장
 
         let newIndex = notePages.count
         guard let page = try? db.createPage(noteId: noteId, pageIndex: newIndex) else { return }
@@ -758,70 +687,27 @@ struct NoteView: View {
         currentNotePage = page
         try? db.updateCurrentPageIndex(noteId: noteId, index: newIndex)
 
-        canvasView.drawing = PKDrawing()
-        forceCanvasRedraw()
+        // 페이지별 새 캔버스 인스턴스로 교체. .id(currentNotePage.id) 변경으로 옛 캔버스가 언마운트되고
+        // 새 캔버스가 mount된다 → 공유 인스턴스가 아니므로 이전 페이지 렌더(ghost)가 구조적으로 불가능.
+        canvasView = PKCanvasView()
         feedbacks = []
         nextCardY = 100
-        if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
-            delegate.lastRenderedBottom = 0
-            delegate.frozenBottom = 0
-            delegate.frozenEndIndex = 0
-            delegate.previousStrokeCount = 0
-        }
-        // 새 캔버스는 기본 사이즈 + 최상단에서 시작 (이전 페이지의 확장/스크롤 상태 전이 방지)
-        resetCanvasToTop()
-
-        // 진단: 새 페이지 진입 시점 상태. drawing.strokes=0인데 화면에 옛 필기가 보이면 stale render.
-        // makeUIView가 곧 다시 뜨면(hierdiag) note.drawingData 폴백 재로드가 ghost 원인일 수 있음.
-        let lingeringCards = cardContainer().subviews.filter { $0.tag == 9999 }.count
-        appLog("note", "newPage", [
-            "index": "\(newIndex)",
-            "lingeringCards": "\(lingeringCards)",
-            "strokesAfterClear": "\(canvasView.drawing.strokes.count)",
-            "noteDrawingDataBytes": "\(note?.drawingData?.count ?? -1)",
-        ])
-        // ghost 추적: 지금(동기) + 다음 표시 패스(비동기) 두 시점의 뷰 계층 덤프.
-        dumpCanvasHierarchy("newPage.sync")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in dumpCanvasHierarchy("newPage.async") }
-    }
-
-    /// 캔버스를 기본 높이로 축소하고 스크롤을 최상단으로 되돌린다.
-    /// 네이티브 줌 구조에선 host/contentView 기준으로 리셋 — coordinator에 위임.
-    private func resetCanvasToTop() {
-        (canvasView.delegate as? PencilKitCanvasView.Coordinator)?.resetToTop()
+        appLog("note", "newPage", ["index": "\(newIndex)"])
     }
 
     private func goToPage(index: Int) {
         guard index >= 0, index < notePages.count, index != currentPageIndex else { return }
 
-        // 1. 현재 페이지 저장
-        saveDrawing()
-
-        // 2. 인덱스 전환
+        saveDrawing()   // 현재(옛) 페이지 저장
         currentPageIndex = index
         currentNotePage = notePages[index]
         try? db.updateCurrentPageIndex(noteId: noteId, index: index)
 
-        // 3. coordinator 렌더링 높이 리셋
-        if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
-            delegate.lastRenderedBottom = 0
-            delegate.frozenBottom = 0
-            delegate.frozenEndIndex = 0
-            delegate.previousStrokeCount = 0
-        }
-
-        // 4. DB에서 드로잉 로드 (메모리 배열이 아닌 DB에서 직접)
-        loadDrawingFromDB(pageId: notePages[index].id)
-
-        // 5. 피드백 로드
+        // 새 캔버스 인스턴스 → 리마운트. 페이지 그림은 makeUIView가 initialDrawingData로 로드한다.
+        canvasView = PKCanvasView()
         feedbacks = (try? db.feedbacks(pageId: notePages[index].id)) ?? []
         nextCardY = 100
-
-        // 페이지 전환 시에도 최상단·기본 사이즈에서 시작 (이전 페이지 상태 전이 방지)
-        resetCanvasToTop()
-
-        let lingeringCards = cardContainer().subviews.filter { $0.tag == 9999 }.count
-        appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)", "lingeringCards": "\(lingeringCards)"])
+        appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
     }
 
     private func revertFeedback(_ fb: FeedbackRecord) {
@@ -1102,16 +988,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
             canvasView.drawing = drawing
         }
 
-        // [diag] 재생성 관측 — makeUIView가 다시 불리면 host/contentView가 새로 만들어지고
-        // 기존 canvasView가 재부모화된다(=플래시 후보). hadSuperview=true면 캔버스가 옮겨진 것.
-        Self.makeUIViewCount += 1
-        appLog("hierdiag", "makeUIView", [
-            "count": "\(Self.makeUIViewCount)",
-            "panelWidth": "\(Int(panelWidth))",
-            "strokes": "\(canvasView.drawing.strokes.count)",
-            "hadSuperview": "\(canvasView.superview != nil)",
-        ])
-
         // Tool picker setup after view is in window
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let toolPicker = PKToolPicker()
@@ -1150,29 +1026,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.ensureMinimumContentHeight()
 
         // Render feedback cards — coordinator에 위임
-        // [diag] 회전/리사이즈 후 host 상태가 panelWidth와 일관되는지
-        appLog("zoomdiag", "updateUIView", [
-            "panelWidth": "\(Int(panelWidth))",
-            "hostW": "\(Int(host.bounds.width))",
-            "hostH": "\(Int(host.bounds.height))",
-            "zoom": String(format: "%.3f", host.zoomScale),
-            "minZoom": String(format: "%.3f", host.minimumZoomScale),
-            "insetL": "\(Int(host.contentInset.left))",
-            "cvW": "\(Int(coordinator.contentView?.bounds.width ?? -1))",
-            "cvH": "\(Int(coordinator.contentView?.bounds.height ?? -1))",
-            "contentSizeH": "\(Int(host.contentSize.height))",
-            "feedbacks": "\(feedbacks.count)",
-        ])
         context.coordinator.renderAllCards(on: canvasView, feedbacks: feedbacks)
         context.coordinator.updateFrozenOverlay(on: canvasView)
     }
 
-    static var makeUIViewCount = 0
-    static var makeCoordinatorCount = 0
-
     func makeCoordinator() -> Coordinator {
-        Self.makeCoordinatorCount += 1
-        appLog("hierdiag", "makeCoordinator", ["count": "\(Self.makeCoordinatorCount)"])
         let c = Coordinator(onDrawingChanged: onDrawingChanged)
         c.onStrokeChanged = onStrokeChanged
         c.onFeedbackTapped = onFeedbackTapped
@@ -1237,30 +1095,16 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         /// 줌-투-핏: 폭이 바뀌면 fit=min(1, 폭/논리폭)으로 zoomScale을 맞춘다.
         /// 패널이 논리폭보다 넓으면 zoom=1 + contentInset으로 가운데 정렬(레터박스).
-        private func fitAndCenter(forWidth width: CGFloat, src: String = "?") {
-            guard let host, width > 0 else {
-                appLog("zoomdiag", "fitAndCenter skip", ["src": src, "width": "\(Int(width))", "hasHost": "\(host != nil)"])
-                return
-            }
+        private func fitAndCenter(forWidth width: CGFloat) {
+            guard let host, width > 0 else { return }
             let logical = Config.logicalCanvasWidth
             let fit = min(1, width / logical)
             host.minimumZoomScale = fit
             host.maximumZoomScale = max(fit, 3.0)   // 핀치 줌 허용
-            let willReset = abs(width - lastPanelWidth) > 0.5
-            if willReset {
+            if abs(width - lastPanelWidth) > 0.5 {
                 lastPanelWidth = width
                 host.zoomScale = fit
             }
-            // [diag] zoom-to-fit 결정 추적 — 회전 시 width 변경이 zoomScale에 반영되는지
-            appLog("zoomdiag", "fitAndCenter", [
-                "src": src,
-                "width": "\(Int(width))",
-                "logical": "\(Int(logical))",
-                "fit": String(format: "%.3f", fit),
-                "didResetZoom": "\(willReset)",
-                "zoomAfter": String(format: "%.3f", host.zoomScale),
-                "lastPanelW": "\(Int(lastPanelWidth))",
-            ])
             centerContent()
         }
 
@@ -1268,11 +1112,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         /// divider 드래그 중(isDragging)이면 zoom-fit을 보류해 매 프레임 zoomScale 변경(=PencilKit
         /// 재래스터화·깜빡임)을 막는다. 드래그 종료 시 isDragging=false로 1회 fit(R-3 디바운스).
         func applyPanelLayout(panelWidth: CGFloat, isDragging: Bool = false) {
-            guard !isDragging else {
-                appLog("zoomdiag", "applyPanelLayout skip (dragging)", ["panelWidth": "\(Int(panelWidth))"])
-                return
-            }
-            fitAndCenter(forWidth: panelWidth, src: "applyPanelLayout")
+            guard !isDragging else { return }
+            fitAndCenter(forWidth: panelWidth)
         }
 
         /// host 레이아웃 완료 시 — 중앙정렬·최소높이만. (줌-fit은 panelWidth(SSOT)로만 결정 →
@@ -1303,21 +1144,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let s = host.zoomScale
             let w = contentView.bounds.width
             let origin = contentView.frame.origin
-            let oldH = contentView.bounds.height
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
             canvas?.frame = contentView.bounds
             host.contentSize = CGSize(width: w * s, height: h * s)
-            // [diag] 호출 빈도 추적 (확장 로직 자체는 원복 — 추측 패치 제거)
-            setContentHeightCount += 1
-            appLog("flickerdiag", "setContentHeight", [
-                "n": "\(setContentHeightCount)",
-                "oldH": "\(Int(oldH))", "newH": "\(Int(h))",
-                "zoom": String(format: "%.3f", s),
-            ])
         }
-        private var setContentHeightCount = 0
-        private var drawChangeCount = 0
 
         /// contentView 높이가 h보다 작으면 확장. host/contentView 미연결(단위 테스트 등) 시엔
         /// fallbackCanvas(또는 self.canvas)의 contentSize로 직접 확장.
@@ -1335,15 +1166,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let s = max(host.zoomScale, 0.01)
             let minH = max((host.bounds.height / s) * 1.5, Config.logicalCanvasWidth)
             ensureContentHeight(minH)
-        }
-
-        /// 페이지 전환 시 — 기본 높이로 축소하고 최상단으로.
-        func resetToTop() {
-            guard let host else { return }
-            let s = max(host.zoomScale, 0.01)
-            let h = max((host.bounds.height / s) * 1.5, Config.logicalCanvasWidth)
-            setContentHeight(h)
-            host.setContentOffset(CGPoint(x: -host.contentInset.left, y: -host.contentInset.top), animated: false)
         }
 
         /// 새 카드가 viewport 안에 들어오도록 자동 스크롤 — 카드 상단이 화면 1/3 지점에(줌 배율 반영).
@@ -1718,18 +1540,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            drawChangeCount += 1
-            let cvH = contentView?.bounds.height ?? -1
-            let target = drawingBottom + viewportInContent * 2
-            appLog("flickerdiag", "drawDidChange", [
-                "n": "\(drawChangeCount)",
-                "strokes": "\(strokes.count)",
-                "drawBottom": "\(Int(drawingBottom))",
-                "target": "\(Int(target))",
-                "cvH": "\(Int(cvH))",
-                "willGrow": "\(cvH < target)",
-            ])
-            ensureContentHeight(target, fallbackCanvas: canvasView)
+            ensureContentHeight(drawingBottom + viewportInContent * 2, fallbackCanvas: canvasView)
 
             updateNextPositionIndicator(on: canvasView)
 

@@ -161,6 +161,16 @@ struct NoteView: View {
                     ProgressView()
                 }
             }
+            .onChange(of: geo.size) { _, s in
+                // [diag] 회전/리사이즈 관측 — geo 기준 방향 vs isLandscape(UIScreen 기준) 불일치 추적
+                appLog("layoutdiag", "geo changed", [
+                    "w": "\(Int(s.width))", "h": "\(Int(s.height))",
+                    "geoLandscape": "\(s.width > s.height)",
+                    "propLandscape": "\(isLandscape)",
+                    "pdfOpen": "\(pdfOpen)",
+                    "pdfFraction": String(format: "%.2f", pdfFraction),
+                ])
+            }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
@@ -231,12 +241,19 @@ struct NoteView: View {
                 .onChanged { value in
                     guard total > 0 else { return }
                     let start = dragStartFraction ?? pdfFraction
-                    if dragStartFraction == nil { dragStartFraction = start }
+                    if dragStartFraction == nil {
+                        dragStartFraction = start
+                        // [diag] 드래그 시작 — 회전 후 핸들이 제스처를 받는지/축(isVertical)이 맞는지 확인
+                        appLog("dividerdiag", "drag begin", ["isVertical": "\(isVertical)", "total": "\(Int(total))", "startFraction": String(format: "%.2f", start)])
+                    }
                     let delta = (isVertical ? value.translation.width : value.translation.height) / total
                     let raw = start + delta
                     pdfFraction = isVertical ? clampLandscape(raw, total) : min(max(raw, 0.2), 0.7)
                 }
-                .onEnded { _ in dragStartFraction = nil }
+                .onEnded { _ in
+                    appLog("dividerdiag", "drag end", ["isVertical": "\(isVertical)", "fraction": String(format: "%.2f", pdfFraction)])
+                    dragStartFraction = nil
+                }
         )
     }
 
@@ -1042,7 +1059,19 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.ensureMinimumContentHeight()
 
         // Render feedback cards — coordinator에 위임
-        appLogDebug("canvas", "updateUIView", ["feedbacks": "\(feedbacks.count)", "panelWidth": "\(Int(panelWidth))", "zoom": "\(host.zoomScale)"])
+        // [diag] 회전/리사이즈 후 host 상태가 panelWidth와 일관되는지
+        appLog("zoomdiag", "updateUIView", [
+            "panelWidth": "\(Int(panelWidth))",
+            "hostW": "\(Int(host.bounds.width))",
+            "hostH": "\(Int(host.bounds.height))",
+            "zoom": String(format: "%.3f", host.zoomScale),
+            "minZoom": String(format: "%.3f", host.minimumZoomScale),
+            "insetL": "\(Int(host.contentInset.left))",
+            "cvW": "\(Int(coordinator.contentView?.bounds.width ?? -1))",
+            "cvH": "\(Int(coordinator.contentView?.bounds.height ?? -1))",
+            "contentSizeH": "\(Int(host.contentSize.height))",
+            "feedbacks": "\(feedbacks.count)",
+        ])
         context.coordinator.renderAllCards(on: canvasView, feedbacks: feedbacks)
         context.coordinator.updateFrozenOverlay(on: canvasView)
     }
@@ -1112,27 +1141,41 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         /// 줌-투-핏: 폭이 바뀌면 fit=min(1, 폭/논리폭)으로 zoomScale을 맞춘다.
         /// 패널이 논리폭보다 넓으면 zoom=1 + contentInset으로 가운데 정렬(레터박스).
-        private func fitAndCenter(forWidth width: CGFloat) {
-            guard let host, width > 0 else { return }
+        private func fitAndCenter(forWidth width: CGFloat, src: String = "?") {
+            guard let host, width > 0 else {
+                appLog("zoomdiag", "fitAndCenter skip", ["src": src, "width": "\(Int(width))", "hasHost": "\(host != nil)"])
+                return
+            }
             let logical = Config.logicalCanvasWidth
             let fit = min(1, width / logical)
             host.minimumZoomScale = fit
             host.maximumZoomScale = max(fit, 3.0)   // 핀치 줌 허용
-            if abs(width - lastPanelWidth) > 0.5 {
+            let willReset = abs(width - lastPanelWidth) > 0.5
+            if willReset {
                 lastPanelWidth = width
                 host.zoomScale = fit
             }
+            // [diag] zoom-to-fit 결정 추적 — 회전 시 width 변경이 zoomScale에 반영되는지
+            appLog("zoomdiag", "fitAndCenter", [
+                "src": src,
+                "width": "\(Int(width))",
+                "logical": "\(Int(logical))",
+                "fit": String(format: "%.3f", fit),
+                "didResetZoom": "\(willReset)",
+                "zoomAfter": String(format: "%.3f", host.zoomScale),
+                "lastPanelW": "\(Int(lastPanelWidth))",
+            ])
             centerContent()
         }
 
         /// SwiftUI(updateUIView)에서 패널 폭 전달 — 회전/divider 변경 시.
         func applyPanelLayout(panelWidth: CGFloat) {
-            fitAndCenter(forWidth: panelWidth)
+            fitAndCenter(forWidth: panelWidth, src: "applyPanelLayout")
         }
 
         /// host 레이아웃 완료 시 — 실제 bounds 기준으로 재-fit·중앙정렬·최소높이 보장.
         func hostDidLayout() {
-            fitAndCenter(forWidth: host?.bounds.width ?? 0)
+            fitAndCenter(forWidth: host?.bounds.width ?? 0, src: "hostDidLayout")
             ensureMinimumContentHeight()
         }
 
@@ -1154,11 +1197,22 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let s = host.zoomScale
             let w = contentView.bounds.width
             let origin = contentView.frame.origin
+            let oldH = contentView.bounds.height
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
             canvas?.frame = contentView.bounds
             host.contentSize = CGSize(width: w * s, height: h * s)
+            // [diag] 그리기 중 호출 빈도/캔버스 프레임 재할당 추적 (스트로크 깜빡임 원인 후보)
+            setContentHeightCount += 1
+            appLog("flickerdiag", "setContentHeight", [
+                "n": "\(setContentHeightCount)",
+                "oldH": "\(Int(oldH))", "newH": "\(Int(h))",
+                "zoom": String(format: "%.3f", s),
+                "canvasFrameReset": "true",
+            ])
         }
+        private var setContentHeightCount = 0
+        private var drawChangeCount = 0
 
         /// contentView 높이가 h보다 작으면 확장. host/contentView 미연결(단위 테스트 등) 시엔
         /// fallbackCanvas(또는 self.canvas)의 contentSize로 직접 확장.
@@ -1559,7 +1613,19 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            ensureContentHeight(drawingBottom + viewportInContent * 2, fallbackCanvas: canvasView)
+            // [diag] 그리기 변경 발화 빈도/목표 높이 추적 — setContentHeight가 매 발화마다 도는지 대조
+            drawChangeCount += 1
+            let cvH = contentView?.bounds.height ?? -1
+            let target = drawingBottom + viewportInContent * 2
+            appLog("flickerdiag", "drawDidChange", [
+                "n": "\(drawChangeCount)",
+                "strokes": "\(strokes.count)",
+                "drawBottom": "\(Int(drawingBottom))",
+                "target": "\(Int(target))",
+                "cvH": "\(Int(cvH))",
+                "willGrow": "\(cvH < target)",
+            ])
+            ensureContentHeight(target, fallbackCanvas: canvasView)
 
             updateNextPositionIndicator(on: canvasView)
 

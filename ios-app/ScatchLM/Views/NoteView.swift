@@ -620,7 +620,9 @@ struct NoteView: View {
             // 실제 렌더 후 bbox 높이 동기화 → frozenBottom 재계산
             if let card = cardContainer().subviews.first(where: { $0.tag == 9999 && $0.accessibilityIdentifier == record.id }) {
                 let actualBottom = card.frame.maxY
-                record.bboxHeight = max(estimatedHeight, actualBottom - record.bboxY)
+                // 렌더 후엔 실제 카드 높이를 쓴다. max(estimatedHeight, …)로 부풀리면 카드가 400보다
+                // 짧을 때 frozen 영역이 카드 하단 아래까지 내려가 "회색 + 필기 불가" 데드존이 생긴다.
+                record.bboxHeight = max(actualBottom - record.bboxY, 1)
                 // 높이 동기화 업데이트 — 실패해도 카드는 이미 저장됨, 로깅만.
                 do {
                     try db.saveFeedback(&record)
@@ -709,10 +711,15 @@ struct NoteView: View {
         // 새 캔버스는 기본 사이즈 + 최상단에서 시작 (이전 페이지의 확장/스크롤 상태 전이 방지)
         resetCanvasToTop()
 
-        // 진단: 새 페이지 진입 시점에 남아 있는 피드백 카드(tag 9999) 수.
-        // feedbacks=[] 이후 updateUIView→renderAllCards([])가 안 돌면 0이 안 됨 → "카드 따라옴" 버그.
+        // 진단: 새 페이지 진입 시점 상태. drawing.strokes=0인데 화면에 옛 필기가 보이면 stale render.
+        // makeUIView가 곧 다시 뜨면(hierdiag) note.drawingData 폴백 재로드가 ghost 원인일 수 있음.
         let lingeringCards = cardContainer().subviews.filter { $0.tag == 9999 }.count
-        appLog("note", "newPage", ["index": "\(newIndex)", "lingeringCards": "\(lingeringCards)"])
+        appLog("note", "newPage", [
+            "index": "\(newIndex)",
+            "lingeringCards": "\(lingeringCards)",
+            "strokesAfterClear": "\(canvasView.drawing.strokes.count)",
+            "noteDrawingDataBytes": "\(note?.drawingData?.count ?? -1)",
+        ])
     }
 
     /// 캔버스를 기본 높이로 축소하고 스크롤을 최상단으로 되돌린다.

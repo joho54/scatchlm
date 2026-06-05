@@ -44,15 +44,11 @@ struct NoteView: View {
 
     private let db = DatabaseService.shared
 
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    @Environment(\.verticalSizeClass) private var vSizeClass
-
-    private var isLandscape: Bool {
-        vSizeClass == .compact || (hSizeClass == .regular && vSizeClass == .regular && UIScreen.main.bounds.width > UIScreen.main.bounds.height)
-    }
-
     var body: some View {
         GeometryReader { geo in
+            // 방향은 실제 레이아웃 공간(geo)으로 판단한다. UIScreen.main.bounds는 회전 시 한 박자
+            // 늦게 갱신돼 가로/세로를 틀리게 잡고 재진입 전까지 굳는 문제가 있었다(divider 사라짐·넓이 조절 불가).
+            let isLandscape = geo.size.width > geo.size.height
 
             ZStack {
                 if let note {
@@ -1156,7 +1152,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let origin = contentView.frame.origin
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
-            canvas?.frame = contentView.bounds
+            // canvas.frame은 "커질 때만" 재할당 — 같은/작은 높이로 다시 세팅하면 PencilKit이
+            // 전체 스트로크를 재래스터화해 깜빡인다. 페이지보다 큰 캔버스는 도달 불가 영역일 뿐 무해.
+            if (canvas?.frame.height ?? 0) < h {
+                canvas?.frame = CGRect(x: 0, y: 0, width: w, height: h)
+            }
             host.contentSize = CGSize(width: w * s, height: h * s)
         }
 
@@ -1559,7 +1559,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            ensureContentHeight(drawingBottom + viewportInContent * 2, fallbackCanvas: canvasView)
+            // 청크 단위로 올림 — 그리기 중 매 변경마다 목표 높이가 미세 증가하면 setContentHeight가
+            // 매번 실행돼 canvas.frame이 리셋되고 기존 스트로크가 깜빡인다. 청크 경계를 넘을 때만 확장.
+            let chunk = max(viewportInContent, 600)
+            let target = ceil((drawingBottom + viewportInContent * 2) / chunk) * chunk
+            ensureContentHeight(target, fallbackCanvas: canvasView)
 
             updateNextPositionIndicator(on: canvasView)
 

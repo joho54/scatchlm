@@ -371,6 +371,22 @@ final class PencilKitCanvasViewTests: XCTestCase {
     }
 
     @MainActor
+    func testSetContentHeightCanvasFrameGrowOnly() {
+        // 슬라이더 드래그 중 contentView 높이가 churn(예: 5080→1640 재확장)해도 canvas.frame은
+        // "커질 때만" 재할당돼야 PencilKit 재래스터화(깜빡임)가 안 난다.
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, _, _, canvas) = makeWiredCoordinator(panelWidth: logical)
+
+        coordinator.setContentHeight(3000)
+        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5, "커지면 캔버스도 확장")
+
+        // 더 작은 높이로 호출(contentView churn 재현) — canvas.frame은 유지(축소/리셋 안 함).
+        coordinator.setContentHeight(1500)
+        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5,
+            "작은 높이로 호출해도 canvas.frame은 유지 — 깜빡임 방지")
+    }
+
+    @MainActor
     func testCardPositionInvariantUnderZoom() {
         // 줌은 표시만 — 카드의 contentView 좌표(positionY)는 zoom과 무관하게 그대로.
         let logical = Config.logicalCanvasWidth

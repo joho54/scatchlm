@@ -57,22 +57,28 @@ struct NoteView: View {
             ZStack {
                 if let note {
                     // Split view: Canvas + PDF
+                    // 캔버스 폭/높이를 body에서 명시적으로 계산해 .frame으로 강제한다.
+                    // (inner GeometryReader는 panelGeo는 갱신하지만 host(UIScrollView) 프레임 리사이즈를
+                    //  divider 드래그 때 전파하지 못해, host가 회전 시점 폭에 고정되는 버그가 있었음.)
                     if isLandscape && pdfOpen {
+                        let pdfW = geo.size.width * clampedLandscapeFraction(geo.size.width)
+                        let canvasW = max(0, geo.size.width - pdfW - Self.dividerThickness)
                         HStack(spacing: 0) {
                             pdfPanel(note: note)
-                                .frame(width: geo.size.width * clampedLandscapeFraction(geo.size.width))
+                                .frame(width: pdfW)
                             dividerHandle(isVertical: true, total: geo.size.width)
-                            canvasPanel(note: note)
+                            canvasPanel(note: note, panelWidth: canvasW)
+                                .frame(width: canvasW)
                         }
                     } else if pdfOpen {
                         VStack(spacing: 0) {
                             pdfPanel(note: note)
                                 .frame(height: geo.size.height * clampedPortraitFraction)
                             dividerHandle(isVertical: false, total: geo.size.height)
-                            canvasPanel(note: note)
+                            canvasPanel(note: note, panelWidth: geo.size.width)
                         }
                     } else {
-                        canvasPanel(note: note)
+                        canvasPanel(note: note, panelWidth: geo.size.width)
                     }
 
                     // Toast
@@ -264,18 +270,21 @@ struct NoteView: View {
 
     // MARK: - Canvas Panel
 
+    /// 분할 divider 두께(가로=폭, 세로=높이). dividerHandle의 thickness와 일치해야 폭 계산이 맞음.
+    private static let dividerThickness: CGFloat = 16
+
+    /// panelWidth는 호출부(body)에서 계산해 명시적으로 전달 — host(UIScrollView)가 이 폭을 갖도록
+    /// 호출부에서 .frame(width:)로 강제한다(가로 분할). 세로/PDF닫힘은 전체 폭이라 .frame 불필요.
     @ViewBuilder
-    private func canvasPanel(note: Note) -> some View {
-        GeometryReader { panelGeo in
-            ZStack {
-                // 레터박스 여백 — 논리폭보다 넓은 가용 공간에서 종이 양옆 회색 배경.
-                // 네이티브 줌 구조에선 host(UIScrollView)가 패널 폭을 가득 채우고 contentInset으로
-                // 종이를 가운데 정렬하므로, 이 Color는 host 바깥(투명)으로 비치는 레터박스 배경이다.
-                Color(uiColor: .systemGray5)
-                canvasContent(note: note, panelWidth: panelGeo.size.width)
-            }
-            .overlay(alignment: .topLeading) { canvasTopControls() }
+    private func canvasPanel(note: Note, panelWidth: CGFloat) -> some View {
+        ZStack {
+            // 레터박스 여백 — 논리폭보다 넓은 가용 공간에서 종이 양옆 회색 배경.
+            // 네이티브 줌 구조에선 host(UIScrollView)가 패널 폭을 가득 채우고 contentInset으로
+            // 종이를 가운데 정렬하므로, 이 Color는 host 바깥(투명)으로 비치는 레터박스 배경이다.
+            Color(uiColor: .systemGray5)
+            canvasContent(note: note, panelWidth: panelWidth)
         }
+        .overlay(alignment: .topLeading) { canvasTopControls() }
     }
 
     @ViewBuilder

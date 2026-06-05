@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import anthropic
 
 from app.core.config import settings
+from app.core.constants import DEFAULT_SUBJECT
 from app.core.log_sanitize import loglen
 
 log = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ class FeedbackResult:
     latency_ms: int
 
 
-async def get_recognition(image_bytes: bytes, language: str = "en") -> str | None:
+async def get_recognition(image_bytes: bytes, language: str = DEFAULT_SUBJECT) -> str | None:
     """손글씨 이미지에서 텍스트만 인식한다 (RAG 쿼리용, 저비용 Haiku)."""
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     try:
@@ -156,7 +157,7 @@ async def get_recognition(image_bytes: bytes, language: str = "en") -> str | Non
 
 async def get_feedback(
     image_bytes: bytes,
-    language: str = "en",
+    language: str = DEFAULT_SUBJECT,
     response_language: str = "English",
     textbook_context: str | None = None,
     previous_context: str | None = None,

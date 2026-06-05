@@ -5,6 +5,7 @@ from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Text, F
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.constants import DEFAULT_SUBJECT
 from app.models.user import Base
 
 
@@ -20,7 +21,7 @@ class AIResponse(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     note_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String, nullable=False)
-    language: Mapped[str] = mapped_column(String, nullable=False, default="en")
+    language: Mapped[str] = mapped_column(String, nullable=False, default=DEFAULT_SUBJECT)
     response_language: Mapped[str] = mapped_column(String, nullable=False, default="English")
     model: Mapped[str] = mapped_column(String, nullable=False)
     textbook_id: Mapped[str | None] = mapped_column(String, nullable=True)

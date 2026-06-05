@@ -21,6 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.constants import DEFAULT_SUBJECT
 from app.models.user import Base
 
 
@@ -34,7 +35,7 @@ class Note(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)  # 클라 생성 UUID
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False, default="")
-    language: Mapped[str] = mapped_column(String, nullable=False, default="en")
+    language: Mapped[str] = mapped_column(String, nullable=False, default=DEFAULT_SUBJECT)
     textbook_id: Mapped[str | None] = mapped_column(String, nullable=True)
     textbook_name: Mapped[str | None] = mapped_column(String, nullable=True)
     textbook_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

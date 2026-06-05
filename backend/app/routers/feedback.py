@@ -11,6 +11,7 @@ from anthropic import AsyncAnthropic
 
 from app.core.auth import get_current_user_id, get_role, get_tier, get_verified_payload
 from app.core.config import settings
+from app.core.constants import DEFAULT_SUBJECT
 from app.core.database import get_db
 from app.core.quota import check_daily_quota
 from app.models.feedback import AIResponse, AIResponseRating
@@ -47,7 +48,7 @@ class FeedbackResponse(BaseModel):
 async def request_feedback(
     image: UploadFile = File(...),
     note_id: str = Form(...),
-    language: str = Form("en"),
+    language: str = Form(DEFAULT_SUBJECT),
     response_language: str = Form("English"),
     task_type: str = Form("complex"),
     textbook_id: str | None = Form(None),

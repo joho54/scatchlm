@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import String, Integer, Float, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.constants import DEFAULT_SUBJECT
 from app.models.user import Base
 
 
@@ -19,7 +20,7 @@ class LLMUsage(Base):
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     task_type: Mapped[str] = mapped_column(String, nullable=False)
-    language: Mapped[str] = mapped_column(String, nullable=False, default="en")
+    language: Mapped[str] = mapped_column(String, nullable=False, default=DEFAULT_SUBJECT)
     has_textbook_context: Mapped[bool] = mapped_column(default=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

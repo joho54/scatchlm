@@ -1,328 +1,255 @@
-# 스캔본(이미지) PDF OCR 지원 Spec
+# 스캔본(이미지) PDF OCR 지원
 
-> **Status:** Implemented (Tracks A–D, 2026-06-05). 켜기 전 §1.4 체크리스트 필수: `ENABLE_OCR=true` + OCR 예산 양수.
-> **Date:** 2026-06-05
-> **Author:** (auto-generated)
+> **Status:** Implemented (as-built, 2026-06-05)
 > **Scope:** `backend/` (주), `ios-app/` (진행률 UI)
+> **켜기 전 필수(§6):** `ENABLE_OCR=true` + `DAILY_COST_LIMIT_OCR_PRO_USD` 양수 설정
+
+이 문서는 구현 완료 후의 **as-built 명세**다. 원 설계 결정과 실제 코드를 함께 담는다.
 
 ---
 
-## 1. Background
+## 1. 배경
 
-### 1.1 현재 상태 / 문제
+### 1.1 문제
 
-백엔드는 PDF를 전부 PyMuPDF `page.get_text()`(텍스트 레이어)로만 읽는다. 이미지 렌더링·OCR 코드는 전혀 없다 (`pdf_service.py:84-102`). 따라서 **텍스트 레이어가 없는 스캔본(이미지) PDF**는 `extract_text()`가 빈 문자열을 반환하고, 그 하나의 근본 원인이 다운스트림 전체를 무너뜨린다:
+백엔드는 PDF를 PyMuPDF `page.get_text()`(텍스트 레이어)로만 읽었다. 따라서 **텍스트 레이어가 없는 스캔본(이미지) PDF**는 `extract_text()`가 빈 문자열을 반환했고, 그 단일 근본 원인이 다운스트림 전체를 무너뜨렸다 — 챕터 LLM 감지(헤더 빈 문자열), 페이지/챕터 가이드(`400 no extractable text`), 인덱싱(chunks=0), 피드백 컨텍스트(빈 컨텍스트).
 
-| 지점 | 코드 | 스캔본 결과 |
-|---|---|---|
-| 챕터 LLM 감지 | `chapter_service.py:33-66` ← `extract_page_headers()` (`pdf_service.py:70-81`) | 헤더 빈 문자열 → 감지 실패 |
-| 페이지 가이드 | `pdf.py:368` | `400 "Page has no extractable text"` |
-| 챕터 가이드/CoT | `pdf.py:481` | `400 "Chapter has no extractable text"` |
-| 인덱싱(RAG) | `indexing_service.py:31-41` | 빈 페이지 필터 → chunks=0 |
-| 피드백 컨텍스트 | `feedback.py:88-145` | 빈 컨텍스트 → RAG 폴백도 빈 결과 |
+타깃 유저(대학생)·핵심 콘텐츠(절판 고전어 교재)에서 스캔본은 엣지케이스가 아니라 핵심 유스케이스다.
 
-**타깃 유저(대학생)·핵심 콘텐츠(절판 고전어 교재)에서 스캔본은 엣지케이스가 아니라 핵심 유스케이스**다. 학생 개인 보유 스캔본 활용 시나리오도 동일.
+### 1.2 설계 결정
 
-### 1.2 합의된 설계 결정 (대화에서 확정)
-
-- **단일 수정 지점**: 근본 원인이 하나(`extract_text` 빈 반환)이므로, `extract_text`를 OCR-aware로 만들면 다운스트림(챕터감지/가이드/피드백/챗)이 **코드 변경 없이** 동작한다.
-- **OCR 엔진 = Claude Vision (Haiku)**. 이미 anthropic SDK가 통합돼 있어(`feedback_service`, `guide_service`) 신규 벤더·인증·SDK가 0. 고전어·수식·LaTeX 복원이 Naver CLOVA보다 강함. 페이지 렌더(PyMuPDF `get_pixmap` ~1568px) → Haiku에 "원문만 추출" 프롬프트. 페이지당 ~$0.006 추정. **Naver CLOVA는 탈락** (고전어/수식 약함, ncloud 정합성 실익 작음).
-- **처리 시점 = eager 백그라운드 + 점진적 노출**. 업로드 시 스캔 감지 → 백그라운드 잡으로 페이지 순차 OCR → 매 페이지 즉시 DB 캐시(중단돼도 손실 0, 재개 가능) → 충분히 OCR되면 챕터 감지 → 챕터 가이드/CoT 점진 생성. 제품 요구는 **"전체가 결국 뜬다 / 빠를 필요 없다"**. lazy는 탈락(CoT는 챕터 전체 텍스트 필요, 제품이 전권 챕터 노출 요구).
-- **캐싱**: 페이지 텍스트를 전용 테이블에 저장. `extract_text`가 캐시 우선 조회 → 재OCR 비용 0.
-- **tier 정책** (tier 인프라 이미 존재: `get_tier` → normal/pro, `auth.py:65-68`):
-  - **free(normal)**: 권당(per-textbook) OCR 페이지 **하드 캡 ~50p**. 캡은 "OCR한 페이지"에만 적용(텍스트 레이어 PDF는 캡 무관). 50p 경계는 **명시적 안내 + 업셀**("전체 인식은 Pro") — 조용히 자르지 말 것. 권당 비용 ~$0.3 상한.
-  - **pro**: 풀 OCR 백그라운드. `task_type="ocr"` **별도 예산 버킷**으로 interactive(피드백/챗) 쿼터를 굶기지 않음. 큰 책은 며칠 걸쳐 완성.
-- **비용/쿼터**: OCR도 Claude 호출 → `LLMUsage(task_type="ocr")`로 비용 기록 → 기존 USD-기반 쿼터(`quota.py`)에 흡수.
+- **단일 수정 지점**: 근본 원인이 하나(`extract_text` 빈 반환)이므로, 텍스트 추출을 OCR-aware로 만들면 다운스트림(챕터감지/가이드/피드백/챗)이 거의 코드 변경 없이 동작한다. → 신규 `extract_text_async()` 래퍼로 흡수, 기존 동기 `extract_text()`(텍스트 PDF 경로)는 불변.
+- **OCR 엔진 = Claude Vision (Haiku)**. 이미 anthropic SDK가 통합돼 있어 신규 벤더·인증·SDK가 0. 고전어·수식 복원이 Naver CLOVA보다 강함. 페이지 렌더(PyMuPDF `get_pixmap`, 장변 ~1568px JPEG) → Haiku에 "원문만 추출" 프롬프트. **Naver CLOVA는 탈락**.
+- **처리 시점 = eager 백그라운드 + 점진적 노출**. 업로드 시 스캔 감지 → 백그라운드 잡으로 페이지 순차 OCR → 매 페이지 즉시 DB 캐시(중단돼도 손실 0, 재개 가능) → 충분히 OCR되면 챕터 감지. 제품 요구는 **"전체가 결국 뜬다 / 빠를 필요 없다"**. (lazy는 탈락 — CoT는 챕터 전체 텍스트 필요.)
+- **캐싱**: 페이지 텍스트를 전용 테이블 `ocr_page_text`에 저장. `extract_text_async`가 캐시 조회 → 재OCR 비용 0.
+- **tier 정책** (`get_tier` → normal/pro):
+  - **free(normal)**: 권당(per-textbook) OCR 페이지 **하드 캡 50p**(`OCR_FREE_CAP_PAGES`). 캡 경계는 **명시적 안내 + 업셀**("전체 인식은 Pro") — 조용히 자르지 않는다. 권당 비용 ~$0.3 상한.
+  - **pro**: 풀 OCR 백그라운드. `task_type="ocr"` **별도 예산 버킷**으로 interactive(피드백/챗) 쿼터를 굶기지 않음. 백스톱 600p(`OCR_MAX_PAGES_PER_BOOK`).
+- **비용/쿼터**: OCR도 Claude 호출 → `LLMUsage(task_type="ocr")`로 비용 기록 → 기존 USD 기반 쿼터(`quota.py`)에 흡수.
+- **자동 재개**: 잡이 멈추는 3원인(예산/예외/프로세스 사망)을 구분하고, 인프로세스 주기 스위퍼가 예산 회복 시 자동 재개(§2.3). cron 등 외부 인프라 불필요.
 
 ### 1.3 Out of Scope
 
 | 항목 | 이유 |
 |---|---|
 | Naver CLOVA OCR 연동 | 엔진 결정에서 탈락 |
-| 스캔본 RAG 임베딩 인덱싱 | `ENABLE_EMBEDDING=false` 기본 비활성 (CLAUDE.md). OCR 텍스트가 생기면 인덱싱은 자동으로 가능해지나, 본 스펙은 챕터/가이드/피드백 컨텍스트 복구가 목표. RAG는 별도 |
-| 수식 LaTeX 렌더 품질 튜닝 | 1차는 "텍스트 복원"이 목표. LaTeX 정밀도 개선은 후속 |
-| OCR 결과 사용자 수정 UI | 1차 범위 밖 |
-| pro 예산 pause/resume의 정교한 스케줄링·우선순위 큐 | 1차는 인프로세스 주기 스위퍼(10분)로 "예산 회복 시 자동 재개"하는 단순형. 우선순위·페어니스는 후속 |
-
-### 1.4 운영 리스크 (켜기 전 필수)
-
-- 현재 `DAILY_COST_LIMIT_*=0`(무제한, `config.py:21-23`). **이 기능을 켜기 전 OCR 예산 한도를 양수로 설정해야 한다.** 안 그러면 스캔본 다수 업로드 = 순지출 폭증.
-- 권당 페이지 상한(`OCR_MAX_PAGES_PER_BOOK`, 기본 600)을 백스톱으로 둔다 — 잘못된 TOC로 거대 범위가 잡혀도 비용 캡.
+| 스캔본 RAG 임베딩 인덱싱 | `ENABLE_EMBEDDING=false` 기본 비활성. OCR 텍스트가 생기면 인덱싱은 자동 가능해지나 본 작업 목표는 챕터/가이드/피드백 컨텍스트 복구 |
+| 수식 LaTeX 렌더 품질 튜닝 | 1차는 "텍스트 복원"이 목표 |
+| OCR 결과 사용자 수정 UI | 후속 |
+| 스위퍼 우선순위 큐·페어니스 | 1차는 10분 주기 단순 스위퍼 |
+| 노트 목록(HomeView) 행별 OCR 칩 | per-note live status 조회 필요 → 교재 선택 목록·업로드 직후·뷰어 배너로 충분히 커버 |
 
 ---
 
-## 2. 목표 플로우
+## 2. 동작
+
+### 2.1 업로드 → OCR 플로우
 
 ```
-업로드 (/api/pdf/upload)
+POST /api/pdf/upload  (get_verified_payload → user_id, tier)
   │
   ├─ save_pdf → total_pages, content_hash
+  ├─ 중복(content_hash) → 기존 레코드 재사용. 스캔본이 pending/paused/error면 즉시 재개 트리거
   │
-  ├─ 스캔 감지: 전 페이지 get_text() 문자수 / 페이지수 < THRESHOLD → is_scanned=true
+  ├─ is_scanned = ENABLE_OCR && is_scanned_pdf()   # 토글 off면 항상 false → 기존 흐름
+  │     is_scanned_pdf: 중앙부 최대 10p 샘플의 평균 추출 문자수 < OCR_SCAN_TEXT_THRESHOLD(30)
   │
-  ├─ is_scanned=false → 기존 플로우 (변경 없음)
+  ├─ extract_toc(bookmarks) 있으면 챕터 저장 (스캔본도 임베디드 TOC면 동작)
   │
-  └─ is_scanned=true → ocr_status="pending", 백그라운드 OCR 잡 등록
-                          │
-       ┌──────────────────┘
-       ▼
-  [백그라운드 OCR 잡]  async_session()
-   for page in 1..min(total_pages, cap):     # cap = tier별 (free 50 / pro 600)
-     if ocr_page_text(textbook,page) 존재 → skip (재개)
-     pixmap = render(page, ~1568px)
-     text   = haiku_vision_ocr(pixmap)        # "원문만" 프롬프트
-     INSERT ocr_page_text(textbook,page,text) # 매 페이지 즉시 커밋 → 손실 0
-     log_llm_usage(task_type="ocr", cost...)  # 쿼터 반영
-     if 쿼터(OCR 버킷) 초과 → ocr_status="paused", break  # 다음 사이클 재개
-     ocr_pages_done++
-   ocr_status = "complete" | "capped" | "paused"
-       │
-       ├─ 충분히 OCR됨 → 챕터 감지 (extract_page_headers 가 이제 OCR 텍스트 사용)
-       │
-       └─ 챕터/페이지 가이드: 요청 시 extract_text → 캐시 hit → 정상 생성
-
-  iOS: GET /api/pdf/{id}/status 폴링 → 진행률/capped 표시 + Pro 업셀
+  ├─ is_scanned=false → (TOC 없으면) _background_detect_chapters + _background_index  ← 기존
+  │
+  └─ is_scanned=true:
+        TextbookSource(is_scanned=true, ocr_status="pending",
+                       ocr_cap = free?50:600) 저장
+        BackgroundTasks: _background_ocr 등록 (+ _background_index는 no-op)
+        챕터 LLM 감지는 OCR 완료 후로 연기(텍스트 레이어가 비어 있으므로)
+        응답: { ..., is_scanned:true, ocr_status:"pending" }
 ```
 
-`extract_text(key, start, end)` 분기 (핵심):
+### 2.2 백그라운드 OCR 잡 (`_background_ocr`)
+
 ```
-def extract_text(textbook, start, end):
-    if not is_scanned(textbook):
-        return PyMuPDF get_text()              # 기존
-    rows = SELECT ocr_page_text WHERE page in [start,end]
-    return "\n".join(rows by page)             # 캐시. 없는 페이지는 누락 표시
+async_session()
+ ├─ 원자 claim: UPDATE textbook_sources SET ocr_status='running', ocr_updated_at=now
+ │              WHERE id=:id AND ocr_status IN (pending,paused,error) RETURNING id
+ │   → 0행이면 타 워커가 처리 중/이미 종료 → 즉시 반환  (워커 2개 중복 방지)
+ │
+ ├─ done_pages = SELECT ocr_page_text.page WHERE textbook=:id   # 재개용
+ ├─ for page in 1..min(total_pages, ocr_cap):
+ │     if page in done_pages → skip            # 재개
+ │     if check_ocr_quota(user) 초과 → status="paused"; break
+ │     img  = render_page(doc, page-1)          # ~1568px JPEG
+ │     res  = await ocr_page(img)               # Haiku "원문만" 프롬프트
+ │     INSERT ocr_page_text(page, content)
+ │     ocr_pages_done++, ocr_updated_at=now      # 하트비트
+ │     log_llm_usage(task_type="ocr", cost)
+ │     await db.commit()                         # 매 페이지 즉시 커밋 → 손실 0
+ │
+ ├─ 종료 status: complete | capped(free 캡<total) | paused(예산) | error(예외)
+ └─ complete/capped면 챕터 LLM 감지 (TOC/기존 챕터 없을 때만; OCR 텍스트 상단 N줄 헤더 사용)
 ```
+
+`extract_text_async(db, source, start, end)` 분기 (핵심):
+```
+if not source.is_scanned:  return extract_text(server_path, start, end)   # 기존 동기 경로 불변
+rows = SELECT ocr_page_text WHERE page in [start, end]
+return "\n".join("--- Page p ---\n" + content for present pages)         # 미OCR 페이지는 누락
+```
+
+### 2.3 자동 재개 스위퍼 (`_ocr_sweeper_loop`, app startup, `ENABLE_OCR` 시)
+
+10분 주기로:
+1. 하트비트 끊긴 `running`(프로세스 사망)을 `error`로 강등: `UPDATE … WHERE ocr_status='running' AND ocr_updated_at < now-15min`.
+2. 후보(`paused`·`error`) 수집 → `paused`는 예산 회복됐을 때만(`check_ocr_quota`가 False) → `_background_ocr` 재호출(원자 claim이 중복 방지). 한 사이클 최대 10권.
+
+예산은 KST 자정에 풀리므로 앱을 안 열어도 그 주기 안에 이어받는다. 워커 2개 환경에서도 stale UPDATE의 행 잠금 + 잡의 원자 claim으로 중복은 무해. 재업로드(중복 경로)는 즉시 재개를 추가로 트리거.
+
+### 2.4 iOS
+
+`is_scanned=true`면 `GET /api/pdf/{id}/status`를 4초 간격 폴링. **종료 조건 = `isProcessing`(pending/running)이 아닐 때** — complete/capped/paused/error 모두에서 폴링 중단(paused 무한 폴링 방지). 배너는 상태별 문구 + 진행 중이면 결정형 프로그레스 바. 가이드 409 `ocr_incomplete`는 "아직 인식 중"/capped 업셀 문구로 처리.
 
 ---
 
-## 3. Backend API Inventory & Contracts
+## 3. API 계약
 
-### 3.1 엔드포인트 목록
+| Method | Path | 변경 |
+|---|---|---|
+| POST | `/api/pdf/upload` | 응답에 `is_scanned`/`ocr_status` 추가, 스캔감지 분기 |
+| GET | `/api/pdf/{id}/status` | **신규** |
+| GET | `/api/pdf/textbooks` | 응답에 `is_scanned`/`ocr_status`/`ocr_pages_done`/`ocr_pages_total` 추가(목록 칩) |
+| GET | `/api/pdf/{id}/guide`, `/chapter-guide` | 쿼터 체크 + 스캔본 미완 시 409 |
 
-| Method | Path | 설명 | 상태 | 계약 |
-|---|---|---|---|---|
-| POST | `/api/pdf/upload` | 업로드 + 스캔감지 분기 | 변경 | §3.2-a |
-| GET | `/api/pdf/{id}/status` | OCR/인덱싱 진행 상태 | **신규** | §3.2-b |
-| GET | `/api/pdf/{id}/chapters` | 챕터 목록 | 변경없음(데이터만 점진) | — |
-| GET | `/api/pdf/{id}/guide` | 페이지 가이드 | 변경(쿼터+capped 에러) | §3.2-c |
-| GET | `/api/pdf/{id}/chapter-guide` | 챕터 가이드/CoT | 변경(쿼터+capped 에러) | §3.2-c |
-
-### 3.2 신규/변경 엔드포인트 계약 (동결)
-
-#### 3.2-a POST /api/pdf/upload
-- Request: 기존과 동일 (multipart `file`, form `note_id?`). 변경 없음.
-- Response 200: 기존 필드 + `is_scanned: bool`, `ocr_status: "pending"|null`
-  - `is_scanned=true`면 `indexing` 의미가 OCR 진행을 포함. iOS는 `is_scanned=true`일 때 status 폴링 시작.
-- 예시: `{ "id": "uuid", "total_pages": 312, "is_scanned": true, "ocr_status": "pending", "indexing": "started" }`
-- 텍스트 PDF면: `{ "id": "uuid", "total_pages": 120, "is_scanned": false, "ocr_status": null, "indexing": "started" }`
-
-#### 3.2-b GET /api/pdf/{id}/status (신규)
-- Request: path `id` (textbook id)
-- Response 200:
-  ```
-  {
-    "is_scanned": bool,
-    "ocr_status": "pending"|"running"|"paused"|"error"|"capped"|"complete"|null,  // 텍스트PDF는 null
-    "ocr_pages_done": int,        // OCR 완료 페이지 수
-    "ocr_pages_total": int,       // 이번 tier에서 OCR 대상 페이지 수 = min(total_pages, cap)
-    "total_pages": int,
-    "capped": bool,               // free 캡에 걸렸나 (ocr_status=="capped")
-    "cap_limit": int|null,        // 적용된 캡 (free=50, pro=null)
-    "chapters_ready": bool        // 챕터 감지 완료 여부
-  }
-  ```
-- Error: 404 — textbook 없음 / 타 유저 소유
-- 예시(진행 중): `{ "is_scanned": true, "ocr_status": "running", "ocr_pages_done": 47, "ocr_pages_total": 312, "total_pages": 312, "capped": false, "cap_limit": null, "chapters_ready": false }`
-- 예시(free 캡): `{ "is_scanned": true, "ocr_status": "capped", "ocr_pages_done": 50, "ocr_pages_total": 50, "total_pages": 312, "capped": true, "cap_limit": 50, "chapters_ready": true }`
-- MSW 해당 없음(iOS) — iOS는 이 계약으로 `PdfStatus` Decodable 모델 선작성.
-
-#### 3.2-c GET /api/pdf/{id}/guide, /chapter-guide (변경)
+### 3.2-a POST /api/pdf/upload
 - Request: 기존과 동일.
-- 성공 Response: 기존과 동일 (`PageGuideResponse`/`ChapterGuideResponse`).
-- **신규 Error 409 `ocr_incomplete`**: 요청한 페이지/챕터가 아직 OCR 안 됨(스캔본 처리 중) 또는 free 캡 너머.
+- Response 200: 기존 필드 + `is_scanned: bool`, `ocr_status: "pending"|null`.
+- 예시: `{ "id":"…", "totalPages":312, "is_scanned":true, "ocr_status":"pending", "indexing":"started" }`
+
+### 3.2-b GET /api/pdf/{id}/status (신규)
+```
+{
+  "is_scanned": bool,
+  "ocr_status": "pending"|"running"|"paused"|"error"|"capped"|"complete"|null,  // 텍스트PDF는 null
+  "ocr_pages_done": int,
+  "ocr_pages_total": int,     // min(total_pages, ocr_cap)
+  "total_pages": int,
+  "capped": bool,             // ocr_status=="capped"
+  "cap_limit": int|null,      // free=ocr_cap, pro=null
+  "chapters_ready": bool
+}
+```
+- 404 — textbook 없음/타 유저 소유. tier로 `cap_limit` 결정(pro면 null).
+
+### 3.2-c GET /api/pdf/{id}/guide, /chapter-guide (변경)
+- 성공 응답 동일(`PageGuideResponse`/`ChapterGuideResponse`).
+- 캐시 미스 시 `check_daily_quota`(429 `quota_exceeded`) 선행.
+- **409 `ocr_incomplete`**: 스캔본인데 대상 페이지/챕터가 아직 OCR 안 됨. 챕터 가이드는 **챕터 전 페이지가 OCR 완료**됐을 때만 생성(아니면 409).
   ```
-  { "detail": "OCR not complete for this page/chapter",
-    "code": "ocr_incomplete",
-    "ocr_status": "running"|"paused"|"error"|"capped",
-    "capped": bool,            // true면 Pro 업셀 트리거
-    "page": int|null }
+  { "detail":"OCR not complete for this page/chapter", "code":"ocr_incomplete",
+    "ocr_status":"running"|"paused"|"error"|"capped", "capped":bool, "page":int|null }
   ```
-- **기존 400 "no extractable text"는 유지** (텍스트PDF의 진짜 빈 페이지). 스캔본은 409로 구분.
-- 신규 Error 429 `quota_exceeded`: 기존 `quota.py` 형식 (가이드 라우터에 쿼터 추가됨에 따라).
+- 텍스트 PDF의 진짜 빈 페이지는 기존 **400 "no extractable text"** 유지(스캔본은 409로 구분).
 
 ---
 
-## 4. 구현 설계
+## 4. 데이터 모델
 
-### 4.1 데이터 모델 변경
-
-**4.1-a 신규 테이블 `ocr_page_text`** (`app/models/ocr.py`)
+**`ocr_page_text`** (`app/models/ocr.py`) — 페이지 1:1 캐시
 ```
-id          String PK (uuid)
-textbook_id String FK textbook_sources.id, indexed
-page        Integer                      # 1-indexed
-content     Text                         # OCR 추출 원문 (null 바이트 제거)
-created_at  DateTime
-UNIQUE (textbook_id, page)               # 재OCR 멱등 / 재개 skip 판정
+id String PK | textbook_id FK(CASCADE) indexed | page Int(1-indexed)
+content Text(null 바이트 제거) | created_at DateTime
+UNIQUE(textbook_id, page)      # 재OCR 멱등 / 재개 skip 판정
 ```
-- 전용 테이블 채택 이유: `DocumentChunk`는 청크 단위(임베딩용)라 페이지 1:1이 아님(`document.py:13-27`). OCR 캐시는 페이지 1:1이라야 `extract_text` 분기·재개 skip이 단순.
+전용 테이블 채택: `DocumentChunk`는 청크 단위라 페이지 1:1이 아님.
 
-**4.1-b `TextbookSource` 컬럼 추가** (`app/models/textbook.py:10-22`)
+**`textbook_sources`** 컬럼 추가 (`app/models/textbook.py`)
 ```
-is_scanned      Boolean default False
-ocr_status      String  nullable   # pending|running|paused|error|capped|complete
-ocr_pages_done  Integer default 0
-ocr_cap         Integer nullable   # 이 책에 적용된 캡 (free=50, pro=600)
-ocr_updated_at  DateTime nullable  # 하트비트. running이 페이지마다 갱신 → stale면 프로세스 사망 판별
+is_scanned     Boolean default False
+ocr_status     String  nullable   # pending|running|paused|error|capped|complete
+ocr_pages_done Integer default 0
+ocr_cap        Integer nullable   # 적용 캡 (free=50, pro=600)
+ocr_updated_at DateTime nullable  # 하트비트 → stale면 프로세스 사망 판별
 ```
-- 현재 상태 플래그가 없고 `DocumentChunk` count로 추론(`pdf.py:102-107`)하지만, OCR 진행률엔 명시 컬럼이 필요.
 
-**4.1-c Alembic 마이그레이션** 1개: `ocr_page_text` 생성 + `textbook_sources` 컬럼 4개 추가. (CLAUDE.md: 배포 시 app startup CMD가 자동 적용 — 메모리 `alembic_autoapply_on_deploy`.)
-
-### 4.2 OCR 서비스 (신규 `app/services/ocr_service.py`)
-- `render_page(doc, page_idx) -> bytes`: PyMuPDF `page.get_pixmap(matrix=...)`로 장변 ~1568px PNG/JPEG. (Claude 이미지 리사이즈 상한과 일치 — 토큰 절약)
-- `async ocr_page(image_bytes) -> (text, usage)`: Haiku Vision 호출. 시스템 프롬프트 = **"이미지의 텍스트를 원문 그대로 추출. 설명·요약·마크다운·코드펜스 금지. 표/수식은 가능한 평문으로. 빈 페이지면 빈 문자열."** `MODEL_PRICING`(`feedback_service.py:68-71`)로 비용 산출.
-- null 바이트 제거(`indexing_service.py:34` 패턴 재사용).
-
-### 4.3 LLMUsage 헬퍼 추출 (`app/services/usage_service.py` 또는 feedback_service 내)
-- 현재 라우터에서 인라인 `db.add(LLMUsage(...))`(`feedback.py:150-178,413-424`). OCR 잡(라우터 밖 백그라운드)에서도 기록해야 하므로 **공용 헬퍼 추출**:
-  `async def log_llm_usage(db, user_id, model, usage, *, task_type, cost_usd, latency_ms, ...)`.
-- 기존 호출부도 이 헬퍼로 치환(리팩토링, 동작 동일). `task_type` 값에 `"ocr"` 추가.
-
-### 4.4 스캔 감지 (`pdf_service.py` 또는 upload 라우터)
-- `is_scanned_pdf(key, total_pages) -> bool`: 샘플 페이지(또는 전체)의 `get_text()` 총 문자수 / 페이지수 < `OCR_SCAN_TEXT_THRESHOLD`(기본 예: 30자/페이지)면 스캔본. 표지/빈페이지 영향 줄이려 중앙 N페이지 샘플링 고려.
-
-### 4.5 백그라운드 OCR 잡 (`pdf.py` `_background_ocr`)
-- `BackgroundTasks.add_task` + `async with async_session()`(기존 `_background_index` 패턴 `pdf.py:31-38`).
-- tier별 cap 결정: free=`OCR_FREE_CAP_PAGES`(50), pro=`OCR_MAX_PAGES_PER_BOOK`(600). `ocr_cap` 저장.
-- 루프: 페이지별 캐시 존재 skip(재개) → 렌더 → OCR → `ocr_page_text` INSERT + 커밋 → `log_llm_usage` → `ocr_pages_done++` → OCR 쿼터 버킷 초과 시 `paused` break.
-- 종료 상태: 전부 완료=`complete`, free 캡 도달=`capped`, 쿼터 정지=`paused`, 예외=`error`.
-- 완료/충분 시 챕터 감지 트리거(기존 `_background_detect_chapters` 재사용, `extract_page_headers`가 OCR 텍스트를 읽도록 §4.6).
-- **중복 방지(워커 2개)**: 잡 시작 시 `UPDATE … SET ocr_status='running' WHERE ocr_status IN (pending,paused,error) RETURNING`으로 원자적 claim. 0행이면 타 워커가 처리 중 → 즉시 반환.
-- **자동 재개(`_ocr_sweeper_loop`, app startup)**: 10분 주기로 (1) 하트비트 끊긴 `running`을 `error`로 강등 → (2) `paused`(예산 회복 시)·`error`를 원자 claim 후 재개. 예산은 KST 자정에 풀리므로 앱을 안 열어도 그 주기 안에 이어받는다. cron 등 외부 인프라 불필요.
-
-### 4.6 `extract_text` / `extract_page_headers` OCR 분기 (`pdf_service.py`)
-- `extract_text(textbook_or_key, start, end)`: `is_scanned`면 `ocr_page_text`에서 조회. 미존재 페이지는 누락. **시그니처 변경 주의** — 현재는 `key`(경로)만 받음(`pdf_service.py:84`). textbook 메타(is_scanned)와 db 세션 접근이 필요 → 호출부(`feedback.py`, `pdf.py` 가이드) 함께 수정. 호출부가 많으므로 **래퍼 함수**로 흡수 권장.
-- `extract_page_headers`도 동일 분기(챕터 감지가 OCR 텍스트 상단 N줄 사용).
-
-### 4.7 tier 캡 게이팅 & 가이드 라우터 쿼터
-- 가이드 라우터(`pdf.py` 페이지/챕터 가이드)에 **`check_daily_quota` 추가**(현재 없음). OCR/가이드 비용 보호.
-- 가이드 요청 시 대상 페이지/챕터가 `ocr_page_text`에 없으면:
-  - `ocr_status in (running,paused)` → 409 `ocr_incomplete`, `capped=false`.
-  - `ocr_status==capped` 이고 요청이 캡 너머 → 409 `ocr_incomplete`, `capped=true` (업셀).
-
-### 4.8 OCR 쿼터 버킷 (`quota.py`, `config.py`)
-- `config.py`: `DAILY_COST_LIMIT_OCR_PRO_USD`(pro OCR 일일 예산), `OCR_FREE_CAP_PAGES=50`, `OCR_MAX_PAGES_PER_BOOK=600`, `OCR_SCAN_TEXT_THRESHOLD`, `ENABLE_OCR`(기능 토글, 기본 false).
-- `quota.py`: `task_type="ocr"` 비용만 합산하는 별도 체크(`check_ocr_quota`) — interactive 쿼터와 분리. free는 캡으로 통제하므로 OCR 쿼터는 주로 pro 백그라운드 페이싱용.
+마이그레이션: `e5f6a7b8c9d0` (테이블 1 + 컬럼 5). 배포 시 app startup CMD가 자동 적용.
 
 ---
 
-## 5. 구현 단계 (Tracks)
+## 5. ocr_status 상태 머신
 
 ```
-            ┌─ Track A: 모델 + 마이그레이션 + config (기반)
-시작 ───────┤
-            └─ (A 완료 후)
-                 ├─ Track B: OCR 서비스 + 백그라운드 잡 + 스캔감지 + extract_text 분기
-                 │       (B 내부: B1 OCR서비스 → B2 extract_text분기 → B3 백그라운드잡 → B4 챕터감지연동)
-                 ├─ Track C: 쿼터버킷 + 가이드라우터 쿼터/capped + status API
-                 │       (C는 A 완료 후 B와 병렬 가능 — 파일 다름. 단 status API는 A 컬럼 의존)
-                 └─ (C status 계약 동결 후)
-                       └─ Track D: iOS status 폴링 + 진행률 UI + Pro 업셀
+        업로드(스캔본)
+            │
+         pending ──claim──► running ──┬──► complete            (전부 OCR)
+            ▲                  │       ├──► capped              (free 캡 < total)
+            │                  │       ├──► paused  (예산 초과)  ─┐
+   재업로드/스위퍼 재개          │       └──► error   (예외)       │
+            │                  │                                │
+            └──────────────────┴──── 스위퍼: 예산 회복/재시도 ◄───┘
+                               │
+                  (프로세스 사망: running에서 멈춤 → 하트비트 stale →
+                   스위퍼가 error로 강등 후 재개)
 ```
 
-**트랙 간 의존성:**
-- **A → B, A → C**: 모델/마이그레이션/config가 모든 것의 기반.
-- **B ↔ C**: 파일이 대부분 분리(B=services+백그라운드, C=quota+라우터). `pdf.py` 가이드 라우터는 C가 주로 수정, B는 `_background_ocr` 추가 — 같은 파일이나 다른 함수. 병합 충돌 소수, 같은 트랙 묶을 필요 없음.
-- **C(§3.2-b status 계약) → D**: status 계약 동결 후 iOS가 `PdfStatus` 모델·폴링 작성. 계약은 §3.2-b에 동결됨 → D는 백엔드 구현 완료 전 착수 가능(실제 통합 테스트만 C 완료 필요).
+- **complete/capped/complete-text** = 종료(폴링·스위퍼 대상 아님).
+- **paused** = 예산. 자정 후 스위퍼가 재개.
+- **error** = 예외. 스위퍼가 재시도(상한 없음 — 영구 실패 페이지는 후속 과제).
 
-**인원별 배분:**
-| 인원 | 배분 |
+---
+
+## 6. 운영 (켜기 체크리스트 & 튜닝)
+
+**켜기 전 (순서대로):**
+1. `DAILY_COST_LIMIT_OCR_PRO_USD`를 **양수**로 설정. (0=무제한 → 스캔본 다수 업로드 시 순지출 폭증)
+2. `ENABLE_OCR=true`.
+3. (배포는 마이그레이션 자동 적용. DB에 `ocr_page_text`/컬럼 생성 확인.)
+
+**`config.py` 파라미터:**
+| 키 | 기본 | 의미 |
+|---|---|---|
+| `ENABLE_OCR` | `false` | 기능 토글. off면 스캔 감지 자체를 안 함(기존 흐름 불변) |
+| `DAILY_COST_LIMIT_OCR_PRO_USD` | `0` | OCR(task_type=ocr) 일일 예산 버킷. 0=무제한 |
+| `OCR_FREE_CAP_PAGES` | `50` | free 권당 OCR 페이지 하드 캡 |
+| `OCR_MAX_PAGES_PER_BOOK` | `600` | pro 권당 백스톱(잘못된 범위 비용 캡) |
+| `OCR_SCAN_TEXT_THRESHOLD` | `30` | 페이지당 평균 문자수 < 이 값이면 스캔본 |
+
+**스위퍼 상수(`pdf.py`):** `OCR_SWEEP_INTERVAL_SEC=600`, `OCR_STALE_MINUTES=15`, `OCR_SWEEP_MAX_PER_CYCLE=10`.
+
+---
+
+## 7. 핵심 파일 (as-built)
+
+| 영역 | 파일 | 내용 |
+|---|---|---|
+| 모델 | `app/models/ocr.py`, `app/models/textbook.py` | `OcrPageText`, 스캔/OCR 컬럼 |
+| 마이그레이션 | `alembic/versions/e5f6a7b8c9d0_*.py` | 테이블+컬럼 |
+| config | `app/core/config.py` | OCR 파라미터(§6) |
+| OCR 서비스 | `app/services/ocr_service.py` | `render_page`, `ocr_page`(Haiku, "원문만"), `OcrResult` |
+| usage 헬퍼 | `app/services/usage_service.py` | `log_llm_usage` (feedback 인라인 치환) |
+| 텍스트 분기 | `app/services/pdf_service.py` | `is_scanned_pdf`, `extract_text_async`, `get_ocr_pages`, `headers_from_ocr_rows` |
+| 챕터 감지 | `app/services/chapter_service.py` | `detect_chapters(server_path, headers=None)` |
+| 잡·스위퍼·라우터 | `app/routers/pdf.py` | `_background_ocr`, `_ocr_sweeper_loop`, `_tier_from_cap`, upload 분기, `/status`, 가이드 409 |
+| 스위퍼 기동 | `app/main.py` | startup에서 `_ocr_sweeper_loop` (ENABLE_OCR 시) |
+| 쿼터 | `app/core/quota.py` | `check_ocr_quota`(task_type=ocr 별도 버킷) |
+| iOS 모델 | `Models/AIResponse.swift` | `PdfStatus`, `OcrIncompleteInfo`, `TextbookListItem.ocrChip` |
+| iOS API | `Services/APIClient.swift` | `getPdfStatus`, `APIError.ocrIncomplete`(409 디코드) |
+| iOS UI | `Views/PdfViewerView.swift`, `CreateNoteSheet.swift`, `NoteMetaSheet.swift`, `PaywallView.swift` | 진행 배너·폴링, 목록 칩, 업로드 인디케이터, Pro 혜택 문구 |
+| 테스트 | `tests/unit/test_ocr.py` | 스캔 감지, 헤더 추출, `extract_text` 불변, `_tier_from_cap`, 토글 off |
+
+---
+
+## 8. Risk & 완화 (as-built)
+
+| Risk | 완화 |
 |---|---|
-| 1명 | A → B → C → D 순차 |
-| 2명 | P1: A→B, P2: (A 후) C→D |
-| 3명 | P1: A→B(서비스/잡), P2: C(쿼터/라우터/status), P3: D(iOS, 계약 동결 후) |
+| 무제한 쿼터로 OCR 켜면 비용 폭증 | `ENABLE_OCR` 토글 + OCR 예산 양수 강제(§6 체크리스트) |
+| Haiku OCR 품질이 고전어/수식에서 미흡 | 1차는 텍스트 복원 목표. 미흡 시 Sonnet Vision 폴백(비용↑) 검토 |
+| `extract_text` 시그니처 변경 영향 | 동기 `extract_text` 불변 + `extract_text_async` 래퍼로 흡수. 회귀 테스트로 텍스트PDF 경로 고정 |
+| 백그라운드 잡 중복 실행(워커 2개) | 원자 claim(`UPDATE…WHERE ocr_status IN(…) RETURNING`) + `UNIQUE(textbook,page)` + skip-on-exists |
+| 부분 OCR 상태로 조용히 열화된 가이드 | 미완 시 **409 명시**(침묵 금지). 챕터 가이드는 전 페이지 완료 시에만 생성. status API로 진행 노출 |
+| 멈춘 잡이 영원히 안 끝남 | 3원인 분리 + 주기 스위퍼 자동 재개 + 하트비트로 프로세스 사망 감지 |
+| 거대 스캔본이 pro 예산 독식 | OCR 버킷 분리 + 권당 페이지 상한 + paused/재개 |
 
-### Track A: 모델 · 마이그레이션 · config
-**의존:** 없음 (기반)
-**내부 순서:** A-1 → A-2 (모델 먼저) → A-3
-**작업량:** 작음
-| ID | 파일 | 내용 |
-|---|---|---|
-| A-1 | `app/models/ocr.py` (신규) | `OcrPageText` 모델 (§4.1-a) |
-| A-2 | `app/models/textbook.py` | `is_scanned/ocr_status/ocr_pages_done/ocr_cap` 컬럼 (§4.1-b) |
-| A-3 | `alembic/versions/*` | 마이그레이션 1개 (테이블+컬럼). env.py 모델 import 확인(메모리 `alembic_baseline`) |
-| A-4 | `app/core/config.py` | `ENABLE_OCR`, `DAILY_COST_LIMIT_OCR_PRO_USD`, `OCR_FREE_CAP_PAGES`, `OCR_MAX_PAGES_PER_BOOK`, `OCR_SCAN_TEXT_THRESHOLD` (§4.8) |
-
-### Track B: OCR 서비스 · 백그라운드 · extract_text 분기
-**의존:** Track A 완료
-**내부 순서:** B-1 → B-2 → B-3 → B-4
-**작업량:** 큼. 가장 복잡: B-2(extract_text 시그니처 변경 + 다수 호출부 흡수), B-3(재개 가능 잡 + 쿼터 정지)
-| ID | 파일 | 내용 |
-|---|---|---|
-| B-1 | `app/services/ocr_service.py` (신규) | render_page + Haiku Vision OCR + 프롬프트 + 비용 (§4.2) |
-| B-1b | `app/services/usage_service.py` (신규/추출) | `log_llm_usage` 헬퍼 + 기존 인라인 치환 (§4.3) |
-| B-2 | `app/services/pdf_service.py` | `is_scanned_pdf`, `extract_text`/`extract_page_headers` OCR 분기 (§4.4, §4.6). 호출부(`feedback.py`, `pdf.py`) 래퍼로 흡수 |
-| B-3 | `app/routers/pdf.py` | `_background_ocr` 잡 + upload 분기(스캔감지→ocr_status=pending→등록) (§4.5). 업로드 응답에 `is_scanned/ocr_status` 추가 (§3.2-a) |
-| B-4 | `app/routers/pdf.py`, `chapter_service.py` | OCR 완료 후 챕터 감지 트리거 순서 (§4.5 끝) |
-
-### Track C: 쿼터 버킷 · 가이드 라우터 · status API
-**의존:** Track A 완료 (status는 A 컬럼 의존)
-**내부 순서:** C-1, C-2, C-3 대체로 병렬 가능
-**작업량:** 중간
-| ID | 파일 | 내용 |
-|---|---|---|
-| C-1 | `app/core/quota.py` | `check_ocr_quota` (task_type="ocr" 분리 합산) (§4.8) |
-| C-2 | `app/routers/pdf.py` 가이드 | 페이지/챕터 가이드에 `check_daily_quota` 추가 + 스캔본 미완 시 409 `ocr_incomplete`/capped (§4.7, §3.2-c) |
-| C-3 | `app/routers/pdf.py` | `GET /api/pdf/{id}/status` 신규 + `PdfStatusResponse` (§3.2-b) |
-
-### Track D: iOS 진행률 UI
-**의존:** §3.2-b status 계약 동결(완료) → 착수 가능. 통합 검증은 Track C 완료 필요.
-**내부 순서:** D-1 → D-2 → D-3
-**작업량:** 중간
-| ID | 파일 | 내용 |
-|---|---|---|
-| D-1 | `Models/AIResponse.swift` (또는 신규) | `PdfStatus` Decodable (§3.2-b 계약) |
-| D-2 | `Services/APIClient.swift` | `getPdfStatus(id)` + 폴링 헬퍼 |
-| D-3 | `Views/PdfViewerView.swift`, `CreateNoteSheet.swift`/`NoteMetaSheet.swift` | 스캔본 진행률 표시(`ocr_pages_done/total`), `capped` 시 Pro 업셀, 가이드 409 `ocr_incomplete` 처리(재시도 안내) |
-
----
-
-## 6. 확인 완료 사항 (코드 검증)
-
-- `extract_text`는 현재 `key`(경로)만 받고 `get_text()`만 호출, OCR 없음 — `backend/app/services/pdf_service.py:84-102`. `_open_pdf:16-25`, `extract_toc:59-67`, `extract_page_headers:70-81`.
-- 가이드 빈 텍스트 시 400 — 페이지 `pdf.py:368`, 챕터 `pdf.py:481`. 가이드 라우터에 **쿼터 체크 없음**.
-- 챕터 감지: `pdf.py:41-64,149-168` + `chapter_service.py:33-66` (헤더→Haiku).
-- 피드백 컨텍스트 우선순위 1/2/3 — `feedback.py:88-145`. RAG 폴백은 `if textbook_id and not context_parts`.
-- 쿼터: USD 비용 기반, KST 자정, advisory lock, 429 — `quota.py`. tier 한도 `config.py:21-23`(기본 0=무제한). `get_tier` `auth.py:65-68`. 호출부 `feedback.py:68,291`.
-- LLMUsage 인라인 기록(헬퍼 없음) — `feedback.py:150-178,413-424`. 모델 `usage.py:10-27`, `task_type` 현재값: complex/simple/page_guide/chapter_guide/chat.
-- 비용 추정 `feedback_service.py:67-103`, `MODEL_PRICING:68-71`.
-- `TextbookSource` 상태 플래그 없음, `total_pages` 존재 — `textbook.py:10-22`. 인덱싱 상태는 `DocumentChunk` count 추론 `pdf.py:102-107`.
-- `DocumentChunk`에 `page_start/page_end/content/embedding` — `document.py:13-27` (청크 단위, 페이지 1:1 아님 → 전용 테이블 채택 근거).
-- 백그라운드 패턴: `async with async_session()` + `BackgroundTasks.add_task` — `pdf.py:31-38,173`.
-- iOS 가이드/챕터 호출 — `PdfViewerView.swift:665-714`, 모델 `AIResponse.swift:45-93`. 업로드 진행률 UI **없음**(텍스트만) — `CreateNoteSheet.swift:182`, `NoteMetaSheet.swift:122`. APIClient `get`/`uploadFile`/`getData` — `APIClient.swift:59-213`.
-
-### 6.x 미확인 / 결정 필요
-
-| # | 항목 | 확인/결정 방법 |
-|---|---|---|
-| 1 | `OCR_SCAN_TEXT_THRESHOLD` 구체값 | 실제 스캔본/텍스트PDF 샘플로 문자/페이지 분포 측정 |
-| 2 | Haiku Vision OCR 실측 품질·토큰 (고전어/수식) | 샘플 1~2페이지 PoC — 토큰·비용·정확도 확인 후 페이지당 비용 확정 |
-| 3 | 렌더 해상도/포맷(JPEG vs PNG, DPI) | PoC로 인식률 대비 용량 균형 |
-| 4 | free 50p 캡: 권당 누적 vs 일일 | 권당(per-textbook) 누적으로 합의됨. `ocr_cap`/`ocr_pages_done`로 구현 |
-| 5 | 부분 챕터(capped 경계 걸친 챕터) 가이드 처리 | 캡 내 페이지만으로 생성할지 vs 409. 1차는 챕터 전체가 캡 내일 때만 생성 권장 |
-| 6 | extract_text 시그니처 변경 범위 | 호출부 전수(`feedback.py`, `pdf.py`) grep 후 래퍼 설계 |
-
----
-
-## 7. Risk
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| 무제한 쿼터(0)로 OCR 켜면 비용 폭증 | 높음 | `ENABLE_OCR` 토글 + OCR 예산 양수 설정 강제(§1.4). 켜기 전 체크리스트 |
-| Haiku OCR 품질이 고전어/수식에서 미흡 | 중 | PoC(§6.x-2) 선행. 미흡 시 Sonnet Vision 폴백 옵션(비용↑) 검토 |
-| extract_text 시그니처 변경이 호출부 광범위 | 중 | 래퍼 함수로 흡수, 텍스트PDF 경로는 동작 불변 — 회귀 테스트 |
-| 백그라운드 잡 중복 실행/경합 | 중 | `ocr_page_text` UNIQUE(textbook,page)로 멱등. 페이지 skip-on-exists로 재개 안전 |
-| 부분 OCR 상태가 조용히 열화된 가이드 생성 | 중 | 미완 시 **409 명시**(침묵 금지 — 메모리 `telemetry_blind_spots` 교훈). status API로 진행 노출 |
-| 거대 스캔본이 pro 일일 예산 독식 | 낮음 | OCR 버킷 분리 + 권당 페이지 상한 + pause/resume |
-| 잘못된 TOC로 챕터 page_end가 끝까지 | 낮음 | `OCR_MAX_PAGES_PER_BOOK` 백스톱 |
+### 후속 과제
+- `error` 영구 실패 페이지의 재시도 상한/격리(현재 매 사이클 재시도).
+- 스위퍼 통합 테스트(원자 claim·재개)는 DB-backed 테스트로 추가 권장(claim 분리 리팩터링 동반).
+- 스캔본 RAG 인덱싱, OCR 결과 수정 UI, 노트 목록 행별 칩.

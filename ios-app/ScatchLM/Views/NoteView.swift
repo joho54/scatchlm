@@ -1227,24 +1227,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let oldH = contentView.bounds.height
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
-            // canvas.frame은 큰 청크(20000pt) 단위로만 키운다. contentView는 필기/스크롤에 따라 자주
-            // 미세 성장하지만, 그때마다 canvas.frame을 재할당하면 PencilKit이 전체 스트로크를
-            // 재래스터화해 "필기 중 기존 스트로크 깜빡임"이 난다. 청크 단위라 사실상 거의 안 바뀜.
-            // (페이지보다 큰 캔버스는 도달 불가 영역일 뿐 무해 — PencilKit은 타일 렌더라 비용 없음.)
-            let canvasChunk: CGFloat = 20000
-            let neededCanvasH = ceil(h / canvasChunk) * canvasChunk
-            let canvasFrameReset = (canvas?.frame.height ?? 0) < neededCanvasH
-            if canvasFrameReset {
-                canvas?.frame = CGRect(x: 0, y: 0, width: w, height: neededCanvasH)
-            }
+            canvas?.frame = contentView.bounds
             host.contentSize = CGSize(width: w * s, height: h * s)
-            // [diag] 호출 빈도/캔버스 프레임 재할당 추적 (슬라이더 깜빡임 원인)
+            // [diag] 호출 빈도 추적 (확장 로직 자체는 원복 — 추측 패치 제거)
             setContentHeightCount += 1
             appLog("flickerdiag", "setContentHeight", [
                 "n": "\(setContentHeightCount)",
                 "oldH": "\(Int(oldH))", "newH": "\(Int(h))",
                 "zoom": String(format: "%.3f", s),
-                "canvasFrameReset": "\(canvasFrameReset)",
             ])
         }
         private var setContentHeightCount = 0
@@ -1649,13 +1639,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? viewportInContent
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            // 목표 높이를 청크(viewport) 단위로 올림 — 그러지 않으면 drawBottom이 매 스트로크 조금씩
-            // 커져 contentView가 매번 성장(bounds/center/contentSize 갱신)하고, 이 churn이 PencilKit
-            // 스트로크 깜빡임을 유발한다. 청크 경계를 넘을 때만 contentView가 성장한다.
-            let heightChunk = max(viewportInContent, 600)
             drawChangeCount += 1
             let cvH = contentView?.bounds.height ?? -1
-            let target = ceil((drawingBottom + viewportInContent * 2) / heightChunk) * heightChunk
+            let target = drawingBottom + viewportInContent * 2
             appLog("flickerdiag", "drawDidChange", [
                 "n": "\(drawChangeCount)",
                 "strokes": "\(strokes.count)",

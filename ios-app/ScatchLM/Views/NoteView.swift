@@ -685,15 +685,25 @@ struct NoteView: View {
         appLog("note", "saveDrawing", ["pageId": page.id, "strokes": "\(canvasView.drawing.strokes.count)"])
     }
 
+    /// 페이지 전환 시 PencilKit이 drawing 교체 후에도 렌더된 옛 타일을 안 지우는 stale render를 강제 갱신.
+    /// (네이티브 줌 구조에서 새 페이지에 이전 필기가 남는 버그 — 모델은 비었으나 화면만 잔존.)
+    /// isHidden을 한 런루프 토글하면 다음 표시 패스에서 현재(빈) drawing으로 새로 렌더된다.
+    private func forceCanvasRedraw() {
+        canvasView.isHidden = true
+        DispatchQueue.main.async { [self] in canvasView.isHidden = false }
+    }
+
     /// DB에서 특정 페이지의 드로잉을 로드하여 캔버스에 적용
     private func loadDrawingFromDB(pageId: String) {
         if let page = try? db.page(noteId: noteId, pageIndex: currentPageIndex),
            let data = page.drawingData,
            let drawing = try? PKDrawing(data: data) {
             canvasView.drawing = drawing
+            forceCanvasRedraw()
             appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "strokes": "\(drawing.strokes.count)"])
         } else {
             canvasView.drawing = PKDrawing()
+            forceCanvasRedraw()
             appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "empty": "true"])
         }
     }
@@ -709,6 +719,7 @@ struct NoteView: View {
         try? db.updateCurrentPageIndex(noteId: noteId, index: newIndex)
 
         canvasView.drawing = PKDrawing()
+        forceCanvasRedraw()
         feedbacks = []
         nextCardY = 100
         if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {

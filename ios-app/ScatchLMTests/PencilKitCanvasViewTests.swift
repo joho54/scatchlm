@@ -381,29 +381,35 @@ final class PencilKitCanvasViewTests: XCTestCase {
         coordinator.setContentHeight(3000)
 
         XCTAssertEqual(contentView.bounds.height, 3000, accuracy: 0.5,
-            "contentView 높이 확장")
-        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5,
-            "canvas는 contentView.bounds를 추종")
+            "contentView 높이는 정확히 확장")
+        XCTAssertGreaterThanOrEqual(canvas.frame.height, 3000,
+            "canvas는 contentView를 덮되 청크 단위(20000)로 커짐 → 콘텐츠 이상")
         XCTAssertEqual(host.contentSize.height, 3000, accuracy: 0.5,
-            "host.contentSize = 높이 × zoom(1)")
+            "host.contentSize = contentView 높이 × zoom(1)")
         XCTAssertEqual(contentView.frame.origin.y, 0, accuracy: 0.5,
             "아래로만 확장 — top-left 고정")
     }
 
     @MainActor
-    func testSetContentHeightCanvasFrameGrowOnly() {
-        // 슬라이더 드래그 중 contentView 높이가 churn(예: 5080→1640 재확장)해도 canvas.frame은
-        // "커질 때만" 재할당돼야 PencilKit 재래스터화(깜빡임)가 안 난다.
+    func testSetContentHeightCanvasFrameChunkedAndStable() {
+        // 필기/스크롤로 contentView가 자주 미세 성장·churn해도 canvas.frame은 청크(20000) 단위로만
+        // 바뀌어 같은 청크 내에선 절대 재할당 안 됨 → PencilKit 재래스터화(깜빡임) 방지.
         let logical = Config.logicalCanvasWidth
         let (coordinator, _, _, canvas) = makeWiredCoordinator(panelWidth: logical)
 
         coordinator.setContentHeight(3000)
-        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5, "커지면 캔버스도 확장")
+        let h1 = canvas.frame.height
+        XCTAssertGreaterThanOrEqual(h1, 3000, "콘텐츠를 덮는 청크 높이")
+        XCTAssertEqual(h1.truncatingRemainder(dividingBy: 20000), 0, accuracy: 0.5,
+            "canvas.frame은 20000 청크 정렬")
 
-        // 더 작은 높이로 호출(contentView churn 재현) — canvas.frame은 유지(축소/리셋 안 함).
+        // 같은 청크 내 여러 높이로 호출(미세 성장·축소 churn) — canvas.frame 불변.
         coordinator.setContentHeight(1500)
-        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5,
-            "작은 높이로 호출해도 canvas.frame은 유지 — 깜빡임 방지")
+        XCTAssertEqual(canvas.frame.height, h1, accuracy: 0.5, "축소 호출에도 불변")
+        coordinator.setContentHeight(5080)
+        XCTAssertEqual(canvas.frame.height, h1, accuracy: 0.5, "같은 청크 내 성장에도 불변")
+        coordinator.setContentHeight(19000)
+        XCTAssertEqual(canvas.frame.height, h1, accuracy: 0.5, "청크 경계 직전까지 불변")
     }
 
     @MainActor

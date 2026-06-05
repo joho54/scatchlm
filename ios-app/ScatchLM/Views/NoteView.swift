@@ -1173,9 +1173,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
             fitAndCenter(forWidth: panelWidth, src: "applyPanelLayout")
         }
 
-        /// host 레이아웃 완료 시 — 실제 bounds 기준으로 재-fit·중앙정렬·최소높이 보장.
+        /// host 레이아웃 완료 시 — 중앙정렬·최소높이만. (줌-fit은 panelWidth(SSOT)로만 결정 →
+        /// host.bounds로 재-fit하면 divider 중 host.bounds가 stale이라 zoomScale이 진동했음.)
         func hostDidLayout() {
-            fitAndCenter(forWidth: host?.bounds.width ?? 0, src: "hostDidLayout")
+            centerContent()
             ensureMinimumContentHeight()
         }
 
@@ -1183,7 +1184,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
         func centerContent() {
             guard let host, let contentView else { return }
             let scaledW = contentView.bounds.width * host.zoomScale
-            let insetX = max(0, (host.bounds.width - scaledW) / 2)
+            // 인셋도 줌과 동일한 폭 SSOT(lastPanelWidth)로 계산 — host.bounds는 divider 중 stale이라
+            // 줌(panelWidth 기준)과 기준이 어긋나 콘텐츠가 밀렸음. 폴백으로만 host.bounds.
+            let viewportW = lastPanelWidth > 0 ? lastPanelWidth : host.bounds.width
+            let insetX = max(0, (viewportW - scaledW) / 2)
             // 세로는 상단 정렬(종이는 위에서 시작) → top inset 0.
             let newInset = UIEdgeInsets(top: 0, left: insetX, bottom: 0, right: insetX)
             if host.contentInset != newInset {

@@ -337,6 +337,22 @@ final class PencilKitCanvasViewTests: XCTestCase {
     }
 
     @MainActor
+    func testCenterUsesPanelWidthNotStaleHostBounds() {
+        // divider 드래그 중 host.bounds가 안 줄어드는(stale) 상황 재현 — 인셋은 panelWidth(SSOT)로
+        // 계산돼야 줌(panelWidth 기준)과 어긋나지 않는다. (회전 후 divider "망가짐" 진동 버그 회귀 방지.)
+        let logical = Config.logicalCanvasWidth
+        let panel = logical / 2
+        let (coordinator, host, _, _) = makeWiredCoordinator(panelWidth: panel)
+        // host.bounds를 panelWidth보다 큰 stale 값으로 (회전 직후 넓은 폭에서 안 줄어든 상태)
+        host.frame = CGRect(x: 0, y: 0, width: logical + 108, height: 1000)
+
+        coordinator.applyPanelLayout(panelWidth: panel) // zoom=0.5, lastPanelWidth=panel
+
+        XCTAssertEqual(host.contentInset.left, 0, accuracy: 1.0,
+            "인셋은 stale host.bounds(넓음)가 아니라 panelWidth 기준 → 0 (줌/인셋 진동 방지)")
+    }
+
+    @MainActor
     func testSetContentHeightExpandsAndPreservesTopLeft() {
         let logical = Config.logicalCanvasWidth
         let (coordinator, host, contentView, canvas) = makeWiredCoordinator(panelWidth: logical)

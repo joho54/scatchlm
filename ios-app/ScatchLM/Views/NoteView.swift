@@ -8,18 +8,37 @@ class FeedbackTapGesture: UITapGestureRecognizer {
     var feedbackRecord: FeedbackRecord?
 }
 
+/// 피드백 카드 복사용 앱 세션 클립보드. 복사 시 카드 content(JSON/텍스트)를 담고,
+/// 빈 곳 길게누르기 메뉴로 아무 페이지에나 붙여넣는다.
+final class FeedbackClipboard {
+    static let shared = FeedbackClipboard()
+    var content: String?
+    private init() {}
+}
+
+/// PencilKit 기본 paste: 액션(시스템 클립보드 → 캔버스)을 억제한다. 그래야 길게누르기 시
+/// 시스템 "붙여넣기" 버블 대신 우리 커스텀 카드 붙여넣기 메뉴만 노출된다.
+final class NoteCanvasView: PKCanvasView {
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(UIResponderStandardEditActions.paste(_:)) { return false }
+        return super.canPerformAction(action, withSender: sender)
+    }
+}
+
 struct NoteView: View {
     let noteId: String
 
     @Environment(\.dismiss) private var dismiss
     @State private var note: Note?
-    @State private var canvasView = PKCanvasView()
+    @State private var canvasView: PKCanvasView = NoteCanvasView()
     @State private var feedbacks: [FeedbackRecord] = []
     @State private var loading = false
     @State private var pdfOpen = false
     @State private var currentPage: Int = 1
     @State private var chatFeedback: FeedbackRecord?
     @State private var ratingSheetFeedback: FeedbackRecord?
+    /// 카드 복사 클립보드(앱 세션 전역) — 복사 후 아무 페이지에서나 붙여넣기.
+    private let clipboard = FeedbackClipboard.shared
     @State private var toastMessage: String?
     @State private var pendingRevert: FeedbackRecord?
     @State private var showPaywall = false
@@ -329,6 +348,13 @@ struct NoteView: View {
             },
             onFeedbackRateDetail: { fb in
                 ratingSheetFeedback = fb
+            },
+            onFeedbackCopy: { fb in
+                clipboard.content = fb.content
+                showToast(String(localized: "카드를 복사했어요. 빈 곳을 길게 눌러 붙여넣기 하세요."))
+            },
+            onPaste: {
+                pasteFromClipboard()
             }
         )
         // 페이지가 바뀌면 .id 변경 → SwiftUI가 옛 캔버스를 dismantle하고 새로 makeUIView(언마운트/리마운트).
@@ -720,6 +746,15 @@ struct NoteView: View {
         appendFeedbackCard(content: jsonContent, serverFeedbackId: serverFeedbackId)
     }
 
+    /// 클립보드의 카드 본문을 현재 페이지의 다음 카드 위치(가이드라인)에 정적 카드로 붙여넣는다.
+    /// 현재 캔버스에 추가하는 것이라 위치·높이·frozen 계산은 appendFeedbackCard에 그대로 위임된다.
+    private func pasteFromClipboard() {
+        guard let content = clipboard.content else { return }
+        // serverFeedbackId 없이 본문만 — 평점·자세히는 비활성, 대화는 새 컨텍스트로 시작.
+        appendFeedbackCard(content: content)
+        appLog("note", "feedback pasted", ["pageIndex": "\(currentPageIndex)", "contentLen": "\(content.count)"])
+    }
+
     private func refreshUndoState() {
         let um = canvasView.undoManager
         canUndo = um?.canUndo ?? false
@@ -757,7 +792,7 @@ struct NoteView: View {
 
         // 페이지별 새 캔버스 인스턴스로 교체. .id(currentNotePage.id) 변경으로 옛 캔버스가 언마운트되고
         // 새 캔버스가 mount된다 → 공유 인스턴스가 아니므로 이전 페이지 렌더(ghost)가 구조적으로 불가능.
-        canvasView = PKCanvasView()
+        canvasView = NoteCanvasView()
         feedbacks = []
         nextCardY = 100
         appLog("note", "newPage", ["index": "\(newIndex)"])
@@ -772,7 +807,7 @@ struct NoteView: View {
         try? db.updateCurrentPageIndex(noteId: noteId, index: index)
 
         // 새 캔버스 인스턴스 → 리마운트. 페이지 그림은 makeUIView가 initialDrawingData로 로드한다.
-        canvasView = PKCanvasView()
+        canvasView = NoteCanvasView()
         feedbacks = (try? db.feedbacks(pageId: notePages[index].id)) ?? []
         nextCardY = 100
         appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
@@ -999,6 +1034,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var onStrokeRejected: (() -> Void)?
     var onFeedbackRate: ((FeedbackRecord, Int) -> Void)?
     var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
+    var onFeedbackCopy: ((FeedbackRecord) -> Void)?
+    var onPaste: (() -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
     /// 루트는 host(UIScrollView). 그 안에 contentView(줌 대상, 논리폭) > PKCanvasView(그리기 전용) 중첩.
@@ -1049,6 +1086,19 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.contentView = contentView
         coordinator.canvas = canvasView
 
+        // 붙여넣기: 빈 곳 길게누르기 → 편집 메뉴. 손가락 필기(.default)와 충돌하므로
+        // 드로잉 제스처가 이 long-press 실패를 기다리게 해 분리한다(정지 0.5s=메뉴, 이동=필기).
+        let pasteLongPress = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePasteLongPress(_:)))
+        pasteLongPress.minimumPressDuration = 0.5
+        // 손가락 전용 — 펜 터치는 이 제스처가 즉시 무시하므로 require(toFail:)가 펜 드로잉 시작을
+        // 지연시키지 않는다. 지연(0.5s 분리)은 보조 입력인 손가락에만 적용된다.
+        pasteLongPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        canvasView.addGestureRecognizer(pasteLongPress)
+        canvasView.drawingGestureRecognizer.require(toFail: pasteLongPress)
+        let editMenu = UIEditMenuInteraction(delegate: coordinator)
+        canvasView.addInteraction(editMenu)
+        coordinator.editMenuInteraction = editMenu
+
         // Load saved drawing — only if canvas is empty (avoid overwriting on rotation)
         if canvasView.drawing.strokes.isEmpty,
            let data = initialDrawingData,
@@ -1081,6 +1131,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.onFeedbackTapped = onFeedbackTapped
         coordinator.onFeedbackRevert = onFeedbackRevert
         coordinator.onStrokeRejected = onStrokeRejected
+        coordinator.onFeedbackCopy = onFeedbackCopy
+        coordinator.onPaste = onPaste
         coordinator.contentView?.backgroundColor = isDark ? .black : .white
         // Only update tool color if user hasn't picked a custom color via tool picker
         if let inkTool = canvasView.tool as? PKInkingTool,
@@ -1106,10 +1158,12 @@ struct PencilKitCanvasView: UIViewRepresentable {
         c.onStrokeRejected = onStrokeRejected
         c.onFeedbackRate = onFeedbackRate
         c.onFeedbackRateDetail = onFeedbackRateDetail
+        c.onFeedbackCopy = onFeedbackCopy
+        c.onPaste = onPaste
         return c
     }
 
-    class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
+    class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, UIEditMenuInteractionDelegate {
         let onDrawingChanged: () -> Void
         var onStrokeChanged: (() -> Void)?
         var onFeedbackTapped: ((FeedbackRecord) -> Void)?
@@ -1117,6 +1171,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var onStrokeRejected: (() -> Void)?
         var onFeedbackRate: ((FeedbackRecord, Int) -> Void)?
         var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
+        var onFeedbackCopy: ((FeedbackRecord) -> Void)?
+        var onPaste: (() -> Void)?
+        var editMenuInteraction: UIEditMenuInteraction?
         var toolPicker: PKToolPicker?
         var toolPickerVisible: Bool = true
         var lastRenderedBottom: CGFloat = 0
@@ -1281,6 +1338,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         @objc func feedbackRateDetailTapped(_ gesture: FeedbackTapGesture) {
             if let fb = gesture.feedbackRecord { onFeedbackRateDetail?(fb) }
+        }
+
+        @objc func feedbackCopyTapped(_ gesture: FeedbackTapGesture) {
+            if let fb = gesture.feedbackRecord { onFeedbackCopy?(fb) }
         }
 
         // MARK: - Frozen state
@@ -1453,6 +1514,15 @@ struct PencilKitCanvasView: UIViewRepresentable {
             detailBtn.addGestureRecognizer(detailGesture)
             buttonBar.addArrangedSubview(detailBtn)
 
+            // 다른 페이지로 복사 — 카드 본문을 그대로 다른 페이지에 정적 카드로 얹는다.
+            let copyBtn = UIButton(type: .system)
+            copyBtn.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
+            copyBtn.tintColor = .secondaryLabel
+            let copyGesture = FeedbackTapGesture(target: self, action: #selector(feedbackCopyTapped(_:)))
+            copyGesture.feedbackRecord = fb
+            copyBtn.addGestureRecognizer(copyGesture)
+            buttonBar.addArrangedSubview(copyBtn)
+
             buttonBar.addArrangedSubview(UIView())
 
             if isLast {
@@ -1563,6 +1633,26 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 "width": "\(Int(width))",
                 "strokes": "\(canvasView.drawing.strokes.count)",
             ])
+        }
+
+        /// 빈 영역 길게누르기 → "붙여넣기" 메뉴. 클립보드가 비어 있으면 메뉴를 띄우지 않는다.
+        @objc func handlePasteLongPress(_ g: UILongPressGestureRecognizer) {
+            guard g.state == .began,
+                  FeedbackClipboard.shared.content != nil,
+                  let canvas = canvas else { return }
+            let loc = g.location(in: canvas)
+            let config = UIEditMenuConfiguration(identifier: nil, sourcePoint: loc)
+            editMenuInteraction?.presentEditMenu(with: config)
+        }
+
+        func editMenuInteraction(_ interaction: UIEditMenuInteraction,
+                                 menuFor configuration: UIEditMenuConfiguration,
+                                 suggestedActions: [UIMenuElement]) -> UIMenu? {
+            let paste = UIAction(title: String(localized: "붙여넣기"),
+                                 image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
+                self?.onPaste?()
+            }
+            return UIMenu(children: [paste])
         }
 
         /// 다음 카드가 배치될 Y 좌표 계산 — 스트로크 maxY와 마지막 카드 하단 중 큰 값 + 여백

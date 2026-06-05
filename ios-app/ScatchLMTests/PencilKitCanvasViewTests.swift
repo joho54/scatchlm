@@ -355,6 +355,22 @@ final class PencilKitCanvasViewTests: XCTestCase {
     }
 
     @MainActor
+    func testSetContentHeightDoesNotReassignCanvasFrameWhenNotGrowing() {
+        // 깜빡임 방지 불변: canvas.frame은 "커질 때만" 재할당된다.
+        // 같은/작은 높이로 호출해도 canvas.frame이 유지돼야 PencilKit 재래스터화(스트로크 깜빡임)가 안 난다.
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, _, _, canvas) = makeWiredCoordinator(panelWidth: logical)
+
+        coordinator.setContentHeight(3000)
+        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5, "커지면 캔버스도 확장")
+
+        // 더 작은 높이로 호출 — contentView는 줄어도 canvas.frame은 유지(도달 불가 영역일 뿐 무해).
+        coordinator.setContentHeight(1500)
+        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5,
+            "작은 높이로 호출해도 canvas.frame은 유지 — 깜빡임 방지")
+    }
+
+    @MainActor
     func testCardPositionInvariantUnderZoom() {
         // 줌은 표시만 — 카드의 contentView 좌표(positionY)는 zoom과 무관하게 그대로.
         let logical = Config.logicalCanvasWidth

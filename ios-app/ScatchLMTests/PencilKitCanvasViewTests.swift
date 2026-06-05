@@ -337,6 +337,26 @@ final class PencilKitCanvasViewTests: XCTestCase {
     }
 
     @MainActor
+    func testApplyPanelLayoutSkipsZoomWhileDragging() {
+        // R-3 디바운스: divider 드래그 중(isDragging)엔 zoom-fit을 보류 → zoomScale 불변.
+        // 종료 시(isDragging=false) 1회 fit. (매 프레임 줌 변경 = PencilKit 재래스터화 깜빡임 방지.)
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, host, _, _) = makeWiredCoordinator(panelWidth: logical)
+        coordinator.applyPanelLayout(panelWidth: logical) // zoom=1.0
+        XCTAssertEqual(host.zoomScale, 1.0, accuracy: 0.001)
+
+        // 드래그 중: 폭이 절반이 와도 zoom은 그대로(1.0)
+        coordinator.applyPanelLayout(panelWidth: logical / 2, isDragging: true)
+        XCTAssertEqual(host.zoomScale, 1.0, accuracy: 0.001,
+            "드래그 중에는 zoom-fit 보류 → zoomScale 불변")
+
+        // 드래그 종료: 1회 fit → zoom=0.5
+        coordinator.applyPanelLayout(panelWidth: logical / 2, isDragging: false)
+        XCTAssertEqual(host.zoomScale, 0.5, accuracy: 0.001,
+            "종료 시 1회 zoom-to-fit 적용")
+    }
+
+    @MainActor
     func testCenterUsesPanelWidthNotStaleHostBounds() {
         // divider 드래그 중 host.bounds가 안 줄어드는(stale) 상황 재현 — 인셋은 panelWidth(SSOT)로
         // 계산돼야 줌(panelWidth 기준)과 어긋나지 않는다. (회전 후 divider "망가짐" 진동 버그 회귀 방지.)

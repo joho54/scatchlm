@@ -1213,15 +1213,21 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let oldH = contentView.bounds.height
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
-            canvas?.frame = contentView.bounds
+            // canvas.frame은 "커질 때만" 재할당 — 같은/작은 높이로 다시 세팅하면 PencilKit이 전체
+            // 스트로크를 재래스터화해 깜빡인다(슬라이더 드래그 중 contentView가 1640으로 churn해도
+            // 캔버스는 안 건드림). 페이지보다 큰 캔버스는 도달 불가 영역일 뿐 무해.
+            let canvasFrameReset = (canvas?.frame.height ?? 0) < h
+            if canvasFrameReset {
+                canvas?.frame = CGRect(x: 0, y: 0, width: w, height: h)
+            }
             host.contentSize = CGSize(width: w * s, height: h * s)
-            // [diag] 그리기 중 호출 빈도/캔버스 프레임 재할당 추적 (스트로크 깜빡임 원인 후보)
+            // [diag] 호출 빈도/캔버스 프레임 재할당 추적 (슬라이더 깜빡임 원인)
             setContentHeightCount += 1
             appLog("flickerdiag", "setContentHeight", [
                 "n": "\(setContentHeightCount)",
                 "oldH": "\(Int(oldH))", "newH": "\(Int(h))",
                 "zoom": String(format: "%.3f", s),
-                "canvasFrameReset": "true",
+                "canvasFrameReset": "\(canvasFrameReset)",
             ])
         }
         private var setContentHeightCount = 0

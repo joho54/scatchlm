@@ -59,30 +59,39 @@ struct NoteView: View {
 
             ZStack {
                 if let note {
-                    // Split view: Canvas + PDF
-                    // 캔버스 폭/높이를 body에서 명시적으로 계산해 .frame으로 강제한다.
-                    // (inner GeometryReader는 panelGeo는 갱신하지만 host(UIScrollView) 프레임 리사이즈를
-                    //  divider 드래그 때 전파하지 못해, host가 회전 시점 폭에 고정되는 버그가 있었음.)
-                    if isLandscape && pdfOpen {
-                        let pdfW = geo.size.width * clampedLandscapeFraction(geo.size.width)
-                        let canvasW = max(0, geo.size.width - pdfW - Self.dividerThickness)
-                        HStack(spacing: 0) {
+                    // Split view: Canvas + PDF.
+                    // 캔버스는 분기와 무관하게 ZStack 첫 자식으로 "항상 같은 위치"에 둔다 → SwiftUI 정체성
+                    // 고정 → PDF 토글/회전에도 representable이 재생성되지 않음(makeUIView 1회). PDF/divider는
+                    // 프레임+오프셋으로 배치. (이전: 상호배타 if/else 3분기 → 분기 전환마다 캔버스 재생성.)
+                    let splitW = geo.size.width
+                    let splitH = geo.size.height
+                    let dthick = Self.dividerThickness
+                    let landscape = isLandscape
+                    let pdfW = (pdfOpen && landscape) ? splitW * clampedLandscapeFraction(splitW) : 0
+                    let pdfH = (pdfOpen && !landscape) ? splitH * clampedPortraitFraction : 0
+                    let canvasRect: CGRect = !pdfOpen
+                        ? CGRect(x: 0, y: 0, width: splitW, height: splitH)
+                        : (landscape
+                            ? CGRect(x: pdfW + dthick, y: 0, width: max(0, splitW - pdfW - dthick), height: splitH)
+                            : CGRect(x: 0, y: pdfH + dthick, width: splitW, height: max(0, splitH - pdfH - dthick)))
+
+                    ZStack(alignment: .topLeading) {
+                        // 캔버스 — 항상 첫 자식, 정체성 고정 (재생성 방지)
+                        canvasPanel(note: note, panelWidth: canvasRect.width)
+                            .frame(width: canvasRect.width, height: canvasRect.height)
+                            .offset(x: canvasRect.minX, y: canvasRect.minY)
+
+                        if pdfOpen {
                             pdfPanel(note: note)
-                                .frame(width: pdfW)
-                            dividerHandle(isVertical: true, total: geo.size.width)
-                            canvasPanel(note: note, panelWidth: canvasW)
-                                .frame(width: canvasW)
+                                .frame(width: landscape ? pdfW : splitW,
+                                       height: landscape ? splitH : pdfH)
+                            dividerHandle(isVertical: landscape, total: landscape ? splitW : splitH)
+                                .frame(width: landscape ? dthick : splitW,
+                                       height: landscape ? splitH : dthick)
+                                .offset(x: landscape ? pdfW : 0, y: landscape ? 0 : pdfH)
                         }
-                    } else if pdfOpen {
-                        VStack(spacing: 0) {
-                            pdfPanel(note: note)
-                                .frame(height: geo.size.height * clampedPortraitFraction)
-                            dividerHandle(isVertical: false, total: geo.size.height)
-                            canvasPanel(note: note, panelWidth: geo.size.width)
-                        }
-                    } else {
-                        canvasPanel(note: note, panelWidth: geo.size.width)
                     }
+                    .frame(width: splitW, height: splitH, alignment: .topLeading)
 
                     // Toast
                     if let msg = toastMessage {

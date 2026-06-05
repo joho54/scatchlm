@@ -22,6 +22,18 @@ class Settings(BaseSettings):
     DAILY_COST_LIMIT_NORMAL_USD: float = 0.0
     DAILY_COST_LIMIT_PRO_USD: float = 0.0
 
+    # 스캔본(이미지) PDF OCR — docs/scanned-pdf-ocr-spec.md.
+    # 기능 토글. 켜기 전 OCR 예산 한도(양수)를 반드시 설정할 것(§1.4 운영 리스크).
+    ENABLE_OCR: bool = False
+    # pro OCR 백그라운드 일일 예산(USD, task_type="ocr"만 합산). 0/미설정 → 무제한.
+    DAILY_COST_LIMIT_OCR_PRO_USD: float = 0.0
+    # free(normal) 권당(per-textbook) OCR 페이지 하드 캡.
+    OCR_FREE_CAP_PAGES: int = 50
+    # pro 권당 OCR 페이지 백스톱(잘못된 TOC로 거대 범위가 잡혀도 비용 캡).
+    OCR_MAX_PAGES_PER_BOOK: int = 600
+    # 페이지당 평균 추출 문자수가 이 값 미만이면 스캔본(이미지)으로 판정.
+    OCR_SCAN_TEXT_THRESHOLD: int = 30
+
     # IAP (Apple StoreKit 2 구독). docs/iap-subscription-spec.md §4.1/§4.3.
     APPLE_BUNDLE_ID: str = "com.joho54.scatchlm"
     APPLE_IAP_PRODUCT_ID_PRO_MONTHLY: str = "com.joho54.scatchlm.pro.monthly"

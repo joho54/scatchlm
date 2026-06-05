@@ -24,6 +24,10 @@ struct PdfViewerView: View {
     @State private var chapterGuideRating: Int? = nil
     @State private var pageGuideRatingDetail = false
     @State private var chapterGuideRatingDetail = false
+    // 스캔본 OCR 진행 상태 (scanned-pdf-ocr-spec Track D)
+    @State private var pdfStatus: PdfStatus?
+    @State private var guideError: String?
+    @State private var chapterGuideError: String?
 
     init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil) {
         self.textbookId = textbookId
@@ -55,6 +59,12 @@ struct PdfViewerView: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
 
+                if let status = pdfStatus, status.isScanned, status.ocrStatus != "complete" {
+                    ocrStatusBanner(status)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 4)
+                }
+
                 Spacer()
 
                 // Floating bottom bar — toc + guide
@@ -78,6 +88,44 @@ struct PdfViewerView: View {
         .sheet(isPresented: $showToc) { tocSheet }
         .sheet(isPresented: $showGuide) { guideSheet }
         .sheet(isPresented: $showChapterGuide) { chapterGuideSheet }
+        .task { await pollOcrStatus() }
+    }
+
+    /// 스캔본 OCR 진행 배너. running/paused는 진행률, capped는 Pro 업셀.
+    @ViewBuilder
+    private func ocrStatusBanner(_ status: PdfStatus) -> some View {
+        HStack(spacing: 8) {
+            if status.capped {
+                Image(systemName: "lock.fill")
+                Text("\(status.capLimit ?? status.ocrPagesDone)페이지까지 인식했어요 · 전체 인식은 Pro")
+            } else {
+                ProgressView().scaleEffect(0.7)
+                Text("교재 인식 중… \(status.ocrPagesDone)/\(status.ocrPagesTotal)")
+            }
+        }
+        .font(.caption2)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+    }
+
+    /// is_scanned면 status를 폴링해 진행률을 갱신한다. complete/capped/텍스트PDF면 종료.
+    private func pollOcrStatus() async {
+        while !Task.isCancelled {
+            do {
+                let status = try await APIClient.shared.getPdfStatus(textbookId)
+                await MainActor.run { pdfStatus = status }
+                // 종료 조건: 텍스트 PDF이거나 더 진행되지 않는 상태.
+                if !status.isScanned || status.ocrStatus == "complete" || status.ocrStatus == "capped" {
+                    return
+                }
+            } catch {
+                appLogError("pdf", "ocr status poll failed", ["error": "\(error)"])
+                return
+            }
+            try? await Task.sleep(nanoseconds: 4_000_000_000)  // 4초 간격 폴링
+        }
     }
 
     private func submitGuideRatingDetail(serverId: String, rating: Int, tags: [String], comment: String?, isPage: Bool) {
@@ -283,9 +331,11 @@ struct PdfViewerView: View {
                                     .id("loading")
                                 }
                             } else {
-                                Text("가이드를 불러올 수 없습니다.")
+                                Text(guideError ?? "가이드를 불러올 수 없습니다.")
                                     .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
                                     .padding(.top, 40)
+                                    .padding(.horizontal)
                             }
                         }
                     }
@@ -465,9 +515,11 @@ struct PdfViewerView: View {
                             }
                             .padding()
                         } else {
-                            Text("챕터 가이드를 불러올 수 없습니다.")
+                            Text(chapterGuideError ?? "챕터 가이드를 불러올 수 없습니다.")
                                 .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
                                 .padding(.top, 40)
+                                .padding(.horizontal)
                         }
                     }
                     .onChange(of: chapterChatMessages.count) { _, _ in
@@ -679,6 +731,7 @@ struct PdfViewerView: View {
         guideLoading = true
         pageGuide = nil
         pageGuideRating = nil
+        guideError = nil
         guideChatMessages = []
         appLog("pdf", "loadGuide start", ["page": "\(currentPage)", "textbookId": textbookId])
         Task {
@@ -693,6 +746,9 @@ struct PdfViewerView: View {
                     "contentLen": "\(guide.content?.count ?? 0)",
                 ])
                 pageGuide = guide
+            } catch let APIError.ocrIncomplete(info) {
+                appLog("pdf", "loadGuide ocr_incomplete", ["capped": "\(info.capped)"])
+                guideError = APIError.ocrIncomplete(info).errorDescription
             } catch {
                 appLogError("pdf", "loadGuide failed", ["error": "\(error)"])
             }
@@ -705,6 +761,7 @@ struct PdfViewerView: View {
         chapterGuideLoading = true
         chapterGuide = nil
         chapterGuideRating = nil
+        chapterGuideError = nil
         chapterChatMessages = []
         Task {
             do {
@@ -712,6 +769,9 @@ struct PdfViewerView: View {
                     "/pdf/\(textbookId)/chapter-guide",
                     query: ["chapter_id": chapterId, "response_language": Config.responseLanguage]
                 )
+            } catch let APIError.ocrIncomplete(info) {
+                appLog("pdf", "loadChapterGuide ocr_incomplete", ["capped": "\(info.capped)"])
+                chapterGuideError = APIError.ocrIncomplete(info).errorDescription
             } catch {
                 appLogError("pdf", "loadChapterGuide failed", ["error": "\(error)"])
             }

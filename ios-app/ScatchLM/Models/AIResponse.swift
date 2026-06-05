@@ -67,6 +67,60 @@ struct PageGuide: Codable {
     }
 }
 
+/// 스캔본 PDF OCR/인덱싱 진행 상태 (GET /api/pdf/{id}/status, scanned-pdf-ocr-spec §3.2-b).
+struct PdfStatus: Decodable {
+    let isScanned: Bool
+    let ocrStatus: String?      // pending|running|paused|capped|complete (텍스트 PDF는 nil)
+    let ocrPagesDone: Int
+    let ocrPagesTotal: Int
+    let totalPages: Int
+    let capped: Bool
+    let capLimit: Int?
+    let chaptersReady: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case isScanned = "is_scanned"
+        case ocrStatus = "ocr_status"
+        case ocrPagesDone = "ocr_pages_done"
+        case ocrPagesTotal = "ocr_pages_total"
+        case totalPages = "total_pages"
+        case capped
+        case capLimit = "cap_limit"
+        case chaptersReady = "chapters_ready"
+    }
+
+    /// OCR가 아직 진행 중(폴링 지속 필요)인가.
+    var isProcessing: Bool {
+        isScanned && (ocrStatus == "pending" || ocrStatus == "running" || ocrStatus == "paused")
+    }
+}
+
+/// 가이드 요청이 OCR 미완으로 막힌 경우(409 ocr_incomplete, §3.2-c).
+struct OcrIncompleteInfo: Decodable {
+    let code: String
+    let ocrStatus: String?
+    let capped: Bool
+    let page: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case ocrStatus = "ocr_status"
+        case capped
+        case page
+    }
+
+    static func decode(from data: Data) -> OcrIncompleteInfo? {
+        if let info = try? JSONDecoder().decode(OcrIncompleteInfo.self, from: data), info.code == "ocr_incomplete" {
+            return info
+        }
+        struct Wrapper: Decodable { let detail: OcrIncompleteInfo }
+        if let w = try? JSONDecoder().decode(Wrapper.self, from: data), w.detail.code == "ocr_incomplete" {
+            return w.detail
+        }
+        return nil
+    }
+}
+
 struct ChapterGuide: Codable {
     let chapterId: String
     let title: String

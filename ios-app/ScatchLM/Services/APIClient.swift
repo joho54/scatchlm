@@ -35,6 +35,10 @@ final class APIClient {
             if statusCode == 429, let info = QuotaInfo.decode(from: data) {
                 throw APIError.quotaExceeded(info)
             }
+            // 409 ocr_incomplete — 스캔본 OCR 미완(가이드 요청). 정상 흐름이라 Sentry 미캡처.
+            if statusCode == 409, let info = OcrIncompleteInfo.decode(from: data) {
+                throw APIError.ocrIncomplete(info)
+            }
             // 서버 5xx만 Sentry 에러로 캡처(4xx는 클라이언트 측, 노이즈 제외 — spec §B-3·§7).
             if statusCode >= 500 {
                 Observability.captureServerError(
@@ -318,12 +322,25 @@ struct QuotaInfo: Decodable {
     }
 }
 
+extension APIClient {
+    /// 스캔본 OCR/인덱싱 진행 상태 조회 (§3.2-b). iOS 폴링용.
+    func getPdfStatus(_ textbookId: String) async throws -> PdfStatus {
+        try await get("/pdf/\(textbookId)/status")
+    }
+}
+
 enum APIError: LocalizedError {
     case serverError(Int, String)
     case quotaExceeded(QuotaInfo)
+    case ocrIncomplete(OcrIncompleteInfo)
 
     var errorDescription: String? {
         switch self {
+        case .ocrIncomplete(let info):
+            if info.capped {
+                return String(localized: "무료 플랜은 책당 일부 페이지까지만 인식해요. 전체 인식은 Pro에서 가능해요.")
+            }
+            return String(localized: "이 페이지는 아직 인식 중이에요. 잠시 후 다시 시도해 주세요.")
         case .quotaExceeded:
             return String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
         case .serverError(let code, _):

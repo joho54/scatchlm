@@ -35,6 +35,7 @@ struct PaywallView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         benefit(String(localized: "넉넉한 일일 AI 피드백 한도"))
                         benefit(String(localized: "손글씨 인식 · 교재 기반 RAG 채팅"))
+                        benefit(String(localized: "스캔본(이미지) PDF 교재 페이지 제한 없이 인식"))
                         benefit(String(localized: "월 자동 갱신 · 언제든 해지"))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

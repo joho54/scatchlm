@@ -96,3 +96,28 @@ async def check_daily_quota(user_id: str, tier: str, db: AsyncSession, *, is_adm
             "Quota near limit (>=80%%): user=%s tier=%s used=$%.4f limit=$%.4f",
             user_id, tier, used, limit,
         )
+
+
+async def check_ocr_quota(user_id: str, db: AsyncSession) -> bool:
+    """OCR(task_type="ocr") 전용 일일 비용 버킷 초과 여부를 반환한다(True=초과).
+
+    interactive(피드백/챗) 쿼터와 분리된 별도 예산. 백그라운드 OCR 잡의 페이싱용이라
+    429를 던지지 않고 bool을 반환한다(초과 시 잡은 paused 후 다음 사이클 재개).
+    DAILY_COST_LIMIT_OCR_PRO_USD가 0/미설정이면 무제한(False).
+    """
+    limit = settings.DAILY_COST_LIMIT_OCR_PRO_USD
+    if not limit or limit <= 0:
+        return False
+    since, _ = _kst_day_bounds()
+    used = await db.scalar(
+        select(func.coalesce(func.sum(LLMUsage.cost_usd), 0.0)).where(
+            LLMUsage.user_id == user_id,
+            LLMUsage.task_type == "ocr",
+            LLMUsage.created_at >= since,
+        )
+    )
+    used = float(used or 0.0)
+    if used >= limit:
+        log.warning("OCR quota exceeded: user=%s used=$%.4f limit=$%.4f", user_id, used, limit)
+        return True
+    return False

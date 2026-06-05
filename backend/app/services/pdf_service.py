@@ -6,6 +6,8 @@ import uuid
 
 import fitz  # PyMuPDF
 from fastapi import UploadFile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.services.storage import storage
@@ -82,7 +84,7 @@ def extract_page_headers(key: str, lines_per_page: int = 5) -> list[dict]:
 
 
 def extract_text(key: str, page_start: int, page_end: int) -> str:
-    """PDF에서 지정 페이지 범위의 텍스트를 추출한다. (1-indexed)"""
+    """PDF에서 지정 페이지 범위의 텍스트를 추출한다. (1-indexed, 텍스트 레이어 PDF용)"""
     t0 = time.monotonic()
     doc = _open_pdf(key)
     total = len(doc)
@@ -100,3 +102,85 @@ def extract_text(key: str, page_start: int, page_end: int) -> str:
     elapsed = int((time.monotonic() - t0) * 1000)
     log.info("PDF extract: pages=%d-%d chars=%d time=%dms", page_start, page_end, len(result), elapsed)
     return result
+
+
+def is_scanned_pdf(key: str, total_pages: int) -> bool:
+    """텍스트 레이어가 거의 없는 스캔본(이미지) PDF인지 판정한다.
+
+    표지/빈 페이지 영향을 줄이려 중앙부 최대 10페이지를 샘플링해
+    페이지당 평균 추출 문자수가 OCR_SCAN_TEXT_THRESHOLD 미만이면 스캔본으로 본다.
+    """
+    doc = _open_pdf(key)
+    n = len(doc)
+    if n == 0:
+        doc.close()
+        return False
+    sample = min(10, n)
+    start = max(0, n // 2 - sample // 2)
+    total_chars = 0
+    for i in range(start, start + sample):
+        total_chars += len(doc[i].get_text().strip())
+    doc.close()
+    avg = total_chars / sample
+    scanned = avg < settings.OCR_SCAN_TEXT_THRESHOLD
+    log.info(
+        "Scan detection: key=%s pages=%d sample=%d avg_chars=%.1f threshold=%d scanned=%s",
+        key, n, sample, avg, settings.OCR_SCAN_TEXT_THRESHOLD, scanned,
+    )
+    return scanned
+
+
+async def get_ocr_pages(db: AsyncSession, textbook_id: str, page_start: int, page_end: int) -> set[int]:
+    """[page_start, page_end] 범위에서 이미 OCR된 페이지 번호 집합을 반환한다."""
+    from app.models.ocr import OcrPageText
+    rows = (await db.execute(
+        select(OcrPageText.page).where(
+            OcrPageText.textbook_id == textbook_id,
+            OcrPageText.page >= page_start,
+            OcrPageText.page <= page_end,
+        )
+    )).scalars().all()
+    return set(rows)
+
+
+async def extract_text_async(db: AsyncSession, source, page_start: int, page_end: int) -> str:
+    """OCR-aware 텍스트 추출. 텍스트 PDF는 기존 get_text(), 스캔본은 ocr_page_text 캐시.
+
+    스캔본에서 아직 OCR되지 않은 페이지는 결과에서 누락된다(빈 텍스트 → 호출부가 처리).
+    """
+    if not getattr(source, "is_scanned", False):
+        return extract_text(source.server_path, page_start, page_end)
+
+    from app.models.ocr import OcrPageText
+    rows = (await db.execute(
+        select(OcrPageText).where(
+            OcrPageText.textbook_id == source.id,
+            OcrPageText.page >= page_start,
+            OcrPageText.page <= page_end,
+        ).order_by(OcrPageText.page)
+    )).scalars().all()
+    by_page = {r.page: r.content for r in rows}
+    texts = []
+    for p in range(page_start, page_end + 1):
+        if p in by_page and by_page[p]:
+            texts.append(f"--- Page {p} ---\n{by_page[p]}")
+    result = "\n".join(texts)
+    log.info(
+        "OCR extract: textbook=%s pages=%d-%d cached=%d chars=%d",
+        source.id, page_start, page_end, len(by_page), len(result),
+    )
+    return result
+
+
+def headers_from_ocr_rows(rows, lines_per_page: int = 5) -> list[dict]:
+    """OCR된 페이지 텍스트 상단 N줄을 챕터 감지용 헤더로 변환한다.
+
+    rows: OcrPageText 리스트(page, content). 빈 줄은 건너뛴다.
+    """
+    results = []
+    for r in rows:
+        lines = [ln for ln in r.content.strip().split("\n") if ln.strip()][:lines_per_page]
+        header = "\n".join(lines).strip()
+        if header:
+            results.append({"page": r.page, "header": header})
+    return results

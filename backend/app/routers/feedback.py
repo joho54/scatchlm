@@ -15,7 +15,6 @@ from app.core.database import get_db
 from app.core.quota import check_daily_quota
 from app.models.feedback import AIResponse, AIResponseRating
 from app.models.textbook import TextbookSource
-from app.models.usage import LLMUsage
 from app.core.log_sanitize import loglen
 from app.services.feedback_service import (
     classify_anthropic_error,
@@ -23,8 +22,9 @@ from app.services.feedback_service import (
     get_feedback,
     get_recognition,
 )
-from app.services.pdf_service import extract_text as extract_pdf_text
+from app.services.pdf_service import extract_text as extract_pdf_text, extract_text_async
 from app.services.retrieval_service import search_relevant_chunks, format_chunks_as_context
+from app.services.usage_service import log_llm_usage
 
 PROMPT_CONTEXT_MAX_CHARS = 2000
 
@@ -86,7 +86,7 @@ async def request_feedback(
 
     # 1. 수동 페이지 범위 (있으면 우선)
     if source and page_start and page_end:
-        page_text = extract_pdf_text(source.server_path, page_start, page_end)
+        page_text = await extract_text_async(db, source, page_start, page_end)
         if page_text:
             context_parts.append(f"[페이지 {page_start}-{page_end}]\n{page_text}")
             log.info("Context: manual page range p.%d-%d", page_start, page_end)
@@ -108,12 +108,12 @@ async def request_feedback(
         )
         chapter = chapter_result.scalars().first()
         if chapter:
-            page_text = extract_pdf_text(source.server_path, chapter.page_start, chapter.page_end or current_page)
+            page_text = await extract_text_async(db, source, chapter.page_start, chapter.page_end or current_page)
             if page_text:
                 context_parts.append(f"[{chapter.title} p.{chapter.page_start}-{chapter.page_end}]\n{page_text}")
                 log.info("Context: chapter '%s' p.%d-%d", chapter.title, chapter.page_start, chapter.page_end or 0)
         else:
-            page_text = extract_pdf_text(source.server_path, current_page, current_page)
+            page_text = await extract_text_async(db, source, current_page, current_page)
             if page_text:
                 context_parts.append(f"[현재 페이지 {current_page}]\n{page_text}")
                 log.info("Context: current page p.%d (no chapter match)", current_page)
@@ -147,35 +147,23 @@ async def request_feedback(
         error_msg = str(e)
         error_kind = classify_anthropic_error(e)
         log.exception("Feedback API failed: user=%s note=%s kind=%s", user_id, note_id, error_kind)
-        db.add(LLMUsage(
-            user_id=user_id,
-            model="unknown",
-            input_tokens=0,
-            output_tokens=0,
-            total_tokens=0,
-            cost_usd=0,
-            latency_ms=0,
-            task_type=task_type,
-            language=language,
-            has_textbook_context=textbook_context is not None,
-            error=error_msg,
-        ))
+        await log_llm_usage(
+            db, user_id=user_id, model="unknown",
+            input_tokens=0, output_tokens=0, cost_usd=0, latency_ms=0,
+            task_type=task_type, language=language,
+            has_textbook_context=textbook_context is not None, error=error_msg,
+        )
         await db.commit()
         raise HTTPException(status_code=502, detail=f"LLM API error: {error_msg}")
 
     # usage 기록
-    db.add(LLMUsage(
-        user_id=user_id,
-        model=result.model,
-        input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-        total_tokens=result.total_tokens,
-        cost_usd=result.cost_usd,
-        latency_ms=result.latency_ms,
-        task_type=task_type,
-        language=language,
+    await log_llm_usage(
+        db, user_id=user_id, model=result.model,
+        input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+        cost_usd=result.cost_usd, latency_ms=result.latency_ms,
+        task_type=task_type, language=language,
         has_textbook_context=textbook_context is not None,
-    ))
+    )
 
     # 사용자 피드백 수집을 위한 레코드 적재
     response_content = result.data.get("content") or ""
@@ -297,6 +285,13 @@ async def feedback_chat(
         try:
             from app.models.chapter import Chapter
 
+            source = (await db.execute(
+                select(TextbookSource).where(
+                    TextbookSource.id == req.textbook_id,
+                    TextbookSource.user_id == user_id,
+                )
+            )).scalar_one_or_none()
+
             # 현재 페이지가 속한 챕터 찾기 (계층형 TOC면 가장 좁은 범위 우선)
             chapter_result = await db.execute(
                 select(Chapter)
@@ -310,14 +305,10 @@ async def feedback_chat(
             )
             chapter = chapter_result.scalars().first()
 
-            if chapter:
-                # 챕터 전체 텍스트 추출
-                page_text = extract_pdf_text(
-                    (await db.execute(
-                        select(TextbookSource).where(TextbookSource.id == req.textbook_id)
-                    )).scalar_one().server_path,
-                    chapter.page_start,
-                    chapter.page_end or chapter.page_start + 10,
+            if source and chapter:
+                # 챕터 전체 텍스트 추출 (OCR-aware)
+                page_text = await extract_text_async(
+                    db, source, chapter.page_start, chapter.page_end or chapter.page_start + 10
                 )
                 textbook_context = f"--- {chapter.title} (p.{chapter.page_start}-{chapter.page_end}) ---\n{page_text}"
                 sources.append({
@@ -327,15 +318,11 @@ async def feedback_chat(
                 })
                 log.info("Chat context: chapter='%s' pages=%d-%d chars=%d",
                          chapter.title, chapter.page_start, chapter.page_end or 0, len(page_text))
-            else:
+            elif source:
                 # 챕터 매칭 안 되면 현재 페이지만
-                source = (await db.execute(
-                    select(TextbookSource).where(TextbookSource.id == req.textbook_id)
-                )).scalar_one_or_none()
-                if source:
-                    page_text = extract_pdf_text(source.server_path, req.current_page, req.current_page)
-                    textbook_context = f"--- p.{req.current_page} ---\n{page_text}"
-                    log.info("Chat context: single page %d, chars=%d", req.current_page, len(page_text))
+                page_text = await extract_text_async(db, source, req.current_page, req.current_page)
+                textbook_context = f"--- p.{req.current_page} ---\n{page_text}"
+                log.info("Chat context: single page %d, chars=%d", req.current_page, len(page_text))
         except Exception:
             log.exception("Chat context extraction failed")
 
@@ -410,18 +397,13 @@ async def feedback_chat(
 
     # usage 기록 — 채팅 비용도 일일 quota에 합산되도록 적재. 캐시 적중분을 반영한 정확한 비용(§11 L2).
     chat_model = "claude-sonnet-4-6"
-    db.add(LLMUsage(
-        user_id=user_id,
-        model=chat_model,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        total_tokens=usage.input_tokens + usage.output_tokens,
-        cost_usd=estimate_cost_from_usage(chat_model, usage),
-        latency_ms=0,
-        task_type="chat",
-        language="",
+    await log_llm_usage(
+        db, user_id=user_id, model=chat_model,
+        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+        cost_usd=estimate_cost_from_usage(chat_model, usage), latency_ms=0,
+        task_type="chat", language="",
         has_textbook_context=bool(textbook_context),
-    ))
+    )
 
     # AIResponse 적재 — 채팅 응답도 평가 대상으로 관리
     record = AIResponse(

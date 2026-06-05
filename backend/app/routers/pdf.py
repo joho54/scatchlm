@@ -10,17 +10,31 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.core.auth import get_current_user_id
+from app.core.auth import get_current_user_id, get_verified_payload, get_tier, get_role
+from app.core.config import settings
 from app.core.database import get_db, async_session
+from app.core.quota import check_daily_quota, check_ocr_quota
 from app.models.textbook import TextbookSource
 from app.models.guide import PageGuide
 from app.models.chapter import Chapter
 from app.models.feedback import AIResponse
 from app.models.document import DocumentChunk
-from app.services.pdf_service import save_pdf, extract_text as extract_pdf_text, extract_toc
+from app.models.ocr import OcrPageText
+from app.services.pdf_service import (
+    save_pdf,
+    extract_text as extract_pdf_text,
+    extract_text_async,
+    extract_toc,
+    is_scanned_pdf,
+    get_ocr_pages,
+    headers_from_ocr_rows,
+    _open_pdf,
+)
 from app.services.indexing_service import index_textbook
 from app.services.guide_service import generate_page_guide, generate_chapter_guide
 from app.services.chapter_service import detect_chapters
+from app.services.ocr_service import render_page, ocr_page
+from app.services.usage_service import log_llm_usage
 from app.services.storage import storage
 
 log = logging.getLogger(__name__)
@@ -38,30 +52,125 @@ async def _background_index(textbook_id: str, user_id: str, server_path: str):
             log.exception("Background indexing failed: textbook=%s", textbook_id)
 
 
+def _save_detected_chapters(db, textbook_id: str, entries: list[dict], total_pages: int) -> None:
+    """감지된 챕터 엔트리를 page_end 계산과 함께 세션에 추가한다(커밋은 호출부)."""
+    for i, entry in enumerate(entries):
+        next_page = None
+        for j in range(i + 1, len(entries)):
+            if entries[j]["level"] <= entry["level"]:
+                next_page = entries[j]["page"] - 1
+                break
+        db.add(Chapter(
+            id=str(uuid.uuid4()),
+            textbook_id=textbook_id,
+            level=entry["level"],
+            title=entry["title"],
+            page_start=entry["page"],
+            page_end=next_page or total_pages,
+        ))
+
+
 async def _background_detect_chapters(textbook_id: str, server_path: str, total_pages: int):
-    """TOC가 없을 때 LLM으로 챕터 구조를 감지한다."""
+    """TOC가 없을 때 LLM으로 챕터 구조를 감지한다(텍스트 레이어 PDF)."""
     async with async_session() as db:
         try:
             entries = await detect_chapters(server_path)
-            for i, entry in enumerate(entries):
-                next_page = None
-                for j in range(i + 1, len(entries)):
-                    if entries[j]["level"] <= entry["level"]:
-                        next_page = entries[j]["page"] - 1
-                        break
-                chapter = Chapter(
-                    id=str(uuid.uuid4()),
-                    textbook_id=textbook_id,
-                    level=entry["level"],
-                    title=entry["title"],
-                    page_start=entry["page"],
-                    page_end=next_page or total_pages,
-                )
-                db.add(chapter)
+            _save_detected_chapters(db, textbook_id, entries, total_pages)
             await db.commit()
             log.info("Background chapter detection done: textbook=%s chapters=%d", textbook_id, len(entries))
         except Exception:
             log.exception("Background chapter detection failed: textbook=%s", textbook_id)
+
+
+async def _detect_chapters_from_ocr(db, textbook_id: str, server_path: str, total_pages: int) -> None:
+    """OCR된 페이지 텍스트에서 챕터 구조를 감지해 저장한다(스캔본). 이미 챕터가 있으면 호출되지 않음."""
+    rows = (await db.execute(
+        select(OcrPageText).where(OcrPageText.textbook_id == textbook_id).order_by(OcrPageText.page)
+    )).scalars().all()
+    headers = headers_from_ocr_rows(rows)
+    if not headers:
+        return
+    entries = await detect_chapters(server_path, headers=headers)
+    _save_detected_chapters(db, textbook_id, entries, total_pages)
+    await db.commit()
+    log.info("OCR chapter detection done: textbook=%s chapters=%d", textbook_id, len(entries))
+
+
+async def _background_ocr(textbook_id: str, user_id: str, tier: str, server_path: str):
+    """스캔본 PDF를 페이지 순차 OCR한다. 매 페이지 즉시 커밋 → 중단돼도 손실 0, 재개 가능.
+
+    tier별 cap(free=OCR_FREE_CAP_PAGES, pro=OCR_MAX_PAGES_PER_BOOK)까지 OCR하고,
+    OCR 예산 버킷 초과 시 paused 후 다음 사이클에 재개한다.
+    """
+    async with async_session() as db:
+        source = (await db.execute(
+            select(TextbookSource).where(TextbookSource.id == textbook_id)
+        )).scalar_one_or_none()
+        if not source:
+            log.warning("OCR job: textbook not found id=%s", textbook_id)
+            return
+
+        cap = source.ocr_cap or settings.OCR_MAX_PAGES_PER_BOOK
+        target = min(source.total_pages, cap)
+        is_capped_tier = tier != "pro" and target < source.total_pages
+
+        try:
+            source.ocr_status = "running"
+            await db.commit()
+
+            done_pages = set((await db.execute(
+                select(OcrPageText.page).where(OcrPageText.textbook_id == textbook_id)
+            )).scalars().all())
+
+            doc = _open_pdf(server_path)
+            status = "complete"
+            try:
+                for page in range(1, target + 1):
+                    if page in done_pages:
+                        continue
+                    if await check_ocr_quota(user_id, db):
+                        status = "paused"
+                        log.info("OCR job paused (quota): textbook=%s at page=%d", textbook_id, page)
+                        break
+                    image_bytes = render_page(doc, page - 1)
+                    result = await ocr_page(image_bytes)
+                    db.add(OcrPageText(
+                        textbook_id=textbook_id,
+                        page=page,
+                        content=(result.text or "").replace("\x00", ""),
+                    ))
+                    source.ocr_pages_done = (source.ocr_pages_done or 0) + 1
+                    await log_llm_usage(
+                        db, user_id=user_id, model=result.model,
+                        input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+                        cost_usd=result.cost_usd, latency_ms=result.latency_ms,
+                        task_type="ocr",
+                    )
+                    await db.commit()  # 매 페이지 즉시 커밋 → 손실 0 / 재개
+            finally:
+                doc.close()
+
+            if status == "complete" and is_capped_tier:
+                status = "capped"
+            source.ocr_status = status
+            await db.commit()
+            log.info("OCR job done: textbook=%s status=%s done=%d target=%d",
+                     textbook_id, status, source.ocr_pages_done, target)
+
+            # 충분히 OCR되면(complete/capped) 챕터 감지 — TOC/기존 챕터가 없을 때만.
+            if status in ("complete", "capped"):
+                existing = await db.scalar(
+                    select(func.count()).select_from(Chapter).where(Chapter.textbook_id == textbook_id)
+                )
+                if not existing:
+                    await _detect_chapters_from_ocr(db, textbook_id, server_path, source.total_pages)
+        except Exception:
+            log.exception("Background OCR failed: textbook=%s", textbook_id)
+            try:
+                source.ocr_status = "paused"
+                await db.commit()
+            except Exception:
+                log.exception("OCR job: failed to mark paused: textbook=%s", textbook_id)
 
 
 @router.post("/upload")
@@ -69,10 +178,12 @@ async def upload_pdf(
     file: UploadFile = File(...),
     note_id: str | None = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    user_id: str = Depends(get_current_user_id),
+    payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
-    log.info("PDF upload: user=%s note=%s file=%s", user_id, note_id, file.filename)
+    user_id = payload["sub"]
+    tier = get_tier(payload)
+    log.info("PDF upload: user=%s tier=%s note=%s file=%s", user_id, tier, note_id, file.filename)
 
     if not file.filename.endswith(".pdf"):
         log.warning("PDF upload rejected: not a PDF file=%s", file.filename)
@@ -118,15 +229,32 @@ async def upload_pdf(
             )
             indexing_status = "started"
 
+        # 스캔본이 미완(pending/paused)인 채 멈춰 있으면 재업로드로 OCR을 재개한다.
+        # 페이지 캐시 skip-on-exists로 멱등 — 이미 OCR된 페이지는 다시 호출하지 않는다(§4.5).
+        if existing_source.is_scanned and existing_source.ocr_status in ("pending", "paused"):
+            log.info("PDF duplicate scanned, resuming OCR: textbook=%s status=%s",
+                     existing_source.id, existing_source.ocr_status)
+            background_tasks.add_task(
+                _background_ocr, existing_source.id, existing_source.user_id, tier, existing_source.server_path
+            )
+
         return {
             "id": existing_source.id,
             "fileName": existing_source.file_name,
             "totalPages": existing_source.total_pages,
             "fileSize": existing_source.file_size,
+            "is_scanned": existing_source.is_scanned,
+            "ocr_status": existing_source.ocr_status,
             "indexing": indexing_status,
         }
 
     log.info("PDF saved: file=%s pages=%d size=%dKB path=%s", file_name, total_pages, file_size // 1024, server_path)
+
+    # 스캔본(이미지) PDF 감지 — ENABLE_OCR 토글이 꺼져 있으면 항상 텍스트 PDF로 취급(기존 흐름).
+    is_scanned = settings.ENABLE_OCR and is_scanned_pdf(server_path, total_pages)
+    ocr_cap = None
+    if is_scanned:
+        ocr_cap = settings.OCR_FREE_CAP_PAGES if tier != "pro" else settings.OCR_MAX_PAGES_PER_BOOK
 
     source = TextbookSource(
         user_id=user_id,
@@ -136,6 +264,9 @@ async def upload_pdf(
         total_pages=total_pages,
         file_size=file_size,
         content_hash=content_hash,
+        is_scanned=is_scanned,
+        ocr_status="pending" if is_scanned else None,
+        ocr_cap=ocr_cap,
     )
     db.add(source)
     try:
@@ -146,29 +277,19 @@ async def upload_pdf(
         log.exception("DB commit failed: user=%s note=%s file=%s", user_id, note_id, file_name)
         raise HTTPException(status_code=500, detail="Database error")
 
-    # TOC 추출 및 저장
+    # TOC 추출 및 저장 (bookmarks — 스캔본도 임베디드 TOC가 있으면 동작)
     toc_entries = extract_toc(server_path)
     if toc_entries:
-        for i, entry in enumerate(toc_entries):
-            next_page = None
-            for j in range(i + 1, len(toc_entries)):
-                if toc_entries[j]["level"] <= entry["level"]:
-                    next_page = toc_entries[j]["page"] - 1
-                    break
-            chapter = Chapter(
-                id=str(uuid.uuid4()),
-                textbook_id=source.id,
-                level=entry["level"],
-                title=entry["title"],
-                page_start=entry["page"],
-                page_end=next_page or total_pages,
-            )
-            db.add(chapter)
+        _save_detected_chapters(db, source.id, toc_entries, total_pages)
         await db.commit()
         log.info("TOC saved: textbook=%s chapters=%d", source.id, len(toc_entries))
-    else:
-        # TOC 없으면 LLM으로 백그라운드 감지
+    elif not is_scanned:
+        # TOC 없는 텍스트 PDF → LLM으로 백그라운드 감지.
+        # 스캔본은 텍스트 레이어가 비어 있으므로 OCR 잡 완료 후에 감지(_background_ocr 참고).
         background_tasks.add_task(_background_detect_chapters, source.id, server_path, total_pages)
+
+    if is_scanned:
+        background_tasks.add_task(_background_ocr, source.id, user_id, tier, server_path)
 
     background_tasks.add_task(_background_index, source.id, user_id, server_path)
 
@@ -178,6 +299,8 @@ async def upload_pdf(
         "totalPages": total_pages,
         "fileSize": file_size,
         "chapters": len(toc_entries),
+        "is_scanned": is_scanned,
+        "ocr_status": source.ocr_status,
         "indexing": "started",
     }
 
@@ -279,6 +402,61 @@ async def get_chapters(
     ]
 
 
+class PdfStatusResponse(BaseModel):
+    is_scanned: bool
+    ocr_status: str | None = None  # 텍스트 PDF는 null
+    ocr_pages_done: int = 0
+    ocr_pages_total: int = 0
+    total_pages: int
+    capped: bool = False
+    cap_limit: int | None = None  # 적용된 캡 (free=50, pro=null)
+    chapters_ready: bool = False
+
+
+@router.get("/{textbook_id}/status", response_model=PdfStatusResponse)
+async def get_pdf_status(
+    textbook_id: str,
+    payload: dict = Depends(get_verified_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """OCR/인덱싱 진행 상태 (docs/scanned-pdf-ocr-spec.md §3.2-b). iOS 폴링용."""
+    user_id = payload["sub"]
+    source = (await db.execute(
+        select(TextbookSource).where(
+            TextbookSource.id == textbook_id,
+            TextbookSource.user_id == user_id,
+        )
+    )).scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+
+    chapters_ready = bool(await db.scalar(
+        select(func.count()).select_from(Chapter).where(Chapter.textbook_id == textbook_id)
+    ))
+
+    if not source.is_scanned:
+        return PdfStatusResponse(
+            is_scanned=False,
+            ocr_status=None,
+            total_pages=source.total_pages,
+            chapters_ready=chapters_ready,
+        )
+
+    tier = get_tier(payload)
+    cap = source.ocr_cap
+    ocr_pages_total = min(source.total_pages, cap) if cap else source.total_pages
+    return PdfStatusResponse(
+        is_scanned=True,
+        ocr_status=source.ocr_status,
+        ocr_pages_done=source.ocr_pages_done or 0,
+        ocr_pages_total=ocr_pages_total,
+        total_pages=source.total_pages,
+        capped=source.ocr_status == "capped",
+        cap_limit=cap if tier != "pro" else None,
+        chapters_ready=chapters_ready,
+    )
+
+
 @router.get("/extract")
 async def extract_text(
     textbook_id: str,
@@ -304,9 +482,24 @@ async def extract_text(
         log.warning("PDF extract: invalid range pages=%d-%d total=%d", page_start, page_end, source.total_pages)
         raise HTTPException(status_code=400, detail="Invalid page range")
 
-    text = extract_pdf_text(source.server_path, page_start, page_end)
+    text = await extract_text_async(db, source, page_start, page_end)
     log.info("PDF extract done: textbook=%s pages=%d-%d chars=%d", textbook_id, page_start, page_end, len(text))
     return {"text": text, "pages": f"{page_start}-{page_end}"}
+
+
+def _raise_ocr_incomplete(source: TextbookSource, page: int | None):
+    """스캔본 OCR 미완 시 409 ocr_incomplete (capped면 Pro 업셀 트리거)."""
+    capped = source.ocr_status == "capped"
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "detail": "OCR not complete for this page/chapter",
+            "code": "ocr_incomplete",
+            "ocr_status": source.ocr_status,
+            "capped": capped,
+            "page": page,
+        },
+    )
 
 
 class PageGuideResponse(BaseModel):
@@ -326,10 +519,11 @@ async def get_page_guide(
     textbook_id: str,
     page: int,
     response_language: str = "Korean",
-    user_id: str = Depends(get_current_user_id),
+    payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
     """페이지별 학습 가이드 조회 (lazy 캐싱)."""
+    user_id = payload["sub"]
     log.info("Guide request: user=%s textbook=%s page=%d", user_id, textbook_id, page)
 
     # 교재 조회
@@ -363,8 +557,17 @@ async def get_page_guide(
             data["connections"] = json.dumps(data["connections"], ensure_ascii=False)
         return PageGuideResponse(page=page, cached=True, feedback_id=cached.ai_response_id, **data)
 
-    # 캐시 미스: 페이지 텍스트 추출 → LLM 생성
-    page_text = extract_pdf_text(source.server_path, page, page)
+    # 캐시 미스: 생성 비용 발생 → 쿼터 체크
+    await check_daily_quota(user_id, get_tier(payload), db, is_admin=get_role(payload) == "admin")
+
+    # 텍스트 추출 (스캔본은 OCR 캐시). 미OCR 페이지면 409 ocr_incomplete.
+    if source.is_scanned:
+        present = await get_ocr_pages(db, textbook_id, page, page)
+        if page not in present:
+            _raise_ocr_incomplete(source, page)
+        page_text = await extract_text_async(db, source, page, page)
+    else:
+        page_text = extract_pdf_text(source.server_path, page, page)
     if not page_text.strip():
         raise HTTPException(status_code=400, detail="Page has no extractable text")
 
@@ -423,10 +626,11 @@ async def get_chapter_guide(
     textbook_id: str,
     chapter_id: str,
     response_language: str = "Korean",
-    user_id: str = Depends(get_current_user_id),
+    payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
     """챕터별 학습 가이드 조회 (lazy 캐싱)."""
+    user_id = payload["sub"]
     log.info("Chapter guide request: user=%s textbook=%s chapter=%s", user_id, textbook_id, chapter_id)
 
     # 챕터 조회
@@ -474,10 +678,20 @@ async def get_chapter_guide(
             **data,
         )
 
-    # 캐시 미스: 챕터 텍스트 추출 → LLM
-    chapter_text = extract_pdf_text(
-        source.server_path, chapter.page_start, chapter.page_end or source.total_pages
-    )
+    # 캐시 미스: 생성 비용 발생 → 쿼터 체크
+    await check_daily_quota(user_id, get_tier(payload), db, is_admin=get_role(payload) == "admin")
+
+    page_end = chapter.page_end or source.total_pages
+    # 텍스트 추출 (스캔본은 OCR 캐시). CoT는 챕터 전체 텍스트가 필요하므로
+    # 1차는 챕터 전체가 OCR 완료됐을 때만 생성, 그 외엔 409 ocr_incomplete (§6.x-5).
+    if source.is_scanned:
+        present = await get_ocr_pages(db, textbook_id, chapter.page_start, page_end)
+        missing = [p for p in range(chapter.page_start, page_end + 1) if p not in present]
+        if missing:
+            _raise_ocr_incomplete(source, None)
+        chapter_text = await extract_text_async(db, source, chapter.page_start, page_end)
+    else:
+        chapter_text = extract_pdf_text(source.server_path, chapter.page_start, page_end)
     if not chapter_text.strip():
         raise HTTPException(status_code=400, detail="Chapter has no extractable text")
 

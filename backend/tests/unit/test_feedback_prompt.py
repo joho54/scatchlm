@@ -1,5 +1,6 @@
 """피드백 프롬프트 회귀 테스트 — JSON 지시 재유입 방지 + 분야 범용화."""
 
+from app.core.constants import DEFAULT_SUBJECT
 from app.services.feedback_service import _build_system_prompt
 
 
@@ -65,3 +66,15 @@ def test_system_prompt_nonempty_subject_unchanged():
     prompt = _build_system_prompt("Japanese", "Korean")
     assert "learn Japanese" in prompt
     assert "their study material" not in prompt
+
+
+def test_default_subject_is_field_neutral():
+    """주제 기본값(SSOT)은 분야 중립이어야 한다 — 과거 "en"으로 회귀 방지.
+
+    DEFAULT_SUBJECT가 "en" 등 구체 값으로 돌아가면 주제 누락 요청이 'learn en'으로
+    오염되고 OCR에 'Subject: en.'이 주입되던 버그가 재발한다.
+    """
+    assert DEFAULT_SUBJECT.strip() == ""
+    prompt = _build_system_prompt(DEFAULT_SUBJECT, "Korean")
+    assert "learn their study material" in prompt
+    assert "learn en" not in prompt

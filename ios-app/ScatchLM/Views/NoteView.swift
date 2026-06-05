@@ -41,6 +41,9 @@ struct NoteView: View {
     @State private var pdfFraction: CGFloat = 0.4
     // 드래그 시작 시점의 비율 앵커 — translation은 누적값이라 시작값 기준으로 계산.
     @State private var dragStartFraction: CGFloat?
+    // divider 드래그 중에는 캔버스 zoom-to-fit을 보류(R-3 디바운스). 매 프레임 host.zoomScale을
+    // 바꾸면 PencilKit이 매번 재래스터화돼 깜빡인다. 드래그 종료 시 1회만 fit.
+    @State private var dividerDragging = false
 
     private let db = DatabaseService.shared
 
@@ -249,6 +252,7 @@ struct NoteView: View {
                     let start = dragStartFraction ?? pdfFraction
                     if dragStartFraction == nil {
                         dragStartFraction = start
+                        dividerDragging = true   // 드래그 중 zoom-fit 보류
                         // [diag] 드래그 시작 — 회전 후 핸들이 제스처를 받는지/축(isVertical)이 맞는지 확인
                         appLog("dividerdiag", "drag begin", ["isVertical": "\(isVertical)", "total": "\(Int(total))", "startFraction": String(format: "%.2f", start)])
                     }
@@ -259,6 +263,7 @@ struct NoteView: View {
                 .onEnded { _ in
                     appLog("dividerdiag", "drag end", ["isVertical": "\(isVertical)", "fraction": String(format: "%.2f", pdfFraction)])
                     dragStartFraction = nil
+                    dividerDragging = false   // 종료 시 zoom-fit 1회 적용(updateUIView 재호출)
                 }
         )
     }
@@ -292,6 +297,7 @@ struct NoteView: View {
         PencilKitCanvasView(
             canvasView: $canvasView,
             panelWidth: panelWidth,
+            dividerDragging: dividerDragging,
             onDrawingChanged: {
                 saveDrawing()
                 refreshUndoState()
@@ -958,6 +964,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
     @Binding var canvasView: PKCanvasView
     /// 캔버스 패널의 가용 폭(SwiftUI 레이아웃에서 결정). host가 이 폭을 채우고 zoom-to-fit을 계산한다.
     var panelWidth: CGFloat
+    /// divider 드래그 중이면 zoom-to-fit 보류(R-3 디바운스) — 매 프레임 줌 변경에 의한 깜빡임 방지.
+    var dividerDragging: Bool = false
     var onDrawingChanged: () -> Void
     var onStrokeChanged: (() -> Void)? = nil
     var initialDrawingData: Data?
@@ -1063,7 +1071,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         // 줌-투-핏 + 레터박스 중앙정렬 (회전·divider로 panelWidth가 바뀌면 zoomScale=fit)
-        coordinator.applyPanelLayout(panelWidth: panelWidth)
+        coordinator.applyPanelLayout(panelWidth: panelWidth, isDragging: dividerDragging)
         // 빈 페이지에서도 종이가 viewport를 채우도록 최소 높이 보장
         coordinator.ensureMinimumContentHeight()
 
@@ -1178,7 +1186,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         /// SwiftUI(updateUIView)에서 패널 폭 전달 — 회전/divider 변경 시.
-        func applyPanelLayout(panelWidth: CGFloat) {
+        /// divider 드래그 중(isDragging)이면 zoom-fit을 보류해 매 프레임 zoomScale 변경(=PencilKit
+        /// 재래스터화·깜빡임)을 막는다. 드래그 종료 시 isDragging=false로 1회 fit(R-3 디바운스).
+        func applyPanelLayout(panelWidth: CGFloat, isDragging: Bool = false) {
+            guard !isDragging else {
+                appLog("zoomdiag", "applyPanelLayout skip (dragging)", ["panelWidth": "\(Int(panelWidth))"])
+                return
+            }
             fitAndCenter(forWidth: panelWidth, src: "applyPanelLayout")
         }
 

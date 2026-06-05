@@ -716,16 +716,20 @@ struct NoteView: View {
     }
 
     /// 페이지 전환 시 PencilKit이 drawing 교체 후에도 이전 렌더 타일을 화면에 남기는 캐시 잔존을 비운다.
-    /// (hierdump로 확정: 캔버스 1개·strokes=0인데 옛 글씨 표시 = 순수 렌더 캐시.)
-    /// frame(bounds) 변경이 PencilKit 재래스터화를 유발함이 깜빡임 로그에서 관측됨 → frame을 바꿨다 복원.
-    /// outer-async: newPage의 resetCanvasToTop 등 동기 frame 세팅이 끝난 뒤 적용해 상쇄(coalesce) 방지.
+    /// (hierdump로 확정: 캔버스 1개·strokes=0인데 옛 글씨 표시 = 순수 렌더 캐시. isHidden·1px frame 무효.)
+    /// → 렌더 레이어를 처음부터 다시 만들기: superview에서 떼었다 다시 붙인다(remove + re-add).
+    /// outer-async로 동기 레이아웃이 끝난 뒤 적용. 첫 responder였으면 복원(툴피커 유지).
     private func forceCanvasRedraw() {
         DispatchQueue.main.async { [self] in
-            let target = canvasView.frame
-            guard target.height > 2 else { return }
-            canvasView.frame = CGRect(x: target.minX, y: target.minY, width: target.width, height: target.height - 1)
-            DispatchQueue.main.async { [self] in canvasView.frame = target }
-            appLog("note", "forceCanvasRedraw", ["h": "\(Int(target.height))"])
+            guard let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator,
+                  let contentView = coordinator.contentView else { return }
+            let wasFirstResponder = canvasView.isFirstResponder
+            let f = canvasView.frame
+            canvasView.removeFromSuperview()
+            canvasView.frame = f
+            contentView.addSubview(canvasView)
+            if wasFirstResponder { canvasView.becomeFirstResponder() }
+            appLog("note", "forceCanvasRedraw(re-add)", ["fr": "\(wasFirstResponder)", "strokes": "\(canvasView.drawing.strokes.count)"])
         }
     }
 

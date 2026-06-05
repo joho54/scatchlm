@@ -406,20 +406,6 @@ final class PencilKitCanvasViewTests: XCTestCase {
         XCTAssertEqual(card!.frame.width, logical - 32, accuracy: 1.0,
             "카드 폭도 zoom과 무관하게 논리폭-32")
     }
-
-    @MainActor
-    func testResetToTopResetsHeightAndOffset() {
-        let logical = Config.logicalCanvasWidth
-        let (coordinator, host, contentView, _) = makeWiredCoordinator(panelWidth: logical / 2)
-        coordinator.applyPanelLayout(panelWidth: logical / 2) // zoom=0.5, inset.left=0
-        coordinator.ensureContentHeight(8000)
-
-        coordinator.resetToTop()
-
-        // h = max((vh/zoom)*1.5, logical) = max((1000/0.5)*1.5, logical) = 3000
-        XCTAssertEqual(contentView.bounds.height, 3000, accuracy: 1.0,
-            "기본 높이((viewport/zoom)*1.5)로 축소")
-        XCTAssertEqual(host.contentOffset.y, 0, accuracy: 0.5,
-            "최상단으로(-contentInset.top=0)")
-    }
+    // testResetToTopResetsHeightAndOffset 제거: resetToTop은 페이지 전환을 .id 리마운트로
+    // 전환하며 더 이상 쓰이지 않아 코드에서 삭제됨(공유 캔버스 제거 커밋).
 }

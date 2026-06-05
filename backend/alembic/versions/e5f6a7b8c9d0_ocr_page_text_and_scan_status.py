@@ -38,10 +38,12 @@ def upgrade() -> None:
     op.add_column('textbook_sources', sa.Column('ocr_status', sa.String(), nullable=True))
     op.add_column('textbook_sources', sa.Column('ocr_pages_done', sa.Integer(), nullable=False, server_default='0'))
     op.add_column('textbook_sources', sa.Column('ocr_cap', sa.Integer(), nullable=True))
+    op.add_column('textbook_sources', sa.Column('ocr_updated_at', sa.DateTime(), nullable=True))
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_column('textbook_sources', 'ocr_updated_at')
     op.drop_column('textbook_sources', 'ocr_cap')
     op.drop_column('textbook_sources', 'ocr_pages_done')
     op.drop_column('textbook_sources', 'ocr_status')

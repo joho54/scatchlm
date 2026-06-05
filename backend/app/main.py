@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import FastAPI, Request
@@ -74,6 +75,11 @@ async def _log_startup() -> None:
         settings.APP_VERSION, settings.GIT_SHA, settings.ENVIRONMENT,
         settings.STORAGE_BACKEND, _origins or "(none)",
     )
+    # 스캔본 OCR 자동 재개 스위퍼 — 예산 회복(KST 자정)·예외·프로세스 사망 잡을 주기적으로 이어받는다.
+    # 워커마다 기동되나 _background_ocr의 원자 claim으로 중복은 무해. ENABLE_OCR일 때만.
+    if settings.ENABLE_OCR:
+        from app.routers.pdf import _ocr_sweeper_loop
+        app.state.ocr_sweeper_task = asyncio.create_task(_ocr_sweeper_loop())
 
 
 @app.get("/health")

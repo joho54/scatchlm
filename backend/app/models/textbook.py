@@ -20,7 +20,9 @@ class TextbookSource(Base):
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     # 스캔본(이미지) PDF OCR 상태 — docs/scanned-pdf-ocr-spec.md §4.1-b.
     is_scanned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    ocr_status: Mapped[str | None] = mapped_column(String, nullable=True)  # pending|running|paused|capped|complete
+    ocr_status: Mapped[str | None] = mapped_column(String, nullable=True)  # pending|running|paused|error|capped|complete
     ocr_pages_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ocr_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 이 책에 적용된 캡 (free=50, pro=600)
+    # 하트비트 — running 잡이 페이지마다 갱신. 오래 안 갱신되면 프로세스 사망으로 판별(스위퍼 재개).
+    ocr_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

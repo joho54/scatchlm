@@ -52,6 +52,14 @@ def test_enable_ocr_off_by_default():
     assert settings.ENABLE_OCR is False
 
 
+def test_tier_from_cap_roundtrip():
+    """스위퍼는 JWT가 없어 저장된 ocr_cap으로 tier를 역추론한다."""
+    from app.routers.pdf import _tier_from_cap
+    assert _tier_from_cap(settings.OCR_FREE_CAP_PAGES) == "normal"
+    assert _tier_from_cap(settings.OCR_MAX_PAGES_PER_BOOK) == "pro"
+    assert _tier_from_cap(None) == "pro"  # cap 미상 → pro(백스톱)로 취급
+
+
 def test_headers_from_ocr_rows_skips_blank_and_truncates():
     rows = [
         _Row(1, "Chapter 1\nIntroduction\n\nbody1\nbody2\nbody3\nbody4"),

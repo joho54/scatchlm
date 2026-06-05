@@ -1,14 +1,16 @@
+import asyncio
 import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 
 from app.core.auth import get_current_user_id, get_verified_payload, get_tier, get_role
 from app.core.config import settings
@@ -96,13 +98,45 @@ async def _detect_chapters_from_ocr(db, textbook_id: str, server_path: str, tota
     log.info("OCR chapter detection done: textbook=%s chapters=%d", textbook_id, len(entries))
 
 
-async def _background_ocr(textbook_id: str, user_id: str, tier: str, server_path: str):
+# OCR 스위퍼(자동 재개) 파라미터.
+OCR_STALE_MINUTES = 15          # running이 이만큼 갱신 안 되면 프로세스 사망으로 판별 → error로 강등
+OCR_SWEEP_INTERVAL_SEC = 600    # 스위퍼 주기(10분). 예산은 KST 자정에 풀리므로 그 안에 재개됨
+OCR_SWEEP_MAX_PER_CYCLE = 10    # 한 사이클 동시 재개 상한(스탬피드 방지)
+
+
+def _utcnow():
+    """모델의 naive UTC 컬럼과 맞춘 현재 시각."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _tier_from_cap(cap: int | None) -> str:
+    """저장된 ocr_cap으로 tier를 역추론(스위퍼는 JWT가 없음)."""
+    return "normal" if cap == settings.OCR_FREE_CAP_PAGES else "pro"
+
+
+async def _background_ocr(textbook_id: str, user_id: str, tier: str):
     """스캔본 PDF를 페이지 순차 OCR한다. 매 페이지 즉시 커밋 → 중단돼도 손실 0, 재개 가능.
 
-    tier별 cap(free=OCR_FREE_CAP_PAGES, pro=OCR_MAX_PAGES_PER_BOOK)까지 OCR하고,
-    OCR 예산 버킷 초과 시 paused 후 다음 사이클에 재개한다.
+    시작 시 ocr_status를 원자적으로 claim('running')해서 워커 2개 환경의 중복 실행을 막는다.
+    종료 상태: complete / capped(free 캡) / paused(예산 초과) / error(예외).
+    paused·error·stale-running은 _ocr_sweeper_loop가 자동 재개한다.
     """
     async with async_session() as db:
+        # 원자적 claim — pending/paused/error만 running으로 전이. 이미 running/complete/capped면 0행 → 타 워커가 처리 중.
+        claimed = (await db.execute(
+            update(TextbookSource)
+            .where(
+                TextbookSource.id == textbook_id,
+                TextbookSource.ocr_status.in_(["pending", "paused", "error"]),
+            )
+            .values(ocr_status="running", ocr_updated_at=_utcnow())
+            .returning(TextbookSource.id)
+        )).first()
+        await db.commit()
+        if claimed is None:
+            log.info("OCR job: not claimable (handled elsewhere or done): textbook=%s", textbook_id)
+            return
+
         source = (await db.execute(
             select(TextbookSource).where(TextbookSource.id == textbook_id)
         )).scalar_one_or_none()
@@ -115,14 +149,11 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str, server_path
         is_capped_tier = tier != "pro" and target < source.total_pages
 
         try:
-            source.ocr_status = "running"
-            await db.commit()
-
             done_pages = set((await db.execute(
                 select(OcrPageText.page).where(OcrPageText.textbook_id == textbook_id)
             )).scalars().all())
 
-            doc = _open_pdf(server_path)
+            doc = _open_pdf(source.server_path)
             status = "complete"
             try:
                 for page in range(1, target + 1):
@@ -140,6 +171,7 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str, server_path
                         content=(result.text or "").replace("\x00", ""),
                     ))
                     source.ocr_pages_done = (source.ocr_pages_done or 0) + 1
+                    source.ocr_updated_at = _utcnow()  # 하트비트
                     await log_llm_usage(
                         db, user_id=user_id, model=result.model,
                         input_tokens=result.input_tokens, output_tokens=result.output_tokens,
@@ -153,6 +185,7 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str, server_path
             if status == "complete" and is_capped_tier:
                 status = "capped"
             source.ocr_status = status
+            source.ocr_updated_at = _utcnow()
             await db.commit()
             log.info("OCR job done: textbook=%s status=%s done=%d target=%d",
                      textbook_id, status, source.ocr_pages_done, target)
@@ -163,14 +196,69 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str, server_path
                     select(func.count()).select_from(Chapter).where(Chapter.textbook_id == textbook_id)
                 )
                 if not existing:
-                    await _detect_chapters_from_ocr(db, textbook_id, server_path, source.total_pages)
+                    await _detect_chapters_from_ocr(db, textbook_id, source.server_path, source.total_pages)
         except Exception:
             log.exception("Background OCR failed: textbook=%s", textbook_id)
             try:
-                source.ocr_status = "paused"
+                source.ocr_status = "error"
+                source.ocr_updated_at = _utcnow()
                 await db.commit()
             except Exception:
-                log.exception("OCR job: failed to mark paused: textbook=%s", textbook_id)
+                log.exception("OCR job: failed to mark error: textbook=%s", textbook_id)
+
+
+async def _ocr_sweep_once():
+    """재개 가능한 스캔본을 한 번 스윕한다: stale-running 강등 → paused(예산 회복)·error 재개.
+
+    워커 2개 환경에서도 _background_ocr의 원자 claim과 stale UPDATE의 행 잠금으로 중복은 무해하다.
+    """
+    async with async_session() as db:
+        # 1) 하트비트가 끊긴 running(프로세스 사망)을 error로 강등 → 재개 대상화.
+        await db.execute(
+            update(TextbookSource)
+            .where(
+                TextbookSource.ocr_status == "running",
+                TextbookSource.ocr_updated_at < _utcnow() - timedelta(minutes=OCR_STALE_MINUTES),
+            )
+            .values(ocr_status="error")
+        )
+        await db.commit()
+        # 2) 재개 후보 수집.
+        rows = (await db.execute(
+            select(
+                TextbookSource.id, TextbookSource.user_id,
+                TextbookSource.ocr_status, TextbookSource.ocr_cap,
+            ).where(
+                TextbookSource.is_scanned.is_(True),
+                TextbookSource.ocr_status.in_(["paused", "error"]),
+            )
+        )).all()
+
+    resumed = 0
+    for tid, uid, status, cap in rows:
+        if resumed >= OCR_SWEEP_MAX_PER_CYCLE:
+            log.info("OCR sweep: per-cycle cap hit, deferring %d candidates", len(rows) - resumed)
+            break
+        # paused(예산)는 예산이 회복됐을 때만 재개. error는 항상 재시도.
+        if status == "paused":
+            async with async_session() as db2:
+                if await check_ocr_quota(uid, db2):
+                    continue  # 아직 예산 초과 → 다음 사이클
+        asyncio.create_task(_background_ocr(tid, uid, _tier_from_cap(cap)))
+        resumed += 1
+    if resumed:
+        log.info("OCR sweep: resumed=%d", resumed)
+
+
+async def _ocr_sweeper_loop():
+    """앱 시작 시 기동되는 주기적 OCR 재개 루프. ENABLE_OCR일 때만 main에서 띄운다."""
+    log.info("OCR sweeper started: interval=%ds stale=%dmin", OCR_SWEEP_INTERVAL_SEC, OCR_STALE_MINUTES)
+    while True:
+        try:
+            await _ocr_sweep_once()
+        except Exception:
+            log.exception("OCR sweep cycle failed")
+        await asyncio.sleep(OCR_SWEEP_INTERVAL_SEC)
 
 
 @router.post("/upload")
@@ -229,13 +317,13 @@ async def upload_pdf(
             )
             indexing_status = "started"
 
-        # 스캔본이 미완(pending/paused)인 채 멈춰 있으면 재업로드로 OCR을 재개한다.
-        # 페이지 캐시 skip-on-exists로 멱등 — 이미 OCR된 페이지는 다시 호출하지 않는다(§4.5).
-        if existing_source.is_scanned and existing_source.ocr_status in ("pending", "paused"):
+        # 스캔본이 미완(pending/paused/error)인 채 멈춰 있으면 재업로드로 즉시 재개한다.
+        # (주기 스위퍼도 결국 재개하지만, 재업로드는 즉시 트리거. 원자 claim으로 중복 무해.)
+        if existing_source.is_scanned and existing_source.ocr_status in ("pending", "paused", "error"):
             log.info("PDF duplicate scanned, resuming OCR: textbook=%s status=%s",
                      existing_source.id, existing_source.ocr_status)
             background_tasks.add_task(
-                _background_ocr, existing_source.id, existing_source.user_id, tier, existing_source.server_path
+                _background_ocr, existing_source.id, existing_source.user_id, tier
             )
 
         return {
@@ -289,7 +377,7 @@ async def upload_pdf(
         background_tasks.add_task(_background_detect_chapters, source.id, server_path, total_pages)
 
     if is_scanned:
-        background_tasks.add_task(_background_ocr, source.id, user_id, tier, server_path)
+        background_tasks.add_task(_background_ocr, source.id, user_id, tier)
 
     background_tasks.add_task(_background_index, source.id, user_id, server_path)
 
@@ -323,6 +411,10 @@ async def list_textbooks(
             "totalPages": s.total_pages,
             "fileSize": s.file_size,
             "createdAt": s.created_at.isoformat() if s.created_at else None,
+            "is_scanned": s.is_scanned,
+            "ocr_status": s.ocr_status,
+            "ocr_pages_done": s.ocr_pages_done or 0,
+            "ocr_pages_total": (min(s.total_pages, s.ocr_cap) if s.ocr_cap else s.total_pages) if s.is_scanned else 0,
         }
         for s in sources
     ]

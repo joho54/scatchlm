@@ -59,9 +59,20 @@ struct CreateNoteSheet: View {
                                             .font(.subheadline)
                                             .foregroundStyle(.primary)
                                             .lineLimit(1)
-                                        Text("\(tb.totalPages)페이지")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                        HStack(spacing: 6) {
+                                            Text("\(tb.totalPages)페이지")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            if let chip = tb.ocrChip {
+                                                Text(chip)
+                                                    .font(.caption2)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.purple.opacity(0.12))
+                                                    .foregroundStyle(.purple)
+                                                    .clipShape(Capsule())
+                                            }
+                                        }
                                     }
 
                                     Spacer()
@@ -178,14 +189,26 @@ struct CreateNoteSheet: View {
                         let id: String
                         let fileName: String
                         let totalPages: Int
+                        let isScanned: Bool?
+                        let ocrStatus: String?
+                        enum CodingKeys: String, CodingKey {
+                            case id, fileName, totalPages
+                            case isScanned = "is_scanned"
+                            case ocrStatus = "ocr_status"
+                        }
                     }
                     let res: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
                     appLog("pdf-upload", "upload OK", [
                         "id": res.id,
                         "name": res.fileName,
                         "pages": "\(res.totalPages)",
+                        "scanned": "\(res.isScanned ?? false)",
                     ])
-                    let item = TextbookListItem(id: res.id, fileName: res.fileName, totalPages: res.totalPages)
+                    let item = TextbookListItem(
+                        id: res.id, fileName: res.fileName, totalPages: res.totalPages,
+                        isScanned: res.isScanned ?? false, ocrStatus: res.ocrStatus,
+                        ocrPagesTotal: (res.isScanned ?? false) ? res.totalPages : 0
+                    )
                     await MainActor.run {
                         textbooks.append(item)
                         selectedTextbookId = item.id

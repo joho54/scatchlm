@@ -34,11 +34,48 @@ struct TextbookListItem: Codable, Identifiable {
     let id: String
     let fileName: String
     let totalPages: Int
+    let isScanned: Bool
+    let ocrStatus: String?
+    let ocrPagesDone: Int
+    let ocrPagesTotal: Int
 
     enum CodingKeys: String, CodingKey {
         case id
         case fileName
         case totalPages
+        case isScanned = "is_scanned"
+        case ocrStatus = "ocr_status"
+        case ocrPagesDone = "ocr_pages_done"
+        case ocrPagesTotal = "ocr_pages_total"
+    }
+
+    init(id: String, fileName: String, totalPages: Int,
+         isScanned: Bool = false, ocrStatus: String? = nil,
+         ocrPagesDone: Int = 0, ocrPagesTotal: Int = 0) {
+        self.id = id
+        self.fileName = fileName
+        self.totalPages = totalPages
+        self.isScanned = isScanned
+        self.ocrStatus = ocrStatus
+        self.ocrPagesDone = ocrPagesDone
+        self.ocrPagesTotal = ocrPagesTotal
+    }
+
+    /// 교재 목록에 띄울 OCR 상태 칩 텍스트(완료/텍스트PDF면 nil).
+    var ocrChip: String? {
+        guard isScanned else { return nil }
+        switch ocrStatus {
+        case "complete", .none:
+            return nil
+        case "capped":
+            return String(localized: "무료 \(ocrPagesTotal)p 인식됨")
+        case "paused", "error":
+            return String(localized: "인식 대기 중")
+        default:  // pending / running
+            return ocrPagesTotal > 0
+                ? String(localized: "인식 중 \(ocrPagesDone)/\(ocrPagesTotal)")
+                : String(localized: "인식 중…")
+        }
     }
 }
 

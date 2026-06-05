@@ -91,35 +91,46 @@ struct PdfViewerView: View {
         .task { await pollOcrStatus() }
     }
 
-    /// 스캔본 OCR 진행 배너. running/paused는 진행률, capped는 Pro 업셀.
+    /// 스캔본 OCR 진행 배너. 상태별 문구 + 진행 중이면 결정형 프로그레스 바.
     @ViewBuilder
     private func ocrStatusBanner(_ status: PdfStatus) -> some View {
-        HStack(spacing: 8) {
-            if status.capped {
-                Image(systemName: "lock.fill")
-                Text("\(status.capLimit ?? status.ocrPagesDone)페이지까지 인식했어요 · 전체 인식은 Pro")
-            } else {
-                ProgressView().scaleEffect(0.7)
-                Text("교재 인식 중… \(status.ocrPagesDone)/\(status.ocrPagesTotal)")
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                switch status.ocrStatus {
+                case "capped":
+                    Image(systemName: "lock.fill")
+                    Text("무료는 \(status.capLimit ?? status.ocrPagesDone)p까지 인식해요 · 전체 인식은 Pro")
+                case "paused":
+                    Image(systemName: "pause.circle")
+                    Text("오늘 인식 분량을 다 썼어요 · 잠시 후 자동으로 이어집니다")
+                case "error":
+                    Image(systemName: "exclamationmark.triangle")
+                    Text("인식 중 문제가 생겼어요 · 곧 자동으로 다시 시도합니다")
+                default:  // pending / running
+                    ProgressView().scaleEffect(0.7)
+                    Text("교재 인식 중… \(status.ocrPagesDone)/\(status.ocrPagesTotal)")
+                }
+            }
+            if status.isProcessing, status.ocrPagesTotal > 0 {
+                ProgressView(value: Double(status.ocrPagesDone), total: Double(status.ocrPagesTotal))
+                    .frame(maxWidth: 220)
             }
         }
         .font(.caption2)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
     }
 
-    /// is_scanned면 status를 폴링해 진행률을 갱신한다. complete/capped/텍스트PDF면 종료.
+    /// is_scanned면 status를 폴링해 진행률을 갱신한다. 스스로 더 진행되지 않는 상태면 종료
+    /// (complete/capped/paused/error/텍스트PDF). paused·error는 백엔드 스위퍼가 자동 재개한다.
     private func pollOcrStatus() async {
         while !Task.isCancelled {
             do {
                 let status = try await APIClient.shared.getPdfStatus(textbookId)
                 await MainActor.run { pdfStatus = status }
-                // 종료 조건: 텍스트 PDF이거나 더 진행되지 않는 상태.
-                if !status.isScanned || status.ocrStatus == "complete" || status.ocrStatus == "capped" {
-                    return
-                }
+                if !status.isProcessing { return }  // pending/running 외에는 폴링 종료
             } catch {
                 appLogError("pdf", "ocr status poll failed", ["error": "\(error)"])
                 return

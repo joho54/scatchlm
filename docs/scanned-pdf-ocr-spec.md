@@ -42,7 +42,7 @@
 | 스캔본 RAG 임베딩 인덱싱 | `ENABLE_EMBEDDING=false` 기본 비활성 (CLAUDE.md). OCR 텍스트가 생기면 인덱싱은 자동으로 가능해지나, 본 스펙은 챕터/가이드/피드백 컨텍스트 복구가 목표. RAG는 별도 |
 | 수식 LaTeX 렌더 품질 튜닝 | 1차는 "텍스트 복원"이 목표. LaTeX 정밀도 개선은 후속 |
 | OCR 결과 사용자 수정 UI | 1차 범위 밖 |
-| pro 예산 pause/resume의 정교한 스케줄링 | 1차는 "한도 도달 시 멈추고 다음 사이클 재개"의 단순형 |
+| pro 예산 pause/resume의 정교한 스케줄링·우선순위 큐 | 1차는 인프로세스 주기 스위퍼(10분)로 "예산 회복 시 자동 재개"하는 단순형. 우선순위·페어니스는 후속 |
 
 ### 1.4 운영 리스크 (켜기 전 필수)
 
@@ -122,7 +122,7 @@ def extract_text(textbook, start, end):
   ```
   {
     "is_scanned": bool,
-    "ocr_status": "pending"|"running"|"paused"|"capped"|"complete"|null,  // 텍스트PDF는 null
+    "ocr_status": "pending"|"running"|"paused"|"error"|"capped"|"complete"|null,  // 텍스트PDF는 null
     "ocr_pages_done": int,        // OCR 완료 페이지 수
     "ocr_pages_total": int,       // 이번 tier에서 OCR 대상 페이지 수 = min(total_pages, cap)
     "total_pages": int,
@@ -143,7 +143,7 @@ def extract_text(textbook, start, end):
   ```
   { "detail": "OCR not complete for this page/chapter",
     "code": "ocr_incomplete",
-    "ocr_status": "running"|"paused"|"capped",
+    "ocr_status": "running"|"paused"|"error"|"capped",
     "capped": bool,            // true면 Pro 업셀 트리거
     "page": int|null }
   ```
@@ -170,9 +170,10 @@ UNIQUE (textbook_id, page)               # 재OCR 멱등 / 재개 skip 판정
 **4.1-b `TextbookSource` 컬럼 추가** (`app/models/textbook.py:10-22`)
 ```
 is_scanned      Boolean default False
-ocr_status      String  nullable   # pending|running|paused|capped|complete
+ocr_status      String  nullable   # pending|running|paused|error|capped|complete
 ocr_pages_done  Integer default 0
-ocr_cap         Integer nullable   # 이 책에 적용된 캡 (free=50, pro=null)
+ocr_cap         Integer nullable   # 이 책에 적용된 캡 (free=50, pro=600)
+ocr_updated_at  DateTime nullable  # 하트비트. running이 페이지마다 갱신 → stale면 프로세스 사망 판별
 ```
 - 현재 상태 플래그가 없고 `DocumentChunk` count로 추론(`pdf.py:102-107`)하지만, OCR 진행률엔 명시 컬럼이 필요.
 
@@ -195,8 +196,10 @@ ocr_cap         Integer nullable   # 이 책에 적용된 캡 (free=50, pro=null
 - `BackgroundTasks.add_task` + `async with async_session()`(기존 `_background_index` 패턴 `pdf.py:31-38`).
 - tier별 cap 결정: free=`OCR_FREE_CAP_PAGES`(50), pro=`OCR_MAX_PAGES_PER_BOOK`(600). `ocr_cap` 저장.
 - 루프: 페이지별 캐시 존재 skip(재개) → 렌더 → OCR → `ocr_page_text` INSERT + 커밋 → `log_llm_usage` → `ocr_pages_done++` → OCR 쿼터 버킷 초과 시 `paused` break.
-- 종료 상태: 전부 완료=`complete`, free 캡 도달=`capped`, 쿼터 정지=`paused`.
+- 종료 상태: 전부 완료=`complete`, free 캡 도달=`capped`, 쿼터 정지=`paused`, 예외=`error`.
 - 완료/충분 시 챕터 감지 트리거(기존 `_background_detect_chapters` 재사용, `extract_page_headers`가 OCR 텍스트를 읽도록 §4.6).
+- **중복 방지(워커 2개)**: 잡 시작 시 `UPDATE … SET ocr_status='running' WHERE ocr_status IN (pending,paused,error) RETURNING`으로 원자적 claim. 0행이면 타 워커가 처리 중 → 즉시 반환.
+- **자동 재개(`_ocr_sweeper_loop`, app startup)**: 10분 주기로 (1) 하트비트 끊긴 `running`을 `error`로 강등 → (2) `paused`(예산 회복 시)·`error`를 원자 claim 후 재개. 예산은 KST 자정에 풀리므로 앱을 안 열어도 그 주기 안에 이어받는다. cron 등 외부 인프라 불필요.
 
 ### 4.6 `extract_text` / `extract_page_headers` OCR 분기 (`pdf_service.py`)
 - `extract_text(textbook_or_key, start, end)`: `is_scanned`면 `ocr_page_text`에서 조회. 미존재 페이지는 누락. **시그니처 변경 주의** — 현재는 `key`(경로)만 받음(`pdf_service.py:84`). textbook 메타(is_scanned)와 db 세션 접근이 필요 → 호출부(`feedback.py`, `pdf.py` 가이드) 함께 수정. 호출부가 많으므로 **래퍼 함수**로 흡수 권장.

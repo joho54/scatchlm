@@ -685,12 +685,34 @@ struct NoteView: View {
         appLog("note", "saveDrawing", ["pageId": page.id, "strokes": "\(canvasView.drawing.strokes.count)"])
     }
 
-    /// 페이지 전환 시 PencilKit이 drawing 교체 후에도 렌더된 옛 타일을 안 지우는 stale render를 강제 갱신.
-    /// (네이티브 줌 구조에서 새 페이지에 이전 필기가 남는 버그 — 모델은 비었으나 화면만 잔존.)
-    /// isHidden을 한 런루프 토글하면 다음 표시 패스에서 현재(빈) drawing으로 새로 렌더된다.
-    private func forceCanvasRedraw() {
-        canvasView.isHidden = true
-        DispatchQueue.main.async { [self] in canvasView.isHidden = false }
+    /// 진단: ghost가 어느 뷰에 있는지 추적 — window 아래 PKCanvasView/host/contentView 인스턴스 수와
+    /// 각 캔버스의 strokes·frame·superview를 덤프한다. 새 페이지인데 strokes>0인 캔버스가 있거나
+    /// PKCanvasView가 2개 이상이면 lingering 인스턴스가 ghost의 정체다.
+    private func dumpCanvasHierarchy(_ tag: String) {
+        guard let window = canvasView.window else {
+            appLog("hierdump", tag, ["window": "nil"])
+            return
+        }
+        var canvases: [PKCanvasView] = []
+        func walk(_ v: UIView) {
+            if let c = v as? PKCanvasView { canvases.append(c) }
+            v.subviews.forEach(walk)
+        }
+        walk(window)
+        appLog("hierdump", tag, [
+            "pkCanvasCount": "\(canvases.count)",
+            "boundCanvasStrokes": "\(canvasView.drawing.strokes.count)",
+        ])
+        for (i, c) in canvases.enumerated() {
+            appLog("hierdump", "\(tag).canvas[\(i)]", [
+                "isBound": "\(c === canvasView)",
+                "strokes": "\(c.drawing.strokes.count)",
+                "frame": "\(Int(c.frame.width))x\(Int(c.frame.height))",
+                "hidden": "\(c.isHidden)",
+                "superview": "\(type(of: c.superview ?? UIView()))",
+                "inWindow": "\(c.window != nil)",
+            ])
+        }
     }
 
     /// DB에서 특정 페이지의 드로잉을 로드하여 캔버스에 적용
@@ -699,11 +721,9 @@ struct NoteView: View {
            let data = page.drawingData,
            let drawing = try? PKDrawing(data: data) {
             canvasView.drawing = drawing
-            forceCanvasRedraw()
             appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "strokes": "\(drawing.strokes.count)"])
         } else {
             canvasView.drawing = PKDrawing()
-            forceCanvasRedraw()
             appLog("note", "loadDrawing", ["pageIndex": "\(currentPageIndex)", "empty": "true"])
         }
     }
@@ -719,7 +739,6 @@ struct NoteView: View {
         try? db.updateCurrentPageIndex(noteId: noteId, index: newIndex)
 
         canvasView.drawing = PKDrawing()
-        forceCanvasRedraw()
         feedbacks = []
         nextCardY = 100
         if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
@@ -740,6 +759,9 @@ struct NoteView: View {
             "strokesAfterClear": "\(canvasView.drawing.strokes.count)",
             "noteDrawingDataBytes": "\(note?.drawingData?.count ?? -1)",
         ])
+        // ghost 추적: 지금(동기) + 다음 표시 패스(비동기) 두 시점의 뷰 계층 덤프.
+        dumpCanvasHierarchy("newPage.sync")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in dumpCanvasHierarchy("newPage.async") }
     }
 
     /// 캔버스를 기본 높이로 축소하고 스크롤을 최상단으로 되돌린다.

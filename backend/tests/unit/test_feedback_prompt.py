@@ -49,3 +49,19 @@ def test_system_prompt_no_student_label():
     assert "helping the user" in prompt
     # 2인칭 직접 지칭 + '학생' 라벨 금지 지시가 명시되어야 함
     assert "ADDRESS THE USER DIRECTLY" in prompt
+
+
+def test_system_prompt_empty_subject_is_neutral():
+    """주제가 비면(즉시 생성 노트 등) 분야 중립 튜터로 동작해야 한다."""
+    for empty in ("", "   "):
+        prompt = _build_system_prompt(empty, "Korean")
+        # 빈 subject가 프롬프트에 그대로 박혀 'learn .' 같은 비문이 되면 안 됨
+        assert "learn their study material" in prompt
+        assert "helping the user learn ." not in prompt
+
+
+def test_system_prompt_nonempty_subject_unchanged():
+    """주제가 있으면 그대로 주입되고 중립 문구는 쓰이지 않아야 한다."""
+    prompt = _build_system_prompt("Japanese", "Korean")
+    assert "learn Japanese" in prompt
+    assert "their study material" not in prompt

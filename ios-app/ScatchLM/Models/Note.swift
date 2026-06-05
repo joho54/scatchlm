@@ -97,11 +97,22 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         self.dirty = dirty
     }
 
-    static func new(title: String, language: String = "en") -> Note {
+    /// 제목 기본값 결정 — 비어 있으면 교재 이름(있으면)에서, 그것도 없으면 "제목 없음".
+    /// PDF 확장자는 떼고 보여준다. 사용자가 입력한 제목이 있으면 그대로 둔다.
+    static func resolveTitle(_ title: String, textbookName: String?) -> String {
+        if !title.isEmpty { return title }
+        if let name = textbookName, !name.isEmpty {
+            let stripped = name.lowercased().hasSuffix(".pdf") ? String(name.dropLast(4)) : name
+            if !stripped.isEmpty { return stripped }
+        }
+        return String(localized: "제목 없음")
+    }
+
+    static func new(title: String, language: String = "") -> Note {
         Note(
             id: UUID().uuidString,
             title: title,
-            language: language,
+            language: language,  // 빈 문자열이면 분야 중립 튜터 (백엔드가 처리)
             textbookId: nil,
             textbookName: nil,
             textbookPages: 0,

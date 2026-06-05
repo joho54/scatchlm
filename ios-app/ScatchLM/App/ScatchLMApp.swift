@@ -24,9 +24,7 @@ struct ScatchLMApp: App {
                 if auth.isLoading {
                     ProgressView("불러오는 중…")
                 } else if auth.isAuthenticated {
-                    NavigationStack {
-                        HomeView()
-                    }
+                    HomeView()
                 } else {
                     LoginView()
                 }

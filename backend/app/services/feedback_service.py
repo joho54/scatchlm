@@ -30,8 +30,10 @@ def classify_anthropic_error(exc: Exception) -> str:
 client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 def _build_system_prompt(subject: str, response_language: str, has_textbook: bool = False) -> str:
+    # 주제가 비면(즉시 생성 노트 등) 분야 중립 튜터로 동작 — chat 경로와 동일한 처리.
+    subject_phrase = subject.strip() if subject and subject.strip() else "their study material"
     base = (
-        f"You are a study assistant helping the user learn {subject}. "
+        f"You are a study assistant helping the user learn {subject_phrase}. "
         "The user submits handwritten notes as images, sometimes with textbook reference text.\n\n"
         "The image may contain text in MULTIPLE languages — the subject's language "
         "AND the user's native language (translations, annotations, notes). "
@@ -136,7 +138,10 @@ async def get_recognition(image_bytes: bytes, language: str = "en") -> str | Non
                     },
                     {
                         "type": "text",
-                        "text": f"Subject: {language}. Read the handwriting in this image. Return ONLY the recognized text, nothing else.",
+                        "text": (
+                            (f"Subject: {language}. " if language and language.strip() else "")
+                            + "Read the handwriting in this image. Return ONLY the recognized text, nothing else."
+                        ),
                     },
                 ],
             }],

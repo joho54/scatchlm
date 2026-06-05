@@ -1,18 +1,40 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct CreateNoteSheet: View {
+/// 기존 노트의 제목·주제·교재를 한 곳에서 편집한다.
+/// - 노트 좌상단 제목 탭 → 전체 편집
+/// - 교재 미연결 상태에서 PDF pill 탭 → 교재 설정 (focusTextbook=true로 교재 섹션 강조)
+/// 즉시 생성된 빈 노트도 여기서 교재를 나중에 붙일 수 있다.
+struct NoteMetaSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var language = ""
+
+    @State private var title: String
+    @State private var language: String
+    @State private var selectedTextbookId: String?
+    @State private var selectedTextbookName: String?
+    @State private var selectedTextbookPages: Int
+
     @State private var recentLanguages: [String] = []
     @State private var textbooks: [TextbookListItem] = []
-    @State private var selectedTextbookId: String?
     @State private var loadingTextbooks = false
     @State private var showFilePicker = false
     @State private var uploading = false
 
-    let onCreate: (String, String, TextbookListItem?) -> Void
+    let note: Note
+    let focusTextbook: Bool
+    /// 변경된 메타를 반영한 Note를 돌려준다. 부모가 영속화한다.
+    let onSave: (Note) -> Void
+
+    init(note: Note, focusTextbook: Bool = false, onSave: @escaping (Note) -> Void) {
+        self.note = note
+        self.focusTextbook = focusTextbook
+        self.onSave = onSave
+        _title = State(initialValue: note.title)
+        _language = State(initialValue: note.language)
+        _selectedTextbookId = State(initialValue: note.textbookId)
+        _selectedTextbookName = State(initialValue: note.textbookName)
+        _selectedTextbookPages = State(initialValue: note.textbookPages)
+    }
 
     var body: some View {
         NavigationStack {
@@ -22,7 +44,7 @@ struct CreateNoteSheet: View {
                 }
 
                 Section("주제") {
-                    TextField("예: 일본어, 물리학, 세계사", text: $language)
+                    TextField("예: 일본어, 물리학, 세계사 (비워두면 분야 중립)", text: $language)
 
                     if !recentLanguages.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -39,13 +61,31 @@ struct CreateNoteSheet: View {
                     }
                 }
 
-                Section("교재 (선택)") {
+                Section("교재") {
                     if loadingTextbooks {
                         ProgressView()
                     } else {
+                        if selectedTextbookId != nil {
+                            Button(role: .destructive) {
+                                selectedTextbookId = nil
+                                selectedTextbookName = nil
+                                selectedTextbookPages = 0
+                            } label: {
+                                Label("교재 연결 해제", systemImage: "xmark.circle")
+                            }
+                        }
+
                         ForEach(textbooks) { tb in
                             Button {
-                                selectedTextbookId = selectedTextbookId == tb.id ? nil : tb.id
+                                if selectedTextbookId == tb.id {
+                                    selectedTextbookId = nil
+                                    selectedTextbookName = nil
+                                    selectedTextbookPages = 0
+                                } else {
+                                    selectedTextbookId = tb.id
+                                    selectedTextbookName = tb.fileName
+                                    selectedTextbookPages = tb.totalPages
+                                }
                             } label: {
                                 HStack {
                                     Image(systemName: "book.closed.fill")
@@ -86,20 +126,22 @@ struct CreateNoteSheet: View {
                     }
                 }
             }
-            .navigationTitle("새 노트")
+            .navigationTitle(focusTextbook ? "교재 설정" : "노트 정보")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("취소") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("만들기") {
-                        let selected = textbooks.first { $0.id == selectedTextbookId }
-                        onCreate(
-                            Note.resolveTitle(title, textbookName: selected?.fileName),
-                            language,  // 빈 주제는 그대로 — 분야 중립 (백엔드 처리)
-                            selected
-                        )
+                    Button("저장") {
+                        var updated = note
+                        // 제목이 비어 있고 교재를 지정하면 PDF 이름을 기본 제목으로.
+                        updated.title = Note.resolveTitle(title, textbookName: selectedTextbookId == nil ? nil : selectedTextbookName)
+                        updated.language = language  // 빈 값 허용 = 분야 중립
+                        updated.textbookId = selectedTextbookId
+                        updated.textbookName = selectedTextbookName
+                        updated.textbookPages = selectedTextbookId == nil ? 0 : selectedTextbookPages
+                        onSave(updated)
                         dismiss()
                     }
                 }
@@ -121,8 +163,7 @@ struct CreateNoteSheet: View {
     private func loadRecentLanguages() {
         do {
             let notes = try DatabaseService.shared.allNotes()
-            let langs = Set(notes.map(\.language)).filter { !$0.isEmpty }.sorted()
-            recentLanguages = langs
+            recentLanguages = Array(Set(notes.map(\.language)).filter { !$0.isEmpty }).sorted()
         } catch {}
     }
 
@@ -136,43 +177,23 @@ struct CreateNoteSheet: View {
                     loadingTextbooks = false
                 }
             } catch {
-                print("[CreateNote] Failed to load textbooks: \(error)")
+                appLogError("note-meta", "load textbooks failed", ["error": "\(error)"])
                 await MainActor.run { loadingTextbooks = false }
             }
         }
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
-        appLog("pdf-upload", "fileImporter callback")
-
         switch result {
         case .failure(let err):
             appLogError("pdf-upload", "picker returned error", ["error": "\(err)"])
             return
         case .success(let urls):
-            guard let url = urls.first else {
-                appLogError("pdf-upload", "picker returned empty urls")
-                return
-            }
-            appLog("pdf-upload", "picked file", [
-                "name": url.lastPathComponent,
-                "isFileURL": "\(url.isFileURL)",
-            ])
-
+            guard let url = urls.first else { return }
             uploading = true
             Task {
-                // security-scoped 접근은 Task 안에서 잡고 풀어야 한다.
-                // 함수가 먼저 리턴하면 defer가 즉시 호출돼서 Task가 파일을 못 읽음.
                 let granted = url.startAccessingSecurityScopedResource()
                 defer { if granted { url.stopAccessingSecurityScopedResource() } }
-
-                let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
-                appLog("pdf-upload", "starting upload", [
-                    "name": url.lastPathComponent,
-                    "size": "\(fileSize)",
-                    "securityScoped": "\(granted)",
-                ])
-
                 do {
                     struct UploadResult: Decodable {
                         let id: String
@@ -180,15 +201,12 @@ struct CreateNoteSheet: View {
                         let totalPages: Int
                     }
                     let res: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
-                    appLog("pdf-upload", "upload OK", [
-                        "id": res.id,
-                        "name": res.fileName,
-                        "pages": "\(res.totalPages)",
-                    ])
                     let item = TextbookListItem(id: res.id, fileName: res.fileName, totalPages: res.totalPages)
                     await MainActor.run {
                         textbooks.append(item)
                         selectedTextbookId = item.id
+                        selectedTextbookName = item.fileName
+                        selectedTextbookPages = item.totalPages
                         uploading = false
                     }
                 } catch {

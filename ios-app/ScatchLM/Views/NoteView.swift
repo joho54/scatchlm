@@ -23,6 +23,9 @@ struct NoteView: View {
     @State private var toastMessage: String?
     @State private var pendingRevert: FeedbackRecord?
     @State private var showPaywall = false
+    // 노트 정보(제목·주제·교재) 편집 시트. focusTextbook=true면 교재 미연결 상태에서 PDF pill로 진입한 경우.
+    @State private var showMetaEditor = false
+    @State private var metaFocusTextbook = false
     private static let toastDedupeWindow: TimeInterval = 2.0
     @State private var lastToastShownAt: Date?
     @State private var lastToastMessage: String?
@@ -185,6 +188,13 @@ struct NoteView: View {
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $showPaywall) {
             PaywallView(reason: String(localized: "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 피드백을 받을 수 있어요."))
+        }
+        .sheet(isPresented: $showMetaEditor) {
+            if let note {
+                NoteMetaSheet(note: note, focusTextbook: metaFocusTextbook) { updated in
+                    saveMeta(updated)
+                }
+            }
         }
         .sheet(item: $chatFeedback) { fb in
             FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, subject: note?.language, onPin: { content, responseId in
@@ -359,9 +369,29 @@ struct NoteView: View {
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                 }
+
+                // 옅은 제목 — 평소엔 정보 표시, 탭하면 제목·주제·교재 편집.
+                // 칩/바가 아니라 캔버스 위에 떠 있는 텍스트라 별도 세로 공간을 차지하지 않는다.
+                Button {
+                    metaFocusTextbook = false
+                    showMetaEditor = true
+                } label: {
+                    Text(noteTitleDisplay)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(note?.title.isEmpty == false ? Color.primary.opacity(0.55) : Color.secondary.opacity(0.5))
+                        .lineLimit(1)
+                        .shadow(color: Color(uiColor: .systemBackground).opacity(0.6), radius: 2)
+                        .padding(.leading, 2)
+                }
             }
             .padding(.leading, 12)
             .padding(.top, 12)
+    }
+
+    /// 좌상단에 옅게 표시할 제목. 비어 있으면 placeholder.
+    private var noteTitleDisplay: String {
+        if let t = note?.title, !t.isEmpty { return t }
+        return String(localized: "제목 없음")
     }
 
     // MARK: - PDF Panel
@@ -463,11 +493,14 @@ struct NoteView: View {
                     .fill(Color.black.opacity(0.08))
                     .frame(width: 1, height: 24)
 
-                // PDF toggle
+                // PDF toggle — 교재가 없으면 교재 설정 시트를 띄운다.
                 Button {
                     if note.textbookId != nil {
                         pdfOpen.toggle()
                         try? db.updatePdfOpen(noteId: noteId, open: pdfOpen)
+                    } else {
+                        metaFocusTextbook = true
+                        showMetaEditor = true
                     }
                 } label: {
                     Image(systemName: pdfOpen ? "book.fill" : "book")
@@ -523,6 +556,12 @@ struct NoteView: View {
                 // First time — create page 0
                 let page = try db.createPage(noteId: noteId, pageIndex: 0)
                 notePages = [page]
+
+                // 최초 생성 후 진입: 교재가 연결돼 있으면 PDF 뷰어를 기본으로 연다.
+                if note?.textbookId != nil {
+                    pdfOpen = true
+                    try? db.updatePdfOpen(noteId: noteId, open: true)
+                }
             }
 
             // Load current page
@@ -537,6 +576,35 @@ struct NoteView: View {
         } catch {
             appLogError("note", "load failed", ["error": "\(error)"])
         }
+    }
+
+    /// NoteMetaSheet 저장 — 제목·주제·교재를 영속화하고 화면 상태를 갱신한다.
+    private func saveMeta(_ updated: Note) {
+        let hadTextbook = note?.textbookId != nil
+        var n = updated
+        do {
+            try db.saveNote(&n)
+            note = n
+            appLog("note", "meta saved", [
+                "id": noteId,
+                "hasPdf": "\(n.textbookId != nil)",
+            ])
+        } catch {
+            appLogError("note", "meta save failed", ["error": "\(error)"])
+            return
+        }
+
+        // 교재를 새로 붙였고 PDF pill을 통해 설정한 경우 → 바로 PDF 뷰어를 연다.
+        if !hadTextbook, n.textbookId != nil, metaFocusTextbook {
+            pdfOpen = true
+            try? db.updatePdfOpen(noteId: noteId, open: true)
+        }
+        // 교재를 해제했으면 열려 있던 PDF를 닫는다.
+        if n.textbookId == nil, pdfOpen {
+            pdfOpen = false
+            try? db.updatePdfOpen(noteId: noteId, open: false)
+        }
+        metaFocusTextbook = false
     }
 
     /// 초기 로드 시 페이지 설정 (loadNote에서 호출)
@@ -848,7 +916,7 @@ struct NoteView: View {
 
                 var fields: [String: String] = [
                     "note_id": noteId,
-                    "language": note?.language ?? "en",
+                    "language": note?.language ?? "",
                     "response_language": Config.responseLanguage,
                     "request_id": "\(requestId)",
                 ]

@@ -4,9 +4,9 @@ import PencilKit
 struct HomeView: View {
     @State private var notes: [Note] = []
     @State private var search = ""
+    @State private var path: [String] = []
     @State private var showCreateSheet = false
     @State private var showSettings = false
-    @State private var selectedNoteId: String?
     @State private var editingNote: Note?
 
     private let db = DatabaseService.shared
@@ -22,6 +22,7 @@ struct HomeView: View {
     ]
 
     var body: some View {
+        NavigationStack(path: $path) {
         ScrollView {
             if filteredNotes.isEmpty {
                 emptyState
@@ -54,10 +55,19 @@ struct HomeView: View {
         .searchable(text: $search, prompt: "노트 검색")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showCreateSheet = true
-                } label: {
-                    Image(systemName: "plus")
+                HStack {
+                    // 교재로 시작 — 처음부터 교재를 붙여 만들고 싶을 때.
+                    Button {
+                        showCreateSheet = true
+                    } label: {
+                        Image(systemName: "book.badge.plus")
+                    }
+                    // 즉시 생성 — 빈 노트를 만들고 바로 진입. 제목·주제·교재는 노트 안에서 언제든.
+                    Button {
+                        createNote()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
             ToolbarItem(placement: .topBarLeading) {
@@ -80,14 +90,15 @@ struct HomeView: View {
             SettingsSheet()
         }
         .sheet(item: $editingNote) { note in
-            EditNoteSheet(note: note) { newTitle, newLanguage in
-                updateNote(note, title: newTitle, language: newLanguage)
+            NoteMetaSheet(note: note) { updated in
+                updateNote(updated)
             }
         }
         .onAppear { loadNotes() }
         // 로그인 직후 full pull로 복원된 노트는 .onAppear 이후 DB에 머지되므로,
         // sync 완료(lastSyncedAt 변화) 때 다시 읽어 화면에 반영한다. (재실행해야 보이던 문제)
         .onChange(of: sync.lastSyncedAt) { loadNotes() }
+        }
     }
 
     @ViewBuilder
@@ -119,7 +130,10 @@ struct HomeView: View {
         }
     }
 
-    private func createNote(title: String, language: String, textbook: TextbookListItem? = nil) {
+    /// 노트 생성 후 곧바로 진입한다.
+    /// - 인자 없이 호출하면 빈 노트(제목 없음·주제 없음·교재 없음)를 즉시 만든다.
+    /// - "교재로 시작" 시트에서는 title/language/textbook을 채워 호출한다.
+    private func createNote(title: String = "", language: String = "", textbook: TextbookListItem? = nil) {
         var note = Note.new(title: title, language: language)
         if let tb = textbook {
             note.textbookId = tb.id
@@ -128,24 +142,21 @@ struct HomeView: View {
         }
         do {
             try db.saveNote(&note)
-            appLog("home", "createNote OK", ["id": note.id, "title": note.title, "countBefore": notes.count])
             notes.insert(note, at: 0)
-            appLog("home", "createNote done", ["countAfter": notes.count])
+            appLog("home", "createNote OK", ["id": note.id, "hasPdf": "\(note.textbookId != nil)"])
+            path.append(note.id)  // 즉시 진입
         } catch {
             appLogError("home", "createNote failed", ["error": "\(error)"])
         }
     }
 
-    private func updateNote(_ note: Note, title: String, language: String) {
-        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
-        var updated = notes[idx]
-        updated.title = title
-        updated.language = language
-        updated.updatedAt = Date()
+    private func updateNote(_ updated: Note) {
+        guard let idx = notes.firstIndex(where: { $0.id == updated.id }) else { return }
+        var n = updated
         do {
-            try db.saveNote(&updated)
-            notes[idx] = updated
-            appLog("home", "updateNote OK", ["id": updated.id])
+            try db.saveNote(&n)
+            notes[idx] = n
+            appLog("home", "updateNote OK", ["id": n.id])
         } catch {
             appLogError("home", "updateNote failed", ["error": "\(error)"])
         }
@@ -195,13 +206,15 @@ struct NoteCardView: View {
                 .lineLimit(1)
 
             HStack {
-                Text(note.language)
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.blue.opacity(0.1))
-                    .foregroundStyle(.blue)
-                    .clipShape(Capsule())
+                if !note.language.isEmpty {
+                    Text(note.language)
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.blue.opacity(0.1))
+                        .foregroundStyle(.blue)
+                        .clipShape(Capsule())
+                }
 
                 if note.textbookName != nil {
                     Image(systemName: "book.closed.fill")

@@ -25,6 +25,7 @@
 - **tier 정책** (`get_tier` → normal/pro):
   - **free(normal)**: 권당(per-textbook) OCR 페이지 **하드 캡 50p**(`OCR_FREE_CAP_PAGES`). 캡 경계는 **명시적 안내 + 업셀**("전체 인식은 Pro") — 조용히 자르지 않는다. 권당 비용 ~$0.3 상한.
   - **pro**: 풀 OCR 백그라운드. `task_type="ocr"` **별도 예산 버킷**으로 interactive(피드백/챗) 쿼터를 굶기지 않음. 백스톱 600p(`OCR_MAX_PAGES_PER_BOOK`).
+  - **admin**(JWT `role=admin`): **무제한** — 페이지 캡(풀북=`total_pages`)·OCR 예산 모두 우회. role은 DB에 없어 업로드 시점에 `ocr_unlimited=true`로 영속화(백그라운드 잡·스위퍼가 JWT 없이 판별). 예산 우회로 `paused`되지 않으므로 스위퍼 변경 불필요.
 - **비용/쿼터**: OCR도 Claude 호출 → `LLMUsage(task_type="ocr")`로 비용 기록 → 기존 USD 기반 쿼터(`quota.py`)에 흡수.
 - **자동 재개**: 잡이 멈추는 3원인(예산/예외/프로세스 사망)을 구분하고, 인프로세스 주기 스위퍼가 예산 회복 시 자동 재개(§2.3). cron 등 외부 인프라 불필요.
 
@@ -166,7 +167,8 @@ UNIQUE(textbook_id, page)      # 재OCR 멱등 / 재개 skip 판정
 is_scanned     Boolean default False
 ocr_status     String  nullable   # pending|running|paused|error|capped|complete
 ocr_pages_done Integer default 0
-ocr_cap        Integer nullable   # 적용 캡 (free=50, pro=600)
+ocr_cap        Integer nullable   # 적용 캡 (free=50, pro=600, admin=total_pages)
+ocr_unlimited  Boolean default F  # admin 무제한(페이지 캡·예산 우회). 마이그 e1f2a3b4c5d6
 ocr_updated_at DateTime nullable  # 하트비트 → stale면 프로세스 사망 판별
 ```
 

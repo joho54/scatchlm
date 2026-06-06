@@ -159,7 +159,8 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
                 for page in range(1, target + 1):
                     if page in done_pages:
                         continue
-                    if await check_ocr_quota(user_id, db):
+                    # admin 무제한(ocr_unlimited)은 예산 체크를 건너뛴다 → paused 되지 않음.
+                    if not source.ocr_unlimited and await check_ocr_quota(user_id, db):
                         status = "paused"
                         log.info("OCR job paused (quota): textbook=%s at page=%d", textbook_id, page)
                         break
@@ -340,9 +341,16 @@ async def upload_pdf(
 
     # 스캔본(이미지) PDF 감지 — ENABLE_OCR 토글이 꺼져 있으면 항상 텍스트 PDF로 취급(기존 흐름).
     is_scanned = settings.ENABLE_OCR and is_scanned_pdf(server_path, total_pages)
+    # admin(JWT role=admin)은 OCR 무제한 — 페이지 캡·예산 모두 우회. role은 DB에 없어 여기서 영속화.
+    is_admin = get_role(payload) == "admin"
     ocr_cap = None
+    ocr_unlimited = False
     if is_scanned:
-        ocr_cap = settings.OCR_FREE_CAP_PAGES if tier != "pro" else settings.OCR_MAX_PAGES_PER_BOOK
+        if is_admin:
+            ocr_unlimited = True
+            ocr_cap = total_pages  # 풀북 (50/600 캡 무시)
+        else:
+            ocr_cap = settings.OCR_FREE_CAP_PAGES if tier != "pro" else settings.OCR_MAX_PAGES_PER_BOOK
 
     source = TextbookSource(
         user_id=user_id,
@@ -355,6 +363,7 @@ async def upload_pdf(
         is_scanned=is_scanned,
         ocr_status="pending" if is_scanned else None,
         ocr_cap=ocr_cap,
+        ocr_unlimited=ocr_unlimited,
     )
     db.add(source)
     try:
@@ -544,7 +553,7 @@ async def get_pdf_status(
         ocr_pages_total=ocr_pages_total,
         total_pages=source.total_pages,
         capped=source.ocr_status == "capped",
-        cap_limit=cap if tier != "pro" else None,
+        cap_limit=None if (source.ocr_unlimited or tier == "pro") else cap,
         chapters_ready=chapters_ready,
     )
 

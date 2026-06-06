@@ -51,7 +51,7 @@ ENTITY_FIELDS: dict[str, list[str]] = {
     "folders": ["name", "sort_order", "created_at"],
     "notes": [
         "title", "language", "folder_id", "textbook_id", "textbook_name", "textbook_pages",
-        "last_page", "pdf_open", "current_page_index", "drawing_hash", "created_at",
+        "last_page", "pdf_open", "current_page_index", "template", "drawing_hash", "created_at",
     ],
     "note_pages": ["note_id", "page_index", "drawing_hash", "created_at"],
     "pdf_annotations": ["note_id", "pdf_page", "drawing_hash", "created_at"],

@@ -29,12 +29,14 @@
 		484A753DA988497B5FB5E152 /* WebAssets in Resources */ = {isa = PBXBuildFile; fileRef = 947225FE2D686B29C56F4B97 /* WebAssets */; };
 		48593657C2174AD1AF1E6EC5 /* DrawingHash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 154C163A4458A929F3381C5D /* DrawingHash.swift */; };
 		4DB709A105BD7E276EC51897 /* AIResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679B23706BB3597C8044006F /* AIResponse.swift */; };
+		508D520FCBF1C2A686ABE603 /* NoteTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886DD8CD7AE3DA3F6477840E /* NoteTemplate.swift */; };
 		527E3460CB3B7483BB962D3E /* NoteMetaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267A5359DA46F3B9B3393963 /* NoteMetaSheet.swift */; };
 		596C6EE008171D393AA56B90 /* SyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */; };
 		60EE77BCF6CA71AFF68B7653 /* Note.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFE523FFC2200C1FC82A2E4 /* Note.swift */; };
 		6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */; };
 		6E442C97A76BCDD84A9BBC36 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 0F63CE6E79A14DFB9036D806 /* GRDB */; };
 		6E5F523088581A9AF68C62BE /* LogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52A7F87E1D186E8DDE427CB /* LogService.swift */; };
+		70F1C874B0C25423AB2DF386 /* CanvasTemplateLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8501E7F3A1B232E3B9F4311 /* CanvasTemplateLayer.swift */; };
 		7650CEA116D7F36CDFE23AD0 /* Color+Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8E5B179E66B5F1157A8FE6 /* Color+Hex.swift */; };
 		7934CDE88146D5974C0E18B1 /* NoteSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D88EC19A82161B002E02609 /* NoteSearchTests.swift */; };
 		7A1DE7B290F43F1D32235D42 /* DatabaseServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */; };
@@ -99,6 +101,7 @@
 		83513D52E0AEE8A1123D5420 /* MarkdownContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownContentView.swift; sourceTree = "<group>"; };
 		84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sentry.xcframework; path = Vendor/Sentry.xcframework; sourceTree = "<group>"; };
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		886DD8CD7AE3DA3F6477840E /* NoteTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTemplate.swift; sourceTree = "<group>"; };
 		947225FE2D686B29C56F4B97 /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = SOURCE_ROOT; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
 		9DC172E785A1151DEE61A85B /* FolderSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderSidebar.swift; sourceTree = "<group>"; };
@@ -109,6 +112,7 @@
 		D0B1940235A9FDF08A1E9126 /* NoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteView.swift; sourceTree = "<group>"; };
 		D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusIndicator.swift; sourceTree = "<group>"; };
 		D7A77C93C22BFC716A884820 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		D8501E7F3A1B232E3B9F4311 /* CanvasTemplateLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasTemplateLayer.swift; sourceTree = "<group>"; };
 		E448211B4B38BBC9147A67F8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		E52A7F87E1D186E8DDE427CB /* LogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogService.swift; sourceTree = "<group>"; };
 		EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakedMarkdownHTMLTests.swift; sourceTree = "<group>"; };
@@ -162,6 +166,7 @@
 			children = (
 				679B23706BB3597C8044006F /* AIResponse.swift */,
 				5AFE523FFC2200C1FC82A2E4 /* Note.swift */,
+				886DD8CD7AE3DA3F6477840E /* NoteTemplate.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -243,6 +248,7 @@
 			isa = PBXGroup;
 			children = (
 				24157267AAD8DC390057F2DA /* BakedMarkdownView.swift */,
+				D8501E7F3A1B232E3B9F4311 /* CanvasTemplateLayer.swift */,
 				5FC2179BEC204EBD835987DD /* ChapterDrawerView.swift */,
 				971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */,
 				F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */,
@@ -393,6 +399,7 @@
 				18AC9BB7343336EE101ACA63 /* APIClient.swift in Sources */,
 				FA08A5EA08E7963F7064CADF /* AuthService.swift in Sources */,
 				F37AA108DAE68E61A4B76031 /* BakedMarkdownView.swift in Sources */,
+				70F1C874B0C25423AB2DF386 /* CanvasTemplateLayer.swift in Sources */,
 				2BD1B671389331E7F0DC1E98 /* ChapterDrawerView.swift in Sources */,
 				7650CEA116D7F36CDFE23AD0 /* Color+Hex.swift in Sources */,
 				FB0EE0DF5E637E7CBE74B613 /* Config.swift in Sources */,
@@ -412,6 +419,7 @@
 				27F35F95F92188CB80F6E5DD /* MoveToFolderSheet.swift in Sources */,
 				60EE77BCF6CA71AFF68B7653 /* Note.swift in Sources */,
 				527E3460CB3B7483BB962D3E /* NoteMetaSheet.swift in Sources */,
+				508D520FCBF1C2A686ABE603 /* NoteTemplate.swift in Sources */,
 				3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */,
 				30709021522A472BD55FB69E /* Observability.swift in Sources */,
 				3F972B478F07F438B198F02F /* PageNavigatorView.swift in Sources */,

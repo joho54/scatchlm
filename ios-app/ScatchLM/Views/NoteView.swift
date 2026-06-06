@@ -375,6 +375,7 @@ struct NoteView: View {
             onStrokeChanged: {
                 refreshUndoState()
             },
+            template: NoteTemplate(storage: note.template),
             // 페이지 그림만 로드. note.drawingData(레거시 노트레벨 그림) 폴백은 page 0에만 적용 —
             // 새 페이지(index>0)가 옛 노트 그림을 ghost로 로드하던 경로를 차단.
             initialDrawingData: currentNotePage?.drawingData ?? (currentPageIndex == 0 ? note.drawingData : nil),
@@ -451,9 +452,47 @@ struct NoteView: View {
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                 }
+
+                // 캔버스 배경 템플릿 선택 — Picker라 현재 선택에 체크마크 자동 표시.
+                Menu {
+                    Picker(String(localized: "배경 템플릿"), selection: templateBinding) {
+                        ForEach(NoteTemplate.allCases) { t in
+                            Label(t.displayName, systemImage: t.systemImage).tag(t)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 36, height: 36)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                }
             }
             .padding(.leading, 12)
             .padding(.top, 12)
+    }
+
+    /// 현재 노트의 템플릿 ↔ picker 바인딩. set은 DB 저장+dirty(sync)까지 수행.
+    private var templateBinding: Binding<NoteTemplate> {
+        Binding(
+            get: { NoteTemplate(storage: note?.template ?? "blank") },
+            set: { changeTemplate($0) }
+        )
+    }
+
+    /// 템플릿 변경 — 같은 값이면 no-op. note 상태 갱신 → SwiftUI가 updateUIView로 레이어 재렌더.
+    private func changeTemplate(_ t: NoteTemplate) {
+        guard var n = note, NoteTemplate(storage: n.template) != t else { return }
+        n.template = t.rawValue
+        do {
+            try db.saveNote(&n)   // updatedAt/dirty 갱신 (inout)
+            note = n
+            appLog("note", "template changed", ["template": t.rawValue])
+        } catch {
+            appLogError("note", "template save failed", ["err": "\(error)"])
+        }
     }
 
     /// 슬라이드 오버 상단에 표시할 제목. 비어 있으면 placeholder.
@@ -1220,6 +1259,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var dividerDragging: Bool = false
     var onDrawingChanged: () -> Void
     var onStrokeChanged: (() -> Void)? = nil
+    /// 캔버스 배경 템플릿(오선지/줄노트/격자). 노트 단위 속성.
+    var template: NoteTemplate = .blank
     var initialDrawingData: Data?
     var feedbacks: [FeedbackRecord]
     var onFeedbackTapped: ((FeedbackRecord) -> Void)?
@@ -1257,6 +1298,16 @@ struct PencilKitCanvasView: UIViewRepresentable {
         contentView.frame = CGRect(x: 0, y: 0, width: logical, height: logical * 2)
         host.addSubview(contentView)
         host.contentSize = contentView.bounds.size
+
+        // 배경 템플릿 — 종이(contentView 배경색) 위, 잉크(canvas) 아래의 최하위 sublayer.
+        // CATiledLayer라 캔버스 높이 확장·줌에도 메모리/선명도 유지(파일 주석 참조).
+        let templateLayer = CanvasTemplateLayer()
+        templateLayer.frame = contentView.bounds
+        templateLayer.contentsScale = UIScreen.main.scale
+        templateLayer.template = template
+        templateLayer.isDark = isDark
+        contentView.layer.insertSublayer(templateLayer, at: 0)
+        coordinator.templateLayer = templateLayer
 
         // PencilKit — 그리기 전용 오버레이
         #if targetEnvironment(simulator)
@@ -1327,6 +1378,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.onFeedbackCopy = onFeedbackCopy
         coordinator.onPaste = onPaste
         coordinator.contentView?.backgroundColor = isDark ? .black : .white
+        // 템플릿/다크모드 변경 시 didSet이 setNeedsDisplay 트리거(동일하면 no-op).
+        coordinator.templateLayer?.isDark = isDark
+        coordinator.templateLayer?.template = template
         // Only update tool color if user hasn't picked a custom color via tool picker
         if let inkTool = canvasView.tool as? PKInkingTool,
            inkTool.color == .black || inkTool.color == .white {
@@ -1379,6 +1433,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         weak var contentView: UIView?
         /// 그리기 전용 PencilKit. contentView의 자식.
         weak var canvas: PKCanvasView?
+        /// 배경 템플릿 타일 레이어. contentView.layer의 최하위 sublayer(잉크 아래). contentView가 retain.
+        weak var templateLayer: CanvasTemplateLayer?
         /// 마지막으로 적용한 패널 폭 — 변하면 zoom-to-fit 재적용.
         private var lastPanelWidth: CGFloat = 0
         /// renderAllCards 멱등성 가드 — 카드 표시/레이아웃에 영향 주는 입력의 시그니처.
@@ -1472,6 +1528,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
             canvas?.frame = contentView.bounds
+            // 템플릿 레이어도 함께 확장. implicit 애니메이션 차단(깜빡임 방지) — 새 타일은
+            // CATiledLayer가 fade 없이(fadeDuration=0) 채운다.
+            if let templateLayer {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                templateLayer.frame = CGRect(x: 0, y: 0, width: w, height: h)
+                CATransaction.commit()
+            }
             host.contentSize = CGSize(width: w * s, height: h * s)
         }
 

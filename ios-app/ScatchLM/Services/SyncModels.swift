@@ -19,6 +19,7 @@ struct SyncNoteDTO: Codable {
     var last_page: Int
     var pdf_open: Bool
     var current_page_index: Int
+    var template: String?       // 캔버스 배경 템플릿(NoteTemplate.rawValue). 구버전 페이로드 호환 위해 옵셔널.
     var drawing_hash: String?
     var created_at: String
 }

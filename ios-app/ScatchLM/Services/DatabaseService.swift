@@ -367,6 +367,14 @@ final class DatabaseService {
             try db.rename(table: "feedback_chats_new", to: "feedback_chats")
         }
 
+        // v12: notes.template — 캔버스 배경 템플릿(NoteTemplate.rawValue). 기존 노트는 "blank"로
+        // 자연 호환. sync 필드(folder_id 패턴)와 동일하게 push/pull은 ENTITY_FIELDS로 자동 처리.
+        migrator.registerMigration("v12_note_template") { db in
+            try db.alter(table: "notes") { t in
+                t.add(column: "template", .text).notNull().defaults(to: "blank")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

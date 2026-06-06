@@ -357,7 +357,7 @@ final class SyncService: @unchecked Sendable {
             title: n.title, language: n.language, folder_id: n.folderId,
             textbook_id: n.textbookId, textbook_name: n.textbookName,
             textbook_pages: n.textbookPages, last_page: n.lastPage, pdf_open: n.pdfOpen,
-            current_page_index: n.currentPageIndex, drawing_hash: n.drawingHash,
+            current_page_index: n.currentPageIndex, template: n.template, drawing_hash: n.drawingHash,
             created_at: SyncDate.string(from: n.createdAt)
         )
     }
@@ -368,6 +368,7 @@ final class SyncService: @unchecked Sendable {
             textbookId: d.textbook_id,
             textbookName: d.textbook_name, textbookPages: d.textbook_pages, drawingData: drawingData,
             lastPage: d.last_page, pdfOpen: d.pdf_open, currentPageIndex: d.current_page_index,
+            template: d.template ?? "blank",
             createdAt: SyncDate.date(from: d.created_at) ?? Date(),
             updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),
             userId: userId, drawingHash: d.drawing_hash, deleted: d.deleted, dirty: false

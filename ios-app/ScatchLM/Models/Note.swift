@@ -21,6 +21,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var lastPage: Int
     var pdfOpen: Bool
     var currentPageIndex: Int
+    var template: String   // 캔버스 배경 템플릿 (NoteTemplate.rawValue). 기본 "blank".
     var createdAt: Date
     var updatedAt: Date
     // sync 메타
@@ -40,6 +41,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         case lastPage = "last_page"
         case pdfOpen = "pdf_open"
         case currentPageIndex = "current_page_index"
+        case template
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case userId = "user_id"
@@ -57,6 +59,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         case lastPage = "last_page"
         case pdfOpen = "pdf_open"
         case currentPageIndex = "current_page_index"
+        case template
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case userId = "user_id"
@@ -76,6 +79,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         lastPage: Int,
         pdfOpen: Bool,
         currentPageIndex: Int,
+        template: String = "blank",
         createdAt: Date,
         updatedAt: Date,
         userId: String = "",
@@ -94,6 +98,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         self.lastPage = lastPage
         self.pdfOpen = pdfOpen
         self.currentPageIndex = currentPageIndex
+        self.template = template
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.userId = userId

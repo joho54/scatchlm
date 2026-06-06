@@ -62,6 +62,7 @@ class Note(Base):
     last_page: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     pdf_open: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     current_page_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    template: Mapped[str] = mapped_column(String, nullable=False, default="blank")  # 캔버스 배경 템플릿
     drawing_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)

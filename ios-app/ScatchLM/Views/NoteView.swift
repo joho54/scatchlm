@@ -177,6 +177,7 @@ struct NoteView: View {
                             PageNavigatorView(
                                 pages: notePages,
                                 currentIndex: currentPageIndex,
+                                title: noteTitleDisplay,
                                 onSelect: { idx in
                                     goToPage(index: idx)
                                     withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
@@ -196,6 +197,10 @@ struct NoteView: View {
                                 },
                                 onDelete: { page in
                                     deletePage(page)
+                                },
+                                onEditMeta: {
+                                    metaFocusTextbook = false
+                                    showMetaEditor = true
                                 }
                             )
                             .transition(.move(edge: .leading))
@@ -384,16 +389,14 @@ struct NoteView: View {
                         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                 }
 
+                // 페이지 슬라이드 오버 토글 — 제목 편집·페이지 추가/재정렬/삭제가 모두 그 안에 있어
+                // 페이지 수와 무관하게 항상 슬라이드 오버를 연다.
                 Button {
-                    if notePages.count <= 1 {
-                        newPage()
-                    } else {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
-                            pageNavOpen.toggle()
-                        }
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                        pageNavOpen.toggle()
                     }
                 } label: {
-                    Image(systemName: notePages.count <= 1 ? "plus.rectangle" : "sidebar.left")
+                    Image(systemName: "sidebar.left")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: 36, height: 36)
@@ -401,26 +404,12 @@ struct NoteView: View {
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                 }
-
-                // 옅은 제목 — 평소엔 정보 표시, 탭하면 제목·주제·교재 편집.
-                // 칩/바가 아니라 캔버스 위에 떠 있는 텍스트라 별도 세로 공간을 차지하지 않는다.
-                Button {
-                    metaFocusTextbook = false
-                    showMetaEditor = true
-                } label: {
-                    Text(noteTitleDisplay)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(note?.title.isEmpty == false ? Color.primary.opacity(0.55) : Color.secondary.opacity(0.5))
-                        .lineLimit(1)
-                        .shadow(color: Color(uiColor: .systemBackground).opacity(0.6), radius: 2)
-                        .padding(.leading, 2)
-                }
             }
             .padding(.leading, 12)
             .padding(.top, 12)
     }
 
-    /// 좌상단에 옅게 표시할 제목. 비어 있으면 placeholder.
+    /// 슬라이드 오버 상단에 표시할 제목. 비어 있으면 placeholder.
     private var noteTitleDisplay: String {
         if let t = note?.title, !t.isEmpty { return t }
         return String(localized: "제목 없음")

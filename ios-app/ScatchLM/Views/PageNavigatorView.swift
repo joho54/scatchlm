@@ -4,19 +4,43 @@ import PencilKit
 struct PageNavigatorView: View {
     let pages: [NotePage]
     let currentIndex: Int
+    let title: String
     let onSelect: (Int) -> Void
     let onAdd: () -> Void
     let onClose: () -> Void
     let onMove: (IndexSet, Int) -> Void
     let onDelete: (NotePage) -> Void
+    let onEditMeta: () -> Void
 
     private let thumbSize = CGSize(width: 160, height: 107)  // 가로형
 
     var body: some View {
         VStack(spacing: 0) {
+            // 노트 제목 — 캔버스 위 떠 있던 제목을 여기로 옮김. 탭하면 노트 정보 편집.
+            Button(action: onEditMeta) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
             HStack {
                 Text("페이지")
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button(action: onAdd) {
                     Image(systemName: "plus")
@@ -28,8 +52,7 @@ struct PageNavigatorView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+            .padding(.vertical, 10)
 
             Divider()
 

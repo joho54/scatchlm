@@ -363,25 +363,21 @@ async def test_ocr_start_on_text_pdf_returns_400(client: AsyncClient, auth_heade
 
 
 @pytest.mark.asyncio
-async def test_dedup_reconciles_stale_scanned_record(client: AsyncClient, auth_header: dict):
-    """A(파생상태 재조정): OCR 꺼졌을 때 올라가 is_scanned=false로 굳은 스캔본을, OCR 켠 뒤
-    같은 파일 재업로드하면 dedup 경로가 재평가해 scanned/available로 살린다(stale-PDF 해결)."""
-    pdf_bytes = make_blank_pdf()
-    # 1) OCR off → 감지 단락으로 is_scanned=false 저장 (켜기 전 업로드 모사)
+async def test_scanned_eval_unconditional_status_derives_available(client: AsyncClient, auth_header: dict):
+    """is_scanned는 ENABLE_OCR과 무관하게 upload 때 평가(파일 고유 속성). ocr_status='available'
+    제안은 ENABLE_OCR이 켜진 뒤 status 첫 읽기에서 파생 — 재사용/노트첨부로 열어도 OCR이 뜬다."""
+    # 1) OCR off로 업로드 → 스캔본으로 평가되지만 제안은 아직 없음
     with patch("app.routers.pdf.settings.ENABLE_OCR", False), \
          patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
          patch("app.routers.pdf._background_detect_chapters", new_callable=AsyncMock):
-        first = await _upload(client, auth_header, pdf_bytes)
-    assert first["is_scanned"] is False
-    # 2) OCR on + 같은 파일 재업로드 → dedup 재사용 + 재조정
-    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
-         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
-         patch("app.routers.pdf._background_ocr", new_callable=AsyncMock) as ocr_job:
-        second = await _upload(client, auth_header, pdf_bytes)
-    assert second["id"] == first["id"]          # dedup 재사용(새 레코드 아님)
-    assert second["is_scanned"] is True         # 재조정됨
-    assert second["ocr_status"] == "available"  # 자동 시작 X — 유저 명시적 start 대기
-    ocr_job.assert_not_called()
+        up = await _upload(client, auth_header, make_blank_pdf())
+    assert up["is_scanned"] is True     # ENABLE_OCR 꺼져도 스캔본 평가됨(파일 속성)
+    assert up["ocr_status"] is None      # 제안은 ENABLE_OCR off라 아직 없음
+    # 2) ENABLE_OCR on에서 status 첫 읽기 → ocr_status null→available 파생(PDF 재오픈 없음)
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True):
+        st = await client.get(f"/api/pdf/{up['id']}/status", headers=auth_header)
+    assert st.status_code == 200
+    assert st.json()["ocr_status"] == "available"
 
 
 @pytest.mark.asyncio

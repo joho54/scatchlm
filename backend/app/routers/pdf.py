@@ -318,24 +318,8 @@ async def upload_pdf(
             )
             indexing_status = "started"
 
-        # 파생 상태 재조정(A): dedup이 박제한 is_scanned를 "현재 규칙"으로 다시 평가한다.
-        # 업로드 당시 OCR이 꺼져 있었거나 감지 전이라 is_scanned=false로 굳은 스캔본을, ENABLE_OCR이
-        # 켜진 지금 재검사해 살린다. has_no_text_layer는 싸므로(텍스트 레이어 유무) 매 중복마다 무해.
-        # 재업로드(같은 파일)로 OCR이 안 켜지던 stale-PDF 문제의 직접 해결.
-        if (settings.ENABLE_OCR and not existing_source.is_scanned
-                and has_no_text_layer(existing_source.server_path, existing_source.total_pages)):
-            is_admin = get_role(payload) == "admin"
-            existing_source.is_scanned = True
-            existing_source.ocr_status = "available"  # 자동 시작 안 함 — 유저가 명시적 start
-            existing_source.ocr_unlimited = is_admin
-            existing_source.ocr_cap = (
-                existing_source.total_pages if is_admin
-                else (settings.OCR_FREE_CAP_PAGES if tier != "pro" else settings.OCR_MAX_PAGES_PER_BOOK)
-            )
-            await db.commit()
-            log.info("PDF duplicate reconciled to scanned: textbook=%s → ocr_status=available",
-                     existing_source.id)
-
+        # is_scanned는 upload 때 무조건 평가돼 박제되므로 dedup 재사용 시 재평가 불필요(레거시는 백필).
+        # ocr_status available 파생은 status 엔드포인트가 담당.
         # 스캔본이 미완(pending/paused/error)인 채 멈춰 있으면 재업로드로 즉시 재개한다.
         # (주기 스위퍼도 결국 재개하지만, 재업로드는 즉시 트리거. 원자 claim으로 중복 무해.)
         # available(미시작)은 재개 대상 아님 — 유저가 명시적으로 시작해야 한다.
@@ -358,20 +342,12 @@ async def upload_pdf(
 
     log.info("PDF saved: file=%s pages=%d size=%dKB path=%s", file_name, total_pages, file_size // 1024, server_path)
 
-    # 스캔본(이미지) PDF 감지 — ENABLE_OCR 토글이 꺼져 있으면 항상 텍스트 PDF로 취급(기존 흐름).
-    # 텍스트 레이어가 비었으면 OCR을 "제안"만 한다(자동 시작 안 함). 시작은 유저의 명시적
-    # POST /{id}/ocr/start 호출(쿼터 소진 동의) — ocr_status="available"에서 "pending"으로.
-    is_scanned = settings.ENABLE_OCR and has_no_text_layer(server_path, total_pages)
-    # admin(JWT role=admin)은 OCR 무제한 — 페이지 캡·예산 모두 우회. role은 DB에 없어 여기서 영속화.
-    is_admin = get_role(payload) == "admin"
-    ocr_cap = None
-    ocr_unlimited = False
-    if is_scanned:
-        if is_admin:
-            ocr_unlimited = True
-            ocr_cap = total_pages  # 풀북 (50/600 캡 무시)
-        else:
-            ocr_cap = settings.OCR_FREE_CAP_PAGES if tier != "pro" else settings.OCR_MAX_PAGES_PER_BOOK
+    # is_scanned = "텍스트 레이어가 비었나"는 파일의 고유 속성 → ENABLE_OCR과 무관하게 항상 평가한다.
+    # 교재 생성(upload)이 유일한 평가 지점이며, 이후 재사용/노트첨부는 이 값을 그대로 읽는다(재평가 없음).
+    # ocr_status="available"(OCR 제안)는 파생값 — is_scanned && ENABLE_OCR. ENABLE_OCR이 나중에 켜지면
+    # status 엔드포인트가 처음 읽을 때 null→available로 파생한다(§ get_pdf_status). 페이지 캡/무제한
+    # 같은 tier 의존 예산은 평가가 아니라 시작 시점(start_ocr)에 결정한다.
+    is_scanned = has_no_text_layer(server_path, total_pages)
 
     source = TextbookSource(
         user_id=user_id,
@@ -382,9 +358,7 @@ async def upload_pdf(
         file_size=file_size,
         content_hash=content_hash,
         is_scanned=is_scanned,
-        ocr_status="available" if is_scanned else None,  # 유저가 명시적으로 시작해야 pending
-        ocr_cap=ocr_cap,
-        ocr_unlimited=ocr_unlimited,
+        ocr_status=("available" if (is_scanned and settings.ENABLE_OCR) else None),
     )
     db.add(source)
     try:
@@ -533,7 +507,21 @@ class PdfStatusResponse(BaseModel):
     chapters_ready: bool = False
 
 
-async def _build_status_response(source: TextbookSource, tier: str, db: AsyncSession) -> PdfStatusResponse:
+def _ocr_unlimited(tier: str, is_admin: bool) -> bool:
+    """admin은 무제한, pro는 cap_limit 미표시(백스톱 600은 내부 한정)."""
+    return is_admin or tier == "pro"
+
+
+def _effective_cap(total_pages: int, tier: str, is_admin: bool) -> int:
+    """tier별 이번 OCR 대상 페이지 수. 평가가 아니라 예산이므로 시작/표시 시점에 결정한다."""
+    if is_admin:
+        return total_pages  # 무제한 = 풀북
+    if tier == "pro":
+        return min(total_pages, settings.OCR_MAX_PAGES_PER_BOOK)
+    return min(total_pages, settings.OCR_FREE_CAP_PAGES)
+
+
+async def _build_status_response(source: TextbookSource, tier: str, is_admin: bool, db: AsyncSession) -> PdfStatusResponse:
     chapters_ready = bool(await db.scalar(
         select(func.count()).select_from(Chapter).where(Chapter.textbook_id == source.id)
     ))
@@ -544,16 +532,14 @@ async def _build_status_response(source: TextbookSource, tier: str, db: AsyncSes
             total_pages=source.total_pages,
             chapters_ready=chapters_ready,
         )
-    cap = source.ocr_cap
-    ocr_pages_total = min(source.total_pages, cap) if cap else source.total_pages
     return PdfStatusResponse(
         is_scanned=True,
         ocr_status=source.ocr_status,
         ocr_pages_done=source.ocr_pages_done or 0,
-        ocr_pages_total=ocr_pages_total,
+        ocr_pages_total=_effective_cap(source.total_pages, tier, is_admin),
         total_pages=source.total_pages,
         capped=source.ocr_status == "capped",
-        cap_limit=None if (source.ocr_unlimited or tier == "pro") else cap,
+        cap_limit=None if _ocr_unlimited(tier, is_admin) else settings.OCR_FREE_CAP_PAGES,
         chapters_ready=chapters_ready,
     )
 
@@ -576,9 +562,19 @@ async def get_pdf_status(
     payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
-    """OCR/인덱싱 진행 상태 (docs/scanned-pdf-ocr-spec.md §3.2-b). iOS 폴링용."""
+    """OCR/인덱싱 진행 상태 (docs/scanned-pdf-ocr-spec.md §3.2-b). iOS 폴링용.
+
+    파생: is_scanned는 upload 때 무조건 평가됐고, ENABLE_OCR이 나중에 켜진 경우 여기서 처음
+    읽을 때 ocr_status null→available로 채운다(싼 DB write 1회, PDF 재오픈 없음). 이게 "재사용/
+    노트첨부로 들어온 스캔본이 열릴 때 OCR 제안이 뜨는" 경로다 — status가 유일한 진입점.
+    """
     source = await _get_owned_source(textbook_id, payload["sub"], db)
-    return await _build_status_response(source, get_tier(payload), db)
+    tier = get_tier(payload)
+    is_admin = get_role(payload) == "admin"
+    if source.is_scanned and settings.ENABLE_OCR and source.ocr_status is None:
+        source.ocr_status = "available"
+        await db.commit()
+    return await _build_status_response(source, tier, is_admin, db)
 
 
 @router.post("/{textbook_id}/ocr/start", response_model=PdfStatusResponse)
@@ -595,18 +591,23 @@ async def start_ocr(
     """
     user_id = payload["sub"]
     tier = get_tier(payload)
+    is_admin = get_role(payload) == "admin"
     source = await _get_owned_source(textbook_id, user_id, db)
     if not source.is_scanned:
         raise HTTPException(status_code=400, detail="Not a scanned PDF (has text layer)")
 
-    if source.ocr_status in ("available", "paused", "error"):
+    # 페이지 캡/무제한 같은 tier 의존 예산은 평가가 아니라 "시작 시점"에 현재 tier로 결정한다.
+    if source.ocr_status in (None, "available", "paused", "error"):
+        source.ocr_cap = _effective_cap(source.total_pages, tier, is_admin)
+        source.ocr_unlimited = is_admin
         source.ocr_status = "pending"
         source.ocr_updated_at = _utcnow()
         await db.commit()
         background_tasks.add_task(_background_ocr, source.id, user_id, tier)
-        log.info("OCR start (explicit): textbook=%s user=%s status→pending", textbook_id, user_id)
+        log.info("OCR start (explicit): textbook=%s user=%s cap=%d unlimited=%s status→pending",
+                 textbook_id, user_id, source.ocr_cap, is_admin)
 
-    return await _build_status_response(source, tier, db)
+    return await _build_status_response(source, tier, is_admin, db)
 
 
 @router.get("/extract")

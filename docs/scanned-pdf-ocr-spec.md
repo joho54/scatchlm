@@ -46,31 +46,32 @@
 
 ### 2.1 업로드 → OCR 플로우
 
+**평가는 교재 생성(upload) 1회.** is_scanned는 파일 고유 속성(텍스트 레이어 유무)이므로 ENABLE_OCR과 무관하게 upload에서 무조건 계산해 박제한다. 이후 재사용·노트첨부는 이 값을 그대로 읽는다(재평가 없음 — 이게 "단일 평가 지점"). tier 의존 예산(캡/무제한)은 평가가 아니라 **시작 시점(start_ocr)** 에 결정한다.
+
 ```
 POST /api/pdf/upload  (get_verified_payload → user_id, tier)
   │
   ├─ save_pdf → total_pages, content_hash
-  ├─ 중복(content_hash) → 기존 레코드 재사용. + 파생상태 재조정(§2.5): is_scanned=false인데
-  │     ENABLE_OCR on & 텍스트레이어 없으면 → scanned/available로 갱신(stale-PDF 해결).
+  ├─ 중복(content_hash) → 기존 레코드 재사용(is_scanned 이미 박제됨 → 재평가 불필요).
   │     스캔본이 이미-시작됨(pending/paused/error)이면 즉시 재개. available(미시작)은 재개 안 함.
   │
-  ├─ is_scanned = ENABLE_OCR && has_no_text_layer()   # 토글 off면 항상 false → 기존 흐름
-  │     has_no_text_layer: 중앙부 최대 10p 샘플의 추출 텍스트가 전부 공백 → True (이진 사실,
-  │     퍼지 임계값 아님). 이 값은 OCR을 "자동 시작"하지 않고 "제안"할지만 결정
+  ├─ is_scanned = has_no_text_layer()   # ENABLE_OCR 무관, 항상 평가. 파일 속성(이진 사실).
+  │     중앙부 최대 10p 샘플의 추출 텍스트가 전부 공백 → True. 퍼지 임계값 아님.
   │
   ├─ extract_toc(bookmarks) 있으면 챕터 저장 (스캔본도 임베디드 TOC면 동작)
   │
-  ├─ is_scanned=false → (TOC 없으면) _background_detect_chapters + _background_index  ← 기존
+  ├─ TextbookSource(is_scanned, ocr_status = available if (is_scanned && ENABLE_OCR) else null) 저장
+  │     ocr_cap/ocr_unlimited는 여기서 안 정함(start_ocr에서 tier로 결정).
   │
-  └─ is_scanned=true:
-        TextbookSource(is_scanned=true, ocr_status="available",  # 시작 대기 — 자동 시작 안 함
-                       ocr_cap = admin?total : free?50:600,
-                       ocr_unlimited = admin) 저장
-        BackgroundTasks: _background_ocr 등록 안 함 (_background_index만)
-        응답: { ..., is_scanned:true, ocr_status:"available" }
+  ├─ is_scanned=false → (TOC 없으면) _background_detect_chapters. _background_index는 항상.
+  │
+  └─ 응답: { ..., is_scanned, ocr_status }
+        ↓
+  [재사용/노트첨부로 열 때] GET /api/pdf/{id}/status
+        is_scanned & ENABLE_OCR & ocr_status==null → "available" 파생(싼 DB write 1회, PDF 재오픈 X)
         ↓
   POST /api/pdf/{id}/ocr/start  (유저가 쿼터 소진 동의)
-        ocr_status: available → pending, _background_ocr 등록
+        ocr_cap/ocr_unlimited를 현재 tier로 결정 → ocr_status: available → pending → _background_ocr 등록
         챕터 LLM 감지는 OCR 완료 후로 연기(텍스트 레이어가 비어 있으므로)
 ```
 
@@ -120,14 +121,22 @@ return "\n".join("--- Page p ---\n" + content for present pages)         # 미OC
 
 가이드 409 `ocr_incomplete`는 "아직 인식 중"/capped 업셀 문구로 처리.
 
-### 2.5 dedup 파생상태 재조정 (stale-PDF 해결)
+### 2.5 평가/예산/표시의 분리 (stale-PDF 근본 해결)
 
-`is_scanned`는 업로드 시점에 1회 계산돼 박제되고, content_hash dedup이 재업로드를 기존 레코드로 흡수한다. 그래서 **OCR을 켜기 전에 올라간 스캔본은 `is_scanned=false`로 굳어, 같은 파일을 재업로드해도 영원히 OCR이 안 켜진다.** 이를 중복 업로드 경로에서 **싼 파생상태를 현재 규칙과 재조정**해 해결한다:
+**문제(로그로 확인):** 노트에 PDF가 붙는 경로는 둘인데 백엔드 평가는 하나뿐이었다 — 새 파일 피커만 `/pdf/upload`를 타고, **기존 교재 선택(`NoteMetaSheet`의 `textbookId` 로컬 대입)은 백엔드 호출 0.** 게다가 평가가 `ENABLE_OCR`로 게이팅돼 있어, OCR 켜기 전 올라간 스캔본은 `is_scanned=false`로 굳었다. content_hash dedup이 재업로드까지 흡수하니 **노트북을 새로 만들어도 같은 stale 교재 레코드를 공유** → OCR이 영영 안 떴다.
 
-- `ENABLE_OCR` on & `is_scanned=false` & `has_no_text_layer(server_path)` → `is_scanned=true`, `ocr_status="available"`, tier별 `ocr_cap`/admin `ocr_unlimited` 설정.
-- `has_no_text_layer`는 텍스트 레이어 유무(이진)라 매 중복마다 무해 → **버전 스탬프 불필요**(재평가가 비싸지면 그때 도입).
-- 기존 "chunks 0 → 재인덱싱" 재트리거와 같은 자리·같은 철학(파생상태를 박제하지 않고 재조정).
-- **커버 범위**: *재업로드되는* stale 레코드. "재업로드 없이 열기만 하는" stale은 미래에 접근-시-재평가(C)로(현재 갭 0).
+**근본 재구성 — 세 관심사를 분리:**
+
+| 관심사 | 시점 | 비용 |
+|---|---|---|
+| **평가** `is_scanned` (파일 속성, 텍스트레이어 유무) | upload 1회, **ENABLE_OCR 무관 무조건** | PDF 열기(upload에서 어차피 함) |
+| **표시** `ocr_status="available"` 파생 | `GET /status` 첫 읽기에서 null→available | DB write 1회, **PDF 재오픈 X** |
+| **예산** `ocr_cap`/`ocr_unlimited` (tier 의존) | `start_ocr` 시점 현재 tier로 | 0 |
+
+- **무거운 연산(PDF 열기)은 upload + 일회성 백필에서만.** 접근/폴링 경로엔 절대 없음 → "열 때마다 검사" 우려가 구조적으로 사라짐. status는 순수 읽기(파생 boolean)로 복귀 → scan_checked 마커·버전 스탬프 불필요.
+- 재사용/노트첨부는 교재가 이미 올바른 is_scanned를 들고 있어 재평가 불필요. status 파생이 유일한 "열 때 OCR 제안" 진입점.
+
+**레거시 백필(일회성):** 게이팅 시절 `is_scanned=false`로 굳은 기존 레코드는 `scripts/backfill_scanned.py`가 `has_no_text_layer`로 재평가해 invariant를 맞춘다(텍스트레이어 비면 scanned로, ENABLE_OCR이면 available). 유한 집합 1회 — 운영: `docker compose … exec -T app python scripts/backfill_scanned.py`.
 
 ---
 
@@ -143,13 +152,14 @@ return "\n".join("--- Page p ---\n" + content for present pages)         # 미OC
 
 ### 3.2-a POST /api/pdf/upload
 - Request: 기존과 동일.
-- Response 200: 기존 필드 + `is_scanned: bool`, `ocr_status: "available"|null`.
-- 예시: `{ "id":"…", "totalPages":312, "is_scanned":true, "ocr_status":"available", "indexing":"started" }`
-- 스캔본이어도 OCR은 자동 시작하지 않음(`available`). 시작은 §3.2-d.
+- Response 200: 기존 필드 + `is_scanned: bool`(ENABLE_OCR 무관, 파일 속성), `ocr_status: "available"|null`(= is_scanned && ENABLE_OCR).
+- 예시(OCR on): `{ "id":"…", "is_scanned":true, "ocr_status":"available", "indexing":"started" }`
+- 예시(OCR off지만 스캔본): `{ "is_scanned":true, "ocr_status":null }` — 평가는 됐고, ENABLE_OCR 켜지면 status가 available 파생.
+- OCR 자동 시작 안 함. 시작은 §3.2-d.
 
 ### 3.2-d POST /api/pdf/{id}/ocr/start (신규)
 - Request: path `id`. body 없음. 유저가 쿼터 소진에 명시적 동의했음을 의미.
-- 동작: `ocr_status` available/paused/error → pending 전이 + `_background_ocr` 등록. running/pending/complete/capped는 멱등 무동작.
+- 동작: 현재 tier로 `ocr_cap`/`ocr_unlimited` 결정(예산은 시작 시점에) → `ocr_status` null/available/paused/error → pending 전이 + `_background_ocr` 등록. running/pending/complete/capped는 멱등 무동작.
 - Response 200: `PdfStatusResponse`(§3.2-b)와 동일 — 시작 후 현재 상태.
 - Error: 404 textbook 없음/타 유저, 400 텍스트 PDF(`is_scanned=false`)에 호출.
 
@@ -192,11 +202,11 @@ UNIQUE(textbook_id, page)      # 재OCR 멱등 / 재개 skip 판정
 
 **`textbook_sources`** 컬럼 추가 (`app/models/textbook.py`)
 ```
-is_scanned     Boolean default False
-ocr_status     String  nullable   # available|pending|running|paused|error|capped|complete
+is_scanned     Boolean default False  # 파일 속성. upload에서 ENABLE_OCR 무관 무조건 평가
+ocr_status     String  nullable   # null|available|pending|running|paused|error|capped|complete
 ocr_pages_done Integer default 0
-ocr_cap        Integer nullable   # 적용 캡 (free=50, pro=600, admin=total_pages)
-ocr_unlimited  Boolean default F  # admin 무제한(페이지 캡·예산 우회). 마이그 e1f2a3b4c5d6
+ocr_cap        Integer nullable   # start_ocr에서 설정 (free=50, pro=600, admin=total_pages). 그 전엔 null
+ocr_unlimited  Boolean default F  # start_ocr에서 admin 판정 설정(페이지 캡·예산 우회). 마이그 e1f2a3b4c5d6
 ocr_updated_at DateTime nullable  # 하트비트 → stale면 프로세스 사망 판별
 ```
 

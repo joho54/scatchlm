@@ -29,6 +29,8 @@ struct PdfViewerView: View {
     @State private var chapterGuideRatingDetail = false
     // 스캔본 OCR 진행 상태 (scanned-pdf-ocr-spec Track D)
     @State private var pdfStatus: PdfStatus?
+    @State private var showOcrStartAlert = false
+    @State private var ocrStarting = false
     @State private var guideError: String?
     @State private var chapterGuideError: String?
     /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
@@ -103,6 +105,12 @@ struct PdfViewerView: View {
         .sheet(isPresented: $showToc) { tocSheet }
         .sheet(isPresented: $showGuide) { guideSheet }
         .sheet(isPresented: $showChapterGuide) { chapterGuideSheet }
+        .alert("이미지 인식 시작", isPresented: $showOcrStartAlert) {
+            Button("취소", role: .cancel) {}
+            Button("시작") { startOcr() }
+        } message: {
+            Text("이 교재는 텍스트가 인식되지 않습니다. 이미지 인식(OCR)을 시작하면 챕터·가이드를 쓸 수 있지만 AI 사용량(쿼터)을 소진합니다.")
+        }
         .task { await pollOcrStatus() }
         .onDisappear { if inkMode { inkMode = false } }   // PDF 닫히면 노트 캔버스 그리기 복구
     }
@@ -113,6 +121,14 @@ struct PdfViewerView: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 switch status.ocrStatus {
+                case "available":
+                    // 텍스트 레이어가 없는 스캔본 — OCR은 자동 시작하지 않고 명시적 동의를 받는다.
+                    Image(systemName: "doc.viewfinder")
+                    Text("텍스트가 인식되지 않는 교재예요")
+                    Button("이미지 인식 시작") { showOcrStartAlert = true }
+                        .font(.caption2.bold())
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.mini)
                 case "capped":
                     Image(systemName: "lock.fill")
                     Text("무료는 \(status.capLimit ?? status.ocrPagesDone)p까지 인식해요 · 전체 인식은 Pro")
@@ -139,8 +155,25 @@ struct PdfViewerView: View {
         .clipShape(Capsule())
     }
 
+    /// 유저가 명시적으로 OCR을 시작(쿼터 소진 동의). available/paused/error → pending 후 폴링 재개.
+    private func startOcr() {
+        guard !ocrStarting else { return }
+        ocrStarting = true
+        Task {
+            defer { ocrStarting = false }
+            do {
+                let status = try await APIClient.shared.startOcr(textbookId)
+                await MainActor.run { pdfStatus = status }
+                appLog("pdf", "ocr start requested", ["textbookId": textbookId])
+                await pollOcrStatus()  // pending/running 진행률 폴링 재개
+            } catch {
+                appLogError("pdf", "ocr start failed", ["textbookId": textbookId, "error": "\(error)"])
+            }
+        }
+    }
+
     /// is_scanned면 status를 폴링해 진행률을 갱신한다. 스스로 더 진행되지 않는 상태면 종료
-    /// (complete/capped/paused/error/텍스트PDF). paused·error는 백엔드 스위퍼가 자동 재개한다.
+    /// (complete/capped/paused/error/available/텍스트PDF). paused·error는 백엔드 스위퍼가 자동 재개한다.
     private func pollOcrStatus() async {
         while !Task.isCancelled {
             do {

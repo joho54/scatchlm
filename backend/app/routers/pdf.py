@@ -27,7 +27,7 @@ from app.services.pdf_service import (
     extract_text as extract_pdf_text,
     extract_text_async,
     extract_toc,
-    is_scanned_pdf,
+    has_no_text_layer,
     get_ocr_pages,
     headers_from_ocr_rows,
     _open_pdf,
@@ -340,7 +340,9 @@ async def upload_pdf(
     log.info("PDF saved: file=%s pages=%d size=%dKB path=%s", file_name, total_pages, file_size // 1024, server_path)
 
     # 스캔본(이미지) PDF 감지 — ENABLE_OCR 토글이 꺼져 있으면 항상 텍스트 PDF로 취급(기존 흐름).
-    is_scanned = settings.ENABLE_OCR and is_scanned_pdf(server_path, total_pages)
+    # 텍스트 레이어가 비었으면 OCR을 "제안"만 한다(자동 시작 안 함). 시작은 유저의 명시적
+    # POST /{id}/ocr/start 호출(쿼터 소진 동의) — ocr_status="available"에서 "pending"으로.
+    is_scanned = settings.ENABLE_OCR and has_no_text_layer(server_path, total_pages)
     # admin(JWT role=admin)은 OCR 무제한 — 페이지 캡·예산 모두 우회. role은 DB에 없어 여기서 영속화.
     is_admin = get_role(payload) == "admin"
     ocr_cap = None
@@ -361,7 +363,7 @@ async def upload_pdf(
         file_size=file_size,
         content_hash=content_hash,
         is_scanned=is_scanned,
-        ocr_status="pending" if is_scanned else None,
+        ocr_status="available" if is_scanned else None,  # 유저가 명시적으로 시작해야 pending
         ocr_cap=ocr_cap,
         ocr_unlimited=ocr_unlimited,
     )
@@ -385,9 +387,7 @@ async def upload_pdf(
         # 스캔본은 텍스트 레이어가 비어 있으므로 OCR 잡 완료 후에 감지(_background_ocr 참고).
         background_tasks.add_task(_background_detect_chapters, source.id, server_path, total_pages)
 
-    if is_scanned:
-        background_tasks.add_task(_background_ocr, source.id, user_id, tier)
-
+    # 스캔본 OCR은 자동 시작하지 않는다 — 유저가 POST /{id}/ocr/start로 명시적 시작(쿼터 동의).
     background_tasks.add_task(_background_index, source.id, user_id, server_path)
 
     return {
@@ -514,27 +514,10 @@ class PdfStatusResponse(BaseModel):
     chapters_ready: bool = False
 
 
-@router.get("/{textbook_id}/status", response_model=PdfStatusResponse)
-async def get_pdf_status(
-    textbook_id: str,
-    payload: dict = Depends(get_verified_payload),
-    db: AsyncSession = Depends(get_db),
-):
-    """OCR/인덱싱 진행 상태 (docs/scanned-pdf-ocr-spec.md §3.2-b). iOS 폴링용."""
-    user_id = payload["sub"]
-    source = (await db.execute(
-        select(TextbookSource).where(
-            TextbookSource.id == textbook_id,
-            TextbookSource.user_id == user_id,
-        )
-    )).scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Textbook not found")
-
+async def _build_status_response(source: TextbookSource, tier: str, db: AsyncSession) -> PdfStatusResponse:
     chapters_ready = bool(await db.scalar(
-        select(func.count()).select_from(Chapter).where(Chapter.textbook_id == textbook_id)
+        select(func.count()).select_from(Chapter).where(Chapter.textbook_id == source.id)
     ))
-
     if not source.is_scanned:
         return PdfStatusResponse(
             is_scanned=False,
@@ -542,8 +525,6 @@ async def get_pdf_status(
             total_pages=source.total_pages,
             chapters_ready=chapters_ready,
         )
-
-    tier = get_tier(payload)
     cap = source.ocr_cap
     ocr_pages_total = min(source.total_pages, cap) if cap else source.total_pages
     return PdfStatusResponse(
@@ -556,6 +537,57 @@ async def get_pdf_status(
         cap_limit=None if (source.ocr_unlimited or tier == "pro") else cap,
         chapters_ready=chapters_ready,
     )
+
+
+async def _get_owned_source(textbook_id: str, user_id: str, db: AsyncSession) -> TextbookSource:
+    source = (await db.execute(
+        select(TextbookSource).where(
+            TextbookSource.id == textbook_id,
+            TextbookSource.user_id == user_id,
+        )
+    )).scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+    return source
+
+
+@router.get("/{textbook_id}/status", response_model=PdfStatusResponse)
+async def get_pdf_status(
+    textbook_id: str,
+    payload: dict = Depends(get_verified_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """OCR/인덱싱 진행 상태 (docs/scanned-pdf-ocr-spec.md §3.2-b). iOS 폴링용."""
+    source = await _get_owned_source(textbook_id, payload["sub"], db)
+    return await _build_status_response(source, get_tier(payload), db)
+
+
+@router.post("/{textbook_id}/ocr/start", response_model=PdfStatusResponse)
+async def start_ocr(
+    textbook_id: str,
+    background_tasks: BackgroundTasks,
+    payload: dict = Depends(get_verified_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """스캔본 OCR을 명시적으로 시작한다 — 유저가 쿼터 소진에 동의했음을 의미.
+
+    available/paused/error → pending으로 전이 후 백그라운드 잡 등록. running/pending/complete/capped는
+    멱등 무동작(현재 상태 반환). 자동 시작을 없앤 대신의 명시적 트리거(docs/scanned-pdf-ocr-spec.md).
+    """
+    user_id = payload["sub"]
+    tier = get_tier(payload)
+    source = await _get_owned_source(textbook_id, user_id, db)
+    if not source.is_scanned:
+        raise HTTPException(status_code=400, detail="Not a scanned PDF (has text layer)")
+
+    if source.ocr_status in ("available", "paused", "error"):
+        source.ocr_status = "pending"
+        source.ocr_updated_at = _utcnow()
+        await db.commit()
+        background_tasks.add_task(_background_ocr, source.id, user_id, tier)
+        log.info("OCR start (explicit): textbook=%s user=%s status→pending", textbook_id, user_id)
+
+    return await _build_status_response(source, tier, db)
 
 
 @router.get("/extract")

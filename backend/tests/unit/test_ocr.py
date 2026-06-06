@@ -9,8 +9,8 @@ from app.core.config import settings
 from app.services.pdf_service import (
     extract_text,
     extract_text_async,
+    has_no_text_layer,
     headers_from_ocr_rows,
-    is_scanned_pdf,
 )
 
 
@@ -73,7 +73,7 @@ def test_headers_from_ocr_rows_skips_blank_and_truncates():
     assert "Chapter 1" in headers[0]["header"]
 
 
-def test_is_scanned_pdf_false_for_text_layer(tmp_path):
+def test_has_no_text_layer_false_for_text_layer(tmp_path):
     doc = fitz.open()
     for _ in range(12):
         page = doc.new_page()
@@ -81,15 +81,27 @@ def test_is_scanned_pdf_false_for_text_layer(tmp_path):
     path = str(tmp_path / "text.pdf")
     doc.save(path)
     doc.close()
-    assert is_scanned_pdf(path, 12) is False
+    assert has_no_text_layer(path, 12) is False
 
 
-def test_is_scanned_pdf_true_for_blank_pages(tmp_path):
-    """텍스트 레이어 없는(스캔본 모사) 빈 페이지 → 스캔본 판정."""
+def test_has_no_text_layer_false_for_sparse_text(tmp_path):
+    """텍스트가 적어도(과거엔 임계값 미만으로 스캔본 오인) 텍스트 레이어가 있으면 False — 이진 판정."""
+    doc = fitz.open()
+    for _ in range(12):
+        page = doc.new_page()
+        page.insert_text((72, 72), "x")  # 페이지당 1자 — 과거 30자 임계값이면 오탐
+    path = str(tmp_path / "sparse.pdf")
+    doc.save(path)
+    doc.close()
+    assert has_no_text_layer(path, 12) is False
+
+
+def test_has_no_text_layer_true_for_blank_pages(tmp_path):
+    """텍스트 레이어 없는(스캔본 모사) 빈 페이지 → OCR 제안 대상."""
     doc = fitz.open()
     for _ in range(12):
         doc.new_page()
     path = str(tmp_path / "blank.pdf")
     doc.save(path)
     doc.close()
-    assert is_scanned_pdf(path, 12) is True
+    assert has_no_text_layer(path, 12) is True

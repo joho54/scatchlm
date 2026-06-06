@@ -331,6 +331,11 @@ extension APIClient {
     func getPdfStatus(_ textbookId: String) async throws -> PdfStatus {
         try await get("/pdf/\(textbookId)/status")
     }
+
+    /// 스캔본 OCR을 명시적으로 시작한다(유저가 쿼터 소진에 동의). available/paused/error → pending.
+    func startOcr(_ textbookId: String) async throws -> PdfStatus {
+        try await postJSON("/pdf/\(textbookId)/ocr/start", body: [:])
+    }
 }
 
 enum APIError: LocalizedError {

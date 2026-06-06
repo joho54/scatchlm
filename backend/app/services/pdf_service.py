@@ -104,11 +104,12 @@ def extract_text(key: str, page_start: int, page_end: int) -> str:
     return result
 
 
-def is_scanned_pdf(key: str, total_pages: int) -> bool:
-    """텍스트 레이어가 거의 없는 스캔본(이미지) PDF인지 판정한다.
+def has_no_text_layer(key: str, total_pages: int) -> bool:
+    """텍스트 레이어가 비어 있는(추출 가능한 텍스트가 전혀 없는) PDF인지 판정한다.
 
-    표지/빈 페이지 영향을 줄이려 중앙부 최대 10페이지를 샘플링해
-    페이지당 평균 추출 문자수가 OCR_SCAN_TEXT_THRESHOLD 미만이면 스캔본으로 본다.
+    퍼지 임계값이 아니라 이진 사실 — 샘플 페이지 전부에서 추출 텍스트가 공백뿐이면 True.
+    표지/빈 페이지 영향을 줄이려 중앙부 최대 10페이지를 샘플링한다. 이 값은 OCR을
+    "자동 시작"하지 않고, iOS에 이미지 인식(OCR) 시작 버튼을 "제안"할지만 결정한다.
     """
     doc = _open_pdf(key)
     n = len(doc)
@@ -121,13 +122,12 @@ def is_scanned_pdf(key: str, total_pages: int) -> bool:
     for i in range(start, start + sample):
         total_chars += len(doc[i].get_text().strip())
     doc.close()
-    avg = total_chars / sample
-    scanned = avg < settings.OCR_SCAN_TEXT_THRESHOLD
+    empty = total_chars == 0
     log.info(
-        "Scan detection: key=%s pages=%d sample=%d avg_chars=%.1f threshold=%d scanned=%s",
-        key, n, sample, avg, settings.OCR_SCAN_TEXT_THRESHOLD, scanned,
+        "Text-layer detection: key=%s pages=%d sample=%d total_chars=%d no_text_layer=%s",
+        key, n, sample, total_chars, empty,
     )
-    return scanned
+    return empty
 
 
 async def get_ocr_pages(db: AsyncSession, textbook_id: str, page_start: int, page_end: int) -> set[int]:

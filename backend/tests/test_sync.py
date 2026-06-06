@@ -33,11 +33,24 @@ def _note(id_: str, updated_at: str, title: str = "노트", deleted: bool = Fals
 def _empty_changes() -> dict:
     return {
         "sessions": [],
+        "folders": [],
         "notes": [],
         "note_pages": [],
         "pdf_annotations": [],
         "feedbacks": [],
         "chat_messages": [],
+    }
+
+
+def _folder(id_: str, updated_at: str, name: str = "라틴어",
+            sort_order: int = 0, deleted: bool = False) -> dict:
+    return {
+        "id": id_,
+        "updated_at": updated_at,
+        "deleted": deleted,
+        "name": name,
+        "sort_order": sort_order,
+        "created_at": "2026-06-06T01:00:00Z",
     }
 
 
@@ -274,6 +287,41 @@ async def test_chat_message_session_id_preserved(client: AsyncClient, auth_heade
     assert len(msgs) == 1
     assert msgs[0]["session_id"] == "sess-2"
     assert msgs[0]["feedback_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_folder_push_pull_roundtrip(client: AsyncClient, auth_header: dict):
+    """folder 엔티티 push→pull 라운드트립 (note-folders-spec §3.2)."""
+    folder = _folder("folder-1", "2026-06-06T02:00:00Z", name="그리스어", sort_order=2)
+    push = await client.post(
+        "/api/sync/push", headers=auth_header,
+        json={"changes": {**_empty_changes(), "folders": [folder]}},
+    )
+    assert push.status_code == 200
+    result = push.json()["results"][0]
+    assert result["status"] == "applied"
+    assert result["entity"] == "folder"
+
+    pull = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    folders = pull.json()["changes"]["folders"]
+    assert len(folders) == 1
+    assert folders[0]["id"] == "folder-1"
+    assert folders[0]["name"] == "그리스어"
+    assert folders[0]["sort_order"] == 2
+
+
+@pytest.mark.asyncio
+async def test_note_folder_id_preserved(client: AsyncClient, auth_header: dict):
+    """note.folder_id가 push→pull로 보존되어야 한다 (note-folders-spec §3.2-a)."""
+    folder = _folder("folder-2", "2026-06-06T02:00:00Z")
+    note = {**_note("n-fld", "2026-06-06T02:00:01Z"), "folder_id": "folder-2"}
+    await client.post(
+        "/api/sync/push", headers=auth_header,
+        json={"changes": {**_empty_changes(), "folders": [folder], "notes": [note]}},
+    )
+    pull = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    pulled = pull.json()["changes"]["notes"][0]
+    assert pulled["folder_id"] == "folder-2"
 
 
 @pytest.mark.asyncio

@@ -14,7 +14,8 @@ struct PhoneNoteReaderView: View {
     @State private var note: Note?
     @State private var pages: [ReaderPage] = []
     @State private var pageIndex: Int = 0
-    @State private var chatFeedback: FeedbackRecord?
+    @State private var chatContext: ChatSheetContext?
+    @State private var showDrawer = false
 
     private let db = DatabaseService.shared
 
@@ -35,7 +36,7 @@ struct PhoneNoteReaderView: View {
                 ReadOnlyNoteCanvas(
                     drawingData: page.drawingData,
                     feedbacks: page.feedbacks,
-                    onChat: { chatFeedback = $0 }
+                    onChat: { openChat(for: $0) }
                 )
                 // 페이지 전환 시 캔버스 리마운트 — 드로잉/카드를 새로 로드(편집 NoteView의 .id 패턴과 동일).
                 .id(page.id)
@@ -50,17 +51,39 @@ struct PhoneNoteReaderView: View {
         }
         .navigationTitle(note?.title ?? "노트")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 챗 서랍 진입(§4.3·C-1, §6.x-3 결정: 노트 내부 버튼). 노트의 저장된 세션을
+            // 챕터별로 열람하고 대화를 이어간다. 점프/스크랩은 iPhone에서 비노출(드로어 C-1).
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showDrawer = true
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                }
+            }
+        }
+        .sheet(isPresented: $showDrawer) {
+            ChapterDrawerView(
+                noteId: noteId,
+                textbookId: note?.textbookId,
+                subject: note?.language,
+                onJump: { _ in },   // iPhone: 캔버스 편집 미지원 — 드로어에서 비노출(no-op)
+                onScrap: { _ in }
+            )
+        }
         .safeAreaInset(edge: .bottom) {
             if pages.count > 1 {
                 pageBar
             }
         }
-        .sheet(item: $chatFeedback) { fb in
+        .sheet(item: $chatContext) { ctx in
             // 카드 "대화" → 세션 채팅(§4.5 E-3). 채팅은 읽기 전용 앱에서도 허용되는 학습 행위(§4.3).
-            FeedbackChatSheet(
-                feedback: fb,
-                textbookId: note?.textbookId,
-                currentPage: note?.lastPage,
+            SessionChatSheet(
+                session: ctx.session,
+                headerContent: ctx.headerContent,
+                headerServerId: ctx.headerServerId,
+                textbookId: ctx.session.textbookId ?? note?.textbookId,
+                currentPage: ctx.session.anchorPage ?? note?.lastPage,
                 noteId: note?.id,
                 subject: note?.language
             )
@@ -124,6 +147,68 @@ struct PhoneNoteReaderView: View {
             ])
         } catch {
             appLogError("phoneReader", "load failed", ["error": "\(error)"])
+        }
+    }
+
+    /// 카드 "대화" → 세션 채팅 열기(§4.3·§4.5 E-3). 카드에 세션이 있으면 그대로 열고,
+    /// 레거시 단독 카드는 세션을 만들어 역연결한다 — 세션/메시지 생성은 읽기 전용 앱에서도
+    /// 허용되는 학습 행위(§4.3). NoteView.openChat(for:)와 동일 로직.
+    private func openChat(for fb: FeedbackRecord) {
+        let session: ChatSessionRecord?
+        if let sid = fb.sessionId, let existing = try? db.session(id: sid) {
+            session = existing
+        } else {
+            guard let created = createFeedbackSession(content: fb.content, serverFeedbackId: fb.serverFeedbackId) else { return }
+            var card = fb
+            card.sessionId = created.id
+            do {
+                try db.saveFeedback(&card)
+                // 메모리상 페이지 캐시에도 역연결 반영(같은 카드 재탭 시 세션 재생성 방지).
+                if let pi = pages.firstIndex(where: { $0.feedbacks.contains(where: { $0.id == fb.id }) }) {
+                    var fbs = pages[pi].feedbacks
+                    if let fi = fbs.firstIndex(where: { $0.id == fb.id }) {
+                        fbs[fi] = card
+                        pages[pi] = ReaderPage(id: pages[pi].id, drawingData: pages[pi].drawingData, feedbacks: fbs)
+                    }
+                }
+            } catch {
+                appLogError("phoneReader", "link card→session failed", ["error": "\(error)"])
+            }
+            session = created
+        }
+        guard let session else { return }
+        chatContext = ChatSheetContext(
+            session: session,
+            headerContent: fb.content,
+            headerServerId: fb.serverFeedbackId
+        )
+    }
+
+    /// 카드 placement용 kind=feedback 세션 생성. 교재 연결 시 anchorPage=노트 마지막 페이지.
+    private func createFeedbackSession(content: String, serverFeedbackId: String?) -> ChatSessionRecord? {
+        var text = content
+        if let data = content.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
+            text = parsed.displayText
+        }
+        let oneLine = text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = oneLine.isEmpty ? String(localized: "피드백 대화") : String(oneLine.prefix(40))
+
+        var session = ChatSessionRecord(
+            kind: ChatSessionRecord.Kind.feedback.rawValue,
+            title: title,
+            noteId: noteId,
+            textbookId: note?.textbookId,
+            anchorPage: note?.textbookId != nil ? note?.lastPage : nil,
+            sourceFeedbackId: serverFeedbackId
+        )
+        do {
+            try db.saveSession(&session)
+            return session
+        } catch {
+            appLogError("phoneReader", "createFeedbackSession failed", ["error": "\(error)"])
+            return nil
         }
     }
 }

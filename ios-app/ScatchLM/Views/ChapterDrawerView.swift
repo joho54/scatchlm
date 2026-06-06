@@ -98,21 +98,25 @@ struct ChapterDrawerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // 점프/스크랩은 캔버스 편집(placement 생성·이동)이라 iPhone 읽기 전용에선 비노출
+        // (iphone-companion-app-spec §1.4·§4.3·C-1). iPhone은 행 탭 "열기"(세션 대화)만 허용.
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                onScrap(session)
-            } label: {
-                Label("캔버스로", systemImage: "pin.fill")
-            }
-            .tint(.blue)
-
-            if let placement {
+            if !Platform.isPhone {
                 Button {
-                    onJump(placement)
+                    onScrap(session)
                 } label: {
-                    Label("점프", systemImage: "scope")
+                    Label("캔버스로", systemImage: "pin.fill")
                 }
-                .tint(.orange)
+                .tint(.blue)
+
+                if let placement {
+                    Button {
+                        onJump(placement)
+                    } label: {
+                        Label("점프", systemImage: "scope")
+                    }
+                    .tint(.orange)
+                }
             }
         }
     }

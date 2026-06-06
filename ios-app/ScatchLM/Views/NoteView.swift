@@ -190,6 +190,12 @@ struct NoteView: View {
                                     withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
                                         pageNavOpen = false
                                     }
+                                },
+                                onMove: { source, destination in
+                                    movePages(from: source, to: destination)
+                                },
+                                onDelete: { page in
+                                    deletePage(page)
                                 }
                             )
                             .transition(.move(edge: .leading))
@@ -811,6 +817,63 @@ struct NoteView: View {
         feedbacks = (try? db.feedbacks(pageId: notePages[index].id)) ?? []
         nextCardY = 100
         appLog("note", "goToPage", ["index": "\(index)", "feedbacks": "\(feedbacks.count)"])
+    }
+
+    /// 페이지 순서 변경(드래그 재정렬). 보고 있던 페이지는 그대로 열어둔다 — 캔버스 재로드 불필요.
+    private func movePages(from source: IndexSet, to destination: Int) {
+        saveDrawing()   // 현재 페이지 그림 보존
+        let currentId = currentNotePage?.id
+            ?? (notePages.indices.contains(currentPageIndex) ? notePages[currentPageIndex].id : nil)
+
+        notePages.move(fromOffsets: source, toOffset: destination)
+        try? db.reorderPages(noteId: noteId, orderedIds: notePages.map { $0.id })
+
+        if let currentId, let newIdx = notePages.firstIndex(where: { $0.id == currentId }) {
+            currentPageIndex = newIdx
+            currentNotePage = notePages[newIdx]
+            try? db.updateCurrentPageIndex(noteId: noteId, index: newIdx)
+        }
+        appLog("note", "movePages", ["to": "\(destination)", "current": "\(currentPageIndex)"])
+    }
+
+    /// 페이지 삭제(스와이프). 소프트 삭제 + 남은 페이지 재압축. 마지막 한 장은 삭제 불가.
+    private func deletePage(_ page: NotePage) {
+        guard notePages.count > 1 else {
+            showToast(String(localized: "마지막 페이지는 삭제할 수 없어요."))
+            return
+        }
+        guard let removeIdx = notePages.firstIndex(where: { $0.id == page.id }) else { return }
+        let wasCurrent = (removeIdx == currentPageIndex)
+
+        // 현재 페이지가 아니면 보고 있던 캔버스를 먼저 저장(삭제 대상 페이지는 버린다)
+        if !wasCurrent { saveDrawing() }
+
+        notePages.remove(at: removeIdx)
+        do {
+            try db.deletePage(noteId: noteId, pageId: page.id, remainingOrderedIds: notePages.map { $0.id })
+        } catch {
+            appLogError("note", "deletePage failed", ["id": page.id, "error": "\(error)"])
+            notePages.insert(page, at: removeIdx)   // 로컬 상태 롤백
+            showToast(String(localized: "페이지를 삭제하지 못했어요."))
+            return
+        }
+
+        if wasCurrent {
+            // 삭제된 자리(또는 마지막) 페이지로 전환 — goToPage와 동일하게 캔버스 재마운트
+            let newIdx = min(removeIdx, notePages.count - 1)
+            currentPageIndex = newIdx
+            currentNotePage = notePages[newIdx]
+            try? db.updateCurrentPageIndex(noteId: noteId, index: newIdx)
+            canvasView = NoteCanvasView()
+            feedbacks = (try? db.feedbacks(pageId: notePages[newIdx].id)) ?? []
+            nextCardY = 100
+        } else if removeIdx < currentPageIndex {
+            // 앞쪽 페이지가 빠졌으니 현재 인덱스만 한 칸 당김(보던 페이지는 그대로)
+            currentPageIndex -= 1
+            currentNotePage = notePages[currentPageIndex]
+            try? db.updateCurrentPageIndex(noteId: noteId, index: currentPageIndex)
+        }
+        appLog("note", "deletePage", ["id": page.id, "remaining": "\(notePages.count)"])
     }
 
     private func revertFeedback(_ fb: FeedbackRecord) {

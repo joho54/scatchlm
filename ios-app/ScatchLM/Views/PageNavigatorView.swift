@@ -7,6 +7,8 @@ struct PageNavigatorView: View {
     let onSelect: (Int) -> Void
     let onAdd: () -> Void
     let onClose: () -> Void
+    let onMove: (IndexSet, Int) -> Void
+    let onDelete: (NotePage) -> Void
 
     private let thumbSize = CGSize(width: 160, height: 107)  // 가로형
 
@@ -32,23 +34,18 @@ struct PageNavigatorView: View {
             Divider()
 
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(Array(pages.enumerated()), id: \.element.id) { idx, page in
-                            PageThumbnail(
-                                page: page,
-                                index: idx,
-                                isCurrent: idx == currentIndex,
-                                size: thumbSize
-                            )
-                            .id(idx)
-                            .onTapGesture { onSelect(idx) }
-                        }
+                List {
+                    ForEach(Array(pages.enumerated()), id: \.element.id) { idx, page in
+                        row(idx: idx, page: page)
                     }
-                    .padding(16)
+                    .onMove(perform: onMove)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, 1)
                 .onAppear {
-                    proxy.scrollTo(currentIndex, anchor: .center)
+                    guard pages.indices.contains(currentIndex) else { return }
+                    proxy.scrollTo(pages[currentIndex].id, anchor: .center)
                 }
             }
         }
@@ -59,6 +56,29 @@ struct PageNavigatorView: View {
             Rectangle()
                 .fill(Color.black.opacity(0.08))
                 .frame(width: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func row(idx: Int, page: NotePage) -> some View {
+        PageThumbnail(
+            page: page,
+            index: idx,
+            isCurrent: idx == currentIndex,
+            size: thumbSize
+        )
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect(idx) }
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                onDelete(page)
+            } label: {
+                Label("삭제", systemImage: "trash")
+            }
         }
     }
 }

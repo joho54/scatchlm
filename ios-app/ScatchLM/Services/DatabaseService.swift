@@ -502,6 +502,77 @@ final class DatabaseService {
         notifyWrite()
     }
 
+    /// 페이지 순서 재정렬. `orderedIds`는 새 표시 순서(0..n-1)의 페이지 id 배열.
+    /// UNIQUE(note_id, page_index) 충돌을 피하려 2-pass(임시 큰 값 → 최종값)로 갱신한다.
+    func reorderPages(noteId: String, orderedIds: [String]) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            let now = Date()
+            for (i, id) in orderedIds.enumerated() {
+                try db.execute(
+                    sql: "UPDATE note_pages SET page_index = ? WHERE id = ? AND note_id = ? AND user_id = ?",
+                    arguments: [1_000_000 + i, id, noteId, uid]
+                )
+            }
+            for (i, id) in orderedIds.enumerated() {
+                try db.execute(
+                    sql: "UPDATE note_pages SET page_index = ?, updated_at = ?, dirty = 1 WHERE id = ? AND note_id = ? AND user_id = ?",
+                    arguments: [i, now, id, noteId, uid]
+                )
+            }
+        }
+        notifyWrite()
+    }
+
+    /// 페이지 소프트 삭제 + 남은 페이지 page_index 0..n-1 재압축. 해당 페이지의 피드백·채팅도 cascade 삭제.
+    /// `remainingOrderedIds`는 삭제 후 남는 페이지의 표시 순서 id 배열.
+    func deletePage(noteId: String, pageId: String, remainingOrderedIds: [String]) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            let now = Date()
+            // cascade: chats → feedbacks (해당 페이지)
+            try db.execute(
+                sql: """
+                    UPDATE feedback_chats SET deleted = 1, dirty = 1, updated_at = ?
+                    WHERE user_id = ? AND feedback_id IN (
+                        SELECT id FROM feedbacks WHERE page_id = ? AND user_id = ?
+                    )
+                    """,
+                arguments: [now, uid, pageId, uid]
+            )
+            try db.execute(
+                sql: "UPDATE feedbacks SET deleted = 1, dirty = 1, updated_at = ? WHERE page_id = ? AND user_id = ?",
+                arguments: [now, pageId, uid]
+            )
+            // 삭제 페이지를 UNIQUE 범위 밖(유니크 음수 slot)으로 옮기며 tombstone 처리.
+            // soft-delete된 행도 page_index를 점유하므로 0..n-1과 충돌하지 않게 비운다.
+            let minIdx = try Int.fetchOne(
+                db,
+                sql: "SELECT MIN(page_index) FROM note_pages WHERE note_id = ? AND user_id = ?",
+                arguments: [noteId, uid]
+            ) ?? 0
+            let parking = min(minIdx, 0) - 1
+            try db.execute(
+                sql: "UPDATE note_pages SET deleted = 1, dirty = 1, updated_at = ?, page_index = ? WHERE id = ? AND note_id = ? AND user_id = ?",
+                arguments: [now, parking, pageId, noteId, uid]
+            )
+            // 남은 페이지 0..n-1 재압축 (2-pass)
+            for (i, id) in remainingOrderedIds.enumerated() {
+                try db.execute(
+                    sql: "UPDATE note_pages SET page_index = ? WHERE id = ? AND note_id = ? AND user_id = ?",
+                    arguments: [1_000_000 + i, id, noteId, uid]
+                )
+            }
+            for (i, id) in remainingOrderedIds.enumerated() {
+                try db.execute(
+                    sql: "UPDATE note_pages SET page_index = ?, updated_at = ?, dirty = 1 WHERE id = ? AND note_id = ? AND user_id = ?",
+                    arguments: [i, now, id, noteId, uid]
+                )
+            }
+        }
+        notifyWrite()
+    }
+
     func feedbacks(pageId: String) throws -> [FeedbackRecord] {
         guard let uid = scopedUserId else { return [] }
         return try dbQueue.read { db in

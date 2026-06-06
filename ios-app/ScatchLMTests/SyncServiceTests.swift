@@ -427,4 +427,26 @@ final class SyncServiceTests: XCTestCase {
         XCTAssertTrue(api.purgedNoteIds.contains(note.id), "서버 /sync/purge 호출")
         XCTAssertTrue(try db.pendingPurgeIds().isEmpty, "성공 후 큐 비움")
     }
+
+    // MARK: - 계약 skew 내성 (회귀: sync 멈춤 사건)
+
+    /// 서버가 클라보다 구버전이라 'folders' 등 엔티티 키를 안 내려줘도, pull 디코딩이
+    /// keyNotFound로 전체 브릭되지 않고 누락 키를 빈 배열로 처리해야 한다.
+    /// (배포 순서 skew로 folders 키 누락 → 몇 시간 sync 멈춘 사건의 회귀 가드.)
+    func testSyncChangesDecodesWithMissingKeys() throws {
+        let json = Data("""
+        {"notes":[],"note_pages":[],"feedbacks":[],"chat_messages":[]}
+        """.utf8)
+        let changes = try JSONDecoder().decode(SyncChanges.self, from: json)
+        XCTAssertTrue(changes.folders.isEmpty)
+        XCTAssertTrue(changes.pdf_annotations.isEmpty)
+        XCTAssertTrue(changes.sessions.isEmpty)
+        XCTAssertTrue(changes.isEmpty)
+    }
+
+    /// 빈 객체 `{}`도 안전하게 빈 변경으로 디코딩(키 전무).
+    func testSyncChangesDecodesEmptyObject() throws {
+        let changes = try JSONDecoder().decode(SyncChanges.self, from: Data("{}".utf8))
+        XCTAssertTrue(changes.isEmpty)
+    }
 }

@@ -119,6 +119,32 @@ struct SyncChanges: Codable {
 
     static let empty = SyncChanges(sessions: [], folders: [], notes: [], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: [])
 
+    init(sessions: [SyncSessionDTO], folders: [SyncFolderDTO], notes: [SyncNoteDTO],
+         note_pages: [SyncPageDTO], pdf_annotations: [SyncPdfAnnotationDTO],
+         feedbacks: [SyncFeedbackDTO], chat_messages: [SyncChatDTO]) {
+        self.sessions = sessions
+        self.folders = folders
+        self.notes = notes
+        self.note_pages = note_pages
+        self.pdf_annotations = pdf_annotations
+        self.feedbacks = feedbacks
+        self.chat_messages = chat_messages
+    }
+
+    /// 관대한 디코딩 — 누락된 엔티티 키는 빈 배열로 취급한다.
+    /// 서버가 클라보다 구버전이라 어떤 엔티티 키를 안 내려줘도(예: 신규 `folders`를 모르는 백엔드)
+    /// pull 전체가 `keyNotFound`로 브릭되지 않게 한다(계약 skew 내성 — 배포 순서 무관). §3.2 동결계약 보강.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try c.decodeIfPresent([SyncSessionDTO].self, forKey: .sessions) ?? []
+        folders = try c.decodeIfPresent([SyncFolderDTO].self, forKey: .folders) ?? []
+        notes = try c.decodeIfPresent([SyncNoteDTO].self, forKey: .notes) ?? []
+        note_pages = try c.decodeIfPresent([SyncPageDTO].self, forKey: .note_pages) ?? []
+        pdf_annotations = try c.decodeIfPresent([SyncPdfAnnotationDTO].self, forKey: .pdf_annotations) ?? []
+        feedbacks = try c.decodeIfPresent([SyncFeedbackDTO].self, forKey: .feedbacks) ?? []
+        chat_messages = try c.decodeIfPresent([SyncChatDTO].self, forKey: .chat_messages) ?? []
+    }
+
     var isEmpty: Bool {
         sessions.isEmpty && folders.isEmpty && notes.isEmpty && note_pages.isEmpty && pdf_annotations.isEmpty && feedbacks.isEmpty && chat_messages.isEmpty
     }

@@ -1,19 +1,17 @@
 import UIKit
 
-/// 캔버스 배경 템플릿(줄노트/격자/오선지 등)을 그리는 타일 레이어.
+/// 캔버스 배경 템플릿(줄노트/격자/오선지 등)을 그리는 레이어.
 ///
-/// 캔버스는 높이가 무한 확장되고(`Coordinator.setContentHeight`) 1x~3x로 핀치 줌된다.
-/// 전체 contentView를 한 비트맵으로 래스터화하면 (1) 키 큰 페이지에서 메모리가 폭증하고
-/// (2) 줌하면 비트맵이 확대돼 선이 뭉개진다. `CATiledLayer`는 보이는 타일만 "현재 렌더 스케일로"
-/// 다시 벡터 렌더하므로 메모리는 타일 단위로 한정되고 어느 줌에서도 선이 선명하다.
-///
-/// CATiledLayer 기본 fade-in 애니메이션은 타일 등장 시 깜빡임을 유발하므로 0으로 끈다
-/// (이 코드베이스의 고질적 민감 지점). frame 변경(높이 확장) 시에도 implicit 애니메이션을
-/// 호출부(setContentHeight)에서 CATransaction으로 차단한다.
+/// 일반 `CALayer` 서브클래스다(과거 `CATiledLayer`였으나, CATiledLayer는 UIView의 `layerClass`로
+/// 호스팅돼야 타일 렌더가 돌고 bare sublayer로 꽂으면 draw(in:)가 호출되지 않아 화면에 안 그려졌다).
+/// 일반 CALayer는 sublayer로 꽂아도 draw(in:)가 확실히 호출된다. 대신 backing store가 contentView
+/// 전체 크기(× contentsScale)라, 키 큰 페이지에선 메모리를 더 쓰고 줌인 시 비트맵이 확대돼 약간
+/// 부드러워진다 — 가이드 선엔 무시 가능한 trade-off. `needsDisplayOnBoundsChange=true`로 높이
+/// 확장 시 자동 재렌더하고, frame 변경의 implicit 애니메이션은 호출부(setContentHeight)에서 차단한다.
 ///
 /// 실제 패턴 그리기는 `render(...)` static 함수에 모아, 화면 렌더(draw(in:))와
 /// AI 피드백 이미지 합성(NoteView.requestFeedback)이 같은 좌표/로직을 공유한다.
-final class CanvasTemplateLayer: CATiledLayer {
+final class CanvasTemplateLayer: CALayer {
     var template: NoteTemplate = .blank {
         didSet { if template != oldValue { setNeedsDisplay() } }
     }
@@ -22,11 +20,8 @@ final class CanvasTemplateLayer: CATiledLayer {
         didSet { if isDark != oldValue { setNeedsDisplay() } }
     }
 
-    /// 타일 fade-in 제거 — 깜빡임 방지.
-    override class func fadeDuration() -> CFTimeInterval { 0 }
-
     override func draw(in ctx: CGContext) {
-        // 이 호출에서 그릴 타일 영역. 타일 밖은 CA가 clip하지만, 라인 개수를 줄이려 직접 범위를 좁힌다.
+        // 일반 CALayer는 clip이 bounds 전체 — 전 영역에 패턴을 그린다.
         Self.render(template: template, isDark: isDark, contentWidth: bounds.width,
                     rect: ctx.boundingBoxOfClipPath, in: ctx)
     }

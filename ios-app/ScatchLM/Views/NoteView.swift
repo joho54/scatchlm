@@ -1294,8 +1294,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
         let templateLayer = CanvasTemplateLayer()
         templateLayer.frame = contentView.bounds
         templateLayer.contentsScale = UIScreen.main.scale
+        templateLayer.needsDisplayOnBoundsChange = true   // 높이 확장 시 자동 재렌더
         templateLayer.template = template
         templateLayer.isDark = isDark
+        templateLayer.setNeedsDisplay()
         contentView.layer.insertSublayer(templateLayer, at: 0)
         coordinator.templateLayer = templateLayer
 

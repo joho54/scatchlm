@@ -188,6 +188,7 @@ struct NoteView: View {
                                 pages: notePages,
                                 currentIndex: currentPageIndex,
                                 title: noteTitleDisplay,
+                                template: NoteTemplate(storage: note.template),
                                 onSelect: { idx in
                                     goToPage(index: idx)
                                     withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
@@ -211,7 +212,8 @@ struct NoteView: View {
                                 onEditMeta: {
                                     metaFocusTextbook = false
                                     showMetaEditor = true
-                                }
+                                },
+                                onSelectTemplate: { changeTemplate($0) }
                             )
                             .transition(.move(edge: .leading))
                             Spacer()
@@ -452,34 +454,9 @@ struct NoteView: View {
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                 }
-
-                // 캔버스 배경 템플릿 선택 — Picker라 현재 선택에 체크마크 자동 표시.
-                Menu {
-                    Picker(String(localized: "배경 템플릿"), selection: templateBinding) {
-                        ForEach(NoteTemplate.allCases) { t in
-                            Label(t.displayName, systemImage: t.systemImage).tag(t)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 36, height: 36)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-                }
             }
             .padding(.leading, 12)
             .padding(.top, 12)
-    }
-
-    /// 현재 노트의 템플릿 ↔ picker 바인딩. set은 DB 저장+dirty(sync)까지 수행.
-    private var templateBinding: Binding<NoteTemplate> {
-        Binding(
-            get: { NoteTemplate(storage: note?.template ?? "blank") },
-            set: { changeTemplate($0) }
-        )
     }
 
     /// 템플릿 변경 — 같은 값이면 no-op. note 상태 갱신 → SwiftUI가 updateUIView로 레이어 재렌더.

@@ -5,12 +5,14 @@ struct PageNavigatorView: View {
     let pages: [NotePage]
     let currentIndex: Int
     let title: String
+    let template: NoteTemplate
     let onSelect: (Int) -> Void
     let onAdd: () -> Void
     let onClose: () -> Void
     let onMove: (IndexSet, Int) -> Void
     let onDelete: (NotePage) -> Void
     let onEditMeta: () -> Void
+    let onSelectTemplate: (NoteTemplate) -> Void
 
     @State private var editMode: EditMode = .inactive
 
@@ -63,6 +65,23 @@ struct PageNavigatorView: View {
                         .clipShape(Circle())
                 }
                 Spacer()
+
+                // 캔버스 배경 템플릿 — Picker라 현재 선택에 체크마크 자동 표시.
+                Menu {
+                    Picker(String(localized: "배경 템플릿"),
+                           selection: Binding(get: { template }, set: { onSelectTemplate($0) })) {
+                        ForEach(NoteTemplate.allCases) { t in
+                            Label(t.displayName, systemImage: t.systemImage).tag(t)
+                        }
+                    }
+                } label: {
+                    Image(systemName: template.systemImage)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                        .background(Color.primary.opacity(0.06))
+                        .clipShape(Circle())
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

@@ -133,7 +133,7 @@ struct PhoneNoteReaderView: View {
 /// host(UIScrollView) > contentView(논리폭 종이) > PKCanvasView(읽기 전용) 구조를 편집 캔버스와
 /// 동일하게 구성한다(§4.5·§6.3). 입력만 차단(`isUserInteractionEnabled=false`)하고, 줌/세로 스크롤은
 /// host가 담당한다. 카드는 `fb.positionY` 콘텐츠 좌표에 그대로 얹혀 위치 정합이 유지된다.
-private struct ReadOnlyNoteCanvas: UIViewRepresentable {
+struct ReadOnlyNoteCanvas: UIViewRepresentable {
     let drawingData: Data?
     let feedbacks: [FeedbackRecord]
     let onChat: (FeedbackRecord) -> Void

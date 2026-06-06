@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		039F959CE948FF511E7CDE36 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C56EBDAD48612F30CF2C40B /* HomeView.swift */; };
+		11C71D4579FF05BAAD8DFC5D /* ReadOnlyNoteCanvasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EE72A7D66F9437169D5258B /* ReadOnlyNoteCanvasTests.swift */; };
 		140E3D2A6BBC4C122DA48283 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */; };
 		14C34B1E0B2CB242F8C0AF67 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639004ECF07091105D464672 /* SyncService.swift */; };
 		172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */; };
@@ -67,6 +68,7 @@
 
 /* Begin PBXFileReference section */
 		0C9978D4A1B1559395568666 /* ViewExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewExtensions.swift; sourceTree = "<group>"; };
+		0EE72A7D66F9437169D5258B /* ReadOnlyNoteCanvasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyNoteCanvasTests.swift; sourceTree = "<group>"; };
 		1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		154C163A4458A929F3381C5D /* DrawingHash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingHash.swift; sourceTree = "<group>"; };
 		1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
@@ -176,6 +178,7 @@
 				EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */,
 				7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */,
 				49741ADF8AF82F0E85EF90D6 /* PencilKitCanvasViewTests.swift */,
+				0EE72A7D66F9437169D5258B /* ReadOnlyNoteCanvasTests.swift */,
 				70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */,
 			);
 			path = ScatchLMTests;
@@ -374,6 +377,7 @@
 				2CB209193FCAAD7BB4F35E3A /* BakedMarkdownHTMLTests.swift in Sources */,
 				7A1DE7B290F43F1D32235D42 /* DatabaseServiceTests.swift in Sources */,
 				7FD0731BAB0D61F38AE8A28E /* PencilKitCanvasViewTests.swift in Sources */,
+				11C71D4579FF05BAAD8DFC5D /* ReadOnlyNoteCanvasTests.swift in Sources */,
 				596C6EE008171D393AA56B90 /* SyncServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

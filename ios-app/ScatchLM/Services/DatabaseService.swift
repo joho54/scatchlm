@@ -1063,19 +1063,13 @@ final class DatabaseService {
         }
     }
 
-    /// 드로어용 세션 목록. 이 노트에 속하거나(note_id) 이 교재에 귀속된(textbook_id) 세션 전부.
-    /// 가이드 세션은 textbook_id로, 피드백 세션은 note_id로 잡힌다.
-    func sessions(noteId: String, textbookId: String?) throws -> [ChatSessionRecord] {
+    /// 드로어용 세션 목록 — **노트 단위 격리**. 이 노트(note_id)에 속한 세션만 보여준다.
+    /// 가이드·피드백 세션 모두 생성 시 note_id가 채워지므로(PdfViewerView는 noteId를 주입받음)
+    /// note_id 하나로 충분하다. (교재 공유 노트 간 누수 방지 — 이전 textbook_id OR 제거.)
+    func sessions(noteId: String) throws -> [ChatSessionRecord] {
         guard let uid = scopedUserId else { return [] }
         return try dbQueue.read { db in
-            if let textbookId {
-                return try ChatSessionRecord
-                    .filter(sql: "user_id = ? AND deleted = 0 AND (note_id = ? OR textbook_id = ?)",
-                            arguments: [uid, noteId, textbookId])
-                    .order(ChatSessionRecord.Columns.updatedAt.desc)
-                    .fetchAll(db)
-            }
-            return try ChatSessionRecord
+            try ChatSessionRecord
                 .filter(ChatSessionRecord.Columns.noteId == noteId
                         && ChatSessionRecord.Columns.userId == uid
                         && ChatSessionRecord.Columns.deleted == false)
@@ -1084,13 +1078,14 @@ final class DatabaseService {
         }
     }
 
-    /// 같은 페이지·교재의 가이드 세션을 찾는다(있으면 이어가기, 없으면 새로 생성). §4.6.
+    /// 같은 노트·페이지·교재의 가이드 세션을 찾는다(있으면 이어가기, 없으면 새로 생성). §4.6.
+    /// note_id까지 스코프해 같은 교재를 쓰는 다른 노트의 가이드 세션과 섞이지 않게 한다.
     func guideSession(kind: ChatSessionRecord.Kind, textbookId: String, anchorPage: Int, noteId: String?) throws -> ChatSessionRecord? {
         guard let uid = scopedUserId else { return nil }
         return try dbQueue.read { db in
             try ChatSessionRecord
-                .filter(sql: "user_id = ? AND deleted = 0 AND kind = ? AND textbook_id = ? AND anchor_page = ?",
-                        arguments: [uid, kind.rawValue, textbookId, anchorPage])
+                .filter(sql: "user_id = ? AND deleted = 0 AND kind = ? AND textbook_id = ? AND anchor_page = ? AND note_id IS ?",
+                        arguments: [uid, kind.rawValue, textbookId, anchorPage, noteId])
                 .order(ChatSessionRecord.Columns.updatedAt.desc)
                 .fetchOne(db)
         }

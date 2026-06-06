@@ -191,7 +191,7 @@ struct ChapterDrawerView: View {
 
     private func load() async {
         do {
-            let loaded = try db.sessions(noteId: noteId, textbookId: textbookId)
+            let loaded = try db.sessions(noteId: noteId)
             var placementMap: [String: FeedbackRecord] = [:]
             for s in loaded {
                 if let p = try? db.placement(sessionId: s.id) { placementMap[s.id] = p }

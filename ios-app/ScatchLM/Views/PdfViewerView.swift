@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import PencilKit
 
 struct PdfViewerView: View {
     let textbookId: String
@@ -8,6 +9,8 @@ struct PdfViewerView: View {
     let onPageChanged: (Int) -> Void
     let onClose: () -> Void
     var onPin: ((String, String?) -> Void)?
+    /// 가이드 채팅 세션을 귀속시킬 노트(있으면). 드로어가 노트 단위로 세션을 모은다(§4.6).
+    var noteId: String?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
@@ -28,14 +31,17 @@ struct PdfViewerView: View {
     @State private var pdfStatus: PdfStatus?
     @State private var guideError: String?
     @State private var chapterGuideError: String?
+    /// PDF 필기 모드. ON이면 오버레이 캔버스가 입력을 받고 툴 팔레트가 뜬다(노트 연결 시만).
+    @State private var inkMode = false
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil, noteId: String? = nil) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
         self.onPageChanged = onPageChanged
         self.onClose = onClose
         self.onPin = onPin
+        self.noteId = noteId
         self._currentPage = State(initialValue: initialPage)
     }
 
@@ -67,7 +73,7 @@ struct PdfViewerView: View {
 
                 Spacer()
 
-                // Floating bottom bar — toc + guide
+                // Floating bottom bar — toc + guide + 필기
                 HStack(spacing: 10) {
                     Button { loadToc() } label: {
                         Label("목차", systemImage: "list.bullet")
@@ -76,6 +82,14 @@ struct PdfViewerView: View {
                     Button { loadPageGuide() } label: {
                         Label("가이드", systemImage: "book")
                             .font(.caption)
+                    }
+                    // 필기 모드 토글 — 노트에 연결된 PDF에서만 노출
+                    if noteId != nil {
+                        Button { inkMode.toggle() } label: {
+                            Label("필기", systemImage: inkMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+                                .font(.caption)
+                                .foregroundStyle(inkMode ? Color.accentColor : Color.primary)
+                        }
                     }
                 }
                 .padding(.horizontal, 14)
@@ -132,7 +146,7 @@ struct PdfViewerView: View {
                 await MainActor.run { pdfStatus = status }
                 if !status.isProcessing { return }  // pending/running 외에는 폴링 종료
             } catch {
-                appLogError("pdf", "ocr status poll failed", ["error": "\(error)"])
+                appLogError("pdf", "ocr status poll failed", ["textbookId": textbookId, "error": "\(error)"])
                 return
             }
             try? await Task.sleep(nanoseconds: 4_000_000_000)  // 4초 간격 폴링
@@ -209,10 +223,15 @@ struct PdfViewerView: View {
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
     @State private var guideChatSending = false
+    /// 현재 페이지 가이드 채팅 세션 id (영속화, §4.6). 첫 메시지 전송 시 생성.
+    @State private var guideSessionId: String?
 
     @State private var chapterChatMessages: [GuideChatMessage] = []
     @State private var chapterChatInput = ""
     @State private var chapterChatSending = false
+    @State private var chapterSessionId: String?
+
+    private let db = DatabaseService.shared
 
     // MARK: - Shared chat UI (page guide + chapter guide)
 
@@ -368,7 +387,6 @@ struct PdfViewerView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("닫기") {
                         showGuide = false
-                        guideChatMessages = []
                     }
                 }
             }
@@ -394,6 +412,16 @@ struct PdfViewerView: View {
         guideChatSending = true
 
         guideChatMessages.append(GuideChatMessage(role: "user", content: text))
+
+        // 세션 보장 + user 메시지 영속화 (§4.6). 가이드 본문은 세션 첫 assistant 메시지로 저장된다.
+        let guideBody = pageGuide.map { $0.content ?? $0.topic }
+        let sid = ensureGuideSession(kind: .pageGuide, anchorPage: currentPage,
+                                     chapterTitle: pageGuide?.topic, bodyText: guideBody,
+                                     bodyServerId: pageGuide?.feedbackId)
+        if let sid {
+            try? db.setSessionTitleIfEmpty(sessionId: sid, title: text)
+            persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
+        }
 
         // Build history: guide content as first assistant message
         var history: [[String: String]] = []
@@ -433,6 +461,7 @@ struct PdfViewerView: View {
 
                 await MainActor.run {
                     guideChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
+                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
                     guideChatSending = false
                 }
             } catch {
@@ -551,7 +580,6 @@ struct PdfViewerView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("닫기") {
                         showChapterGuide = false
-                        chapterChatMessages = []
                     }
                 }
             }
@@ -596,6 +624,16 @@ struct PdfViewerView: View {
 
         chapterChatMessages.append(GuideChatMessage(role: "user", content: text))
 
+        // 세션 보장 + user 메시지 영속화 (§4.6). 챕터 본문은 세션 첫 assistant 메시지로 저장된다.
+        let chapterBody = chapterGuide.map { chapterGuideText($0) }
+        let sid = ensureGuideSession(kind: .chapterGuide, anchorPage: chapterGuide?.pageStart ?? currentPage,
+                                     chapterTitle: chapterGuide?.title, bodyText: chapterBody,
+                                     bodyServerId: chapterGuide?.feedbackId)
+        if let sid {
+            try? db.setSessionTitleIfEmpty(sessionId: sid, title: text)
+            persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
+        }
+
         // Build history: chapter guide content as first assistant message
         var history: [[String: String]] = []
         if let guide = chapterGuide {
@@ -633,6 +671,7 @@ struct PdfViewerView: View {
 
                 await MainActor.run {
                     chapterChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
+                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
                     chapterChatSending = false
                 }
             } catch {
@@ -648,6 +687,8 @@ struct PdfViewerView: View {
     private var pdfContentView: some View {
         let pdf = NativePdfView(
             textbookId: textbookId,
+            noteId: noteId,
+            inkMode: inkMode,
             initialPage: initialPage,
             onPageChanged: { page in
                 currentPage = page
@@ -725,6 +766,54 @@ struct PdfViewerView: View {
 
     // MARK: - API Calls
 
+    // MARK: - 가이드 채팅 세션 영속화 (chapter-chat-drawer-spec §4.6 / Track C)
+
+    /// 같은 페이지·교재의 기존 가이드 세션을 찾아 메시지를 로드한다(이어가기).
+    /// 세션의 message[0]는 가이드 본문(assistant)이므로 turn 리스트엔 dropFirst로 제외(헤더가 본문 표시).
+    private func loadGuideSession(kind: ChatSessionRecord.Kind, anchorPage: Int) {
+        guard let session = try? db.guideSession(kind: kind, textbookId: textbookId, anchorPage: anchorPage, noteId: noteId) else {
+            if kind == .pageGuide { guideSessionId = nil; guideChatMessages = [] }
+            else { chapterSessionId = nil; chapterChatMessages = [] }
+            return
+        }
+        let msgs = (try? db.messages(sessionId: session.id)) ?? []
+        let turns = msgs.dropFirst().map {
+            GuideChatMessage(role: $0.role, content: $0.content, serverId: $0.serverMessageId, rating: $0.userRating)
+        }
+        if kind == .pageGuide { guideSessionId = session.id; guideChatMessages = turns }
+        else { chapterSessionId = session.id; chapterChatMessages = turns }
+    }
+
+    /// 가이드 세션을 보장한다. 없으면 생성 + 가이드 본문을 첫 assistant 메시지로 영속화(결정 2/R4).
+    private func ensureGuideSession(kind: ChatSessionRecord.Kind, anchorPage: Int, chapterTitle: String?, bodyText: String?, bodyServerId: String?) -> String? {
+        if kind == .pageGuide, let sid = guideSessionId { return sid }
+        if kind == .chapterGuide, let sid = chapterSessionId { return sid }
+        var session = ChatSessionRecord(
+            kind: kind.rawValue, title: "", noteId: noteId, textbookId: textbookId,
+            anchorPage: anchorPage, chapterTitle: chapterTitle
+        )
+        do {
+            try db.saveSession(&session)
+        } catch {
+            appLogError("guide-chat", "create session failed", ["error": "\(error)"])
+            return nil
+        }
+        if let bodyText, !bodyText.isEmpty {
+            persistGuideMessage(sessionId: session.id, role: "assistant", content: bodyText, serverId: bodyServerId)
+        }
+        if kind == .pageGuide { guideSessionId = session.id } else { chapterSessionId = session.id }
+        return session.id
+    }
+
+    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?) {
+        var msg = ChatMessageRecord(
+            id: UUID().uuidString, sessionId: sessionId, role: role, content: content,
+            createdAt: Date(), serverMessageId: serverId
+        )
+        do { try db.saveChatMessage(&msg) }
+        catch { appLogError("guide-chat", "persist message failed", ["error": "\(error)"]) }
+    }
+
     private func loadToc() {
         showToc = true
         guard chapters.isEmpty else { return }
@@ -743,7 +832,7 @@ struct PdfViewerView: View {
         pageGuide = nil
         pageGuideRating = nil
         guideError = nil
-        guideChatMessages = []
+        loadGuideSession(kind: .pageGuide, anchorPage: currentPage)
         appLog("pdf", "loadGuide start", ["page": "\(currentPage)", "textbookId": textbookId])
         Task {
             do {
@@ -773,13 +862,17 @@ struct PdfViewerView: View {
         chapterGuide = nil
         chapterGuideRating = nil
         chapterGuideError = nil
+        chapterSessionId = nil
         chapterChatMessages = []
         Task {
             do {
-                chapterGuide = try await APIClient.shared.get(
+                let guide: ChapterGuide = try await APIClient.shared.get(
                     "/pdf/\(textbookId)/chapter-guide",
                     query: ["chapter_id": chapterId, "response_language": Config.responseLanguage]
                 )
+                chapterGuide = guide
+                // 챕터 가이드는 pageStart를 anchor로 잡아 기존 세션을 이어간다(§4.6).
+                loadGuideSession(kind: .chapterGuide, anchorPage: guide.pageStart)
             } catch let APIError.ocrIncomplete(info) {
                 appLog("pdf", "loadChapterGuide ocr_incomplete", ["capped": "\(info.capped)"])
                 chapterGuideError = APIError.ocrIncomplete(info).errorDescription
@@ -795,6 +888,10 @@ struct PdfViewerView: View {
 
 struct NativePdfView: UIViewRepresentable {
     let textbookId: String
+    /// 필기 귀속 노트. nil이면 필기 오버레이 비활성(읽기 전용).
+    var noteId: String?
+    /// 필기 모드. ON이면 오버레이 캔버스가 입력을 받고 툴 팔레트가 뜬다.
+    var inkMode: Bool = false
     let initialPage: Int
     let onPageChanged: (Int) -> Void
     var onPdfViewReady: ((PDFView) -> Void)?
@@ -812,6 +909,14 @@ struct NativePdfView: UIViewRepresentable {
         }
 
         let coordinator = context.coordinator
+        coordinator.pdfView = pdfView
+
+        // 필기 오버레이: 노트에 연결됐을 때만 PencilKit 캔버스를 페이지 위에 띄운다.
+        // PDFPageOverlayViewProvider가 페이지 좌표계에 캔버스를 정렬해준다(iOS 16+).
+        if coordinator.noteId != nil {
+            pdfView.pageOverlayViewProvider = coordinator
+            coordinator.observeAppLifecycle()
+        }
 
         // Reuse cached document if available (survives rotation/app switch)
         if let cachedDoc = coordinator.cachedDocument {
@@ -857,10 +962,11 @@ struct NativePdfView: UIViewRepresentable {
         // so set white bg here → gets inverted to black visually
         let isDark = uiView.traitCollection.userInterfaceStyle == .dark
         uiView.backgroundColor = isDark ? .white : .systemGray6
+        context.coordinator.setInkMode(inkMode)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPageChanged: onPageChanged)
+        Coordinator(noteId: noteId, onPageChanged: onPageChanged)
     }
 
     static func loadPdfData(textbookId: String) async -> Data? {
@@ -900,13 +1006,29 @@ struct NativePdfView: UIViewRepresentable {
         }
     }
 
-    class Coordinator: NSObject {
+    class Coordinator: NSObject, PDFPageOverlayViewProvider, PKCanvasViewDelegate {
+        let noteId: String?
         let onPageChanged: (Int) -> Void
         var cachedDocument: PDFDocument?
         var lastPage: Int = 1
 
-        init(onPageChanged: @escaping (Int) -> Void) {
+        weak var pdfView: PDFView?
+        private let db = DatabaseService.shared
+        /// 표시 중인 페이지별 캔버스(pdf_page 1-based → canvas). 저장/모드전환 대상.
+        private var canvasesByPage: [Int: PKCanvasView] = [:]
+        /// 페이지별 디바운스 저장 작업.
+        private var saveWork: [Int: DispatchWorkItem] = [:]
+        private let toolPicker = PKToolPicker()
+        private var inkMode = false
+        private var lifecycleObserved = false
+
+        init(noteId: String?, onPageChanged: @escaping (Int) -> Void) {
+            self.noteId = noteId
             self.onPageChanged = onPageChanged
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
 
         @objc func pageChanged(_ notification: Notification) {
@@ -917,6 +1039,147 @@ struct NativePdfView: UIViewRepresentable {
             let page = pageIndex + 1
             lastPage = page
             onPageChanged(page)
+            // 현재 페이지가 바뀌면 필기 모드에 맞춰 포커스/팔레트를 갱신.
+            applyInkModeToVisibleCanvases()
+        }
+
+        // MARK: - PencilKit 오버레이
+
+        private func pageNumber(for page: PDFPage) -> Int {
+            (page.document?.index(for: page) ?? 0) + 1
+        }
+
+        func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
+            guard let noteId else { return nil }
+            let pageNum = pageNumber(for: page)
+            let canvas = PKCanvasView()
+            canvas.backgroundColor = .clear
+            canvas.isOpaque = false
+            canvas.isScrollEnabled = false               // 줌/페이징은 PDFView가 담당
+            canvas.drawingPolicy = Self.drawingPolicy
+            canvas.tool = PKInkingTool(.pen, color: .black, width: 3)
+            canvas.delegate = self
+            canvas.isUserInteractionEnabled = inkMode
+            // 저장된 필기 로드
+            if let ann = try? db.pdfAnnotation(noteId: noteId, page: pageNum),
+               let data = ann.drawingData, let drawing = try? PKDrawing(data: data) {
+                canvas.drawing = drawing
+            }
+            canvasesByPage[pageNum] = canvas
+            return canvas
+        }
+
+        func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+            guard let canvas = overlayView as? PKCanvasView else { return }
+            let pageNum = pageNumber(for: page)
+            canvasesByPage[pageNum] = canvas
+            canvas.isUserInteractionEnabled = inkMode
+            if inkMode { activatePicker(on: canvas) }
+        }
+
+        func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+            guard let canvas = overlayView as? PKCanvasView else { return }
+            let pageNum = pageNumber(for: page)
+            flushSave(pageNum, canvas: canvas)            // 페이지 이탈 시 즉시 저장
+            canvasesByPage.removeValue(forKey: pageNum)
+        }
+
+        // MARK: - 필기 모드 토글
+
+        /// 시뮬레이터는 마우스/손가락으로 그려야 하므로 anyInput, 실기기는 펜 전용
+        /// (손가락은 PDF 페이징/줌으로 통과). 필기 전용 기능이라 G4(손가락 필기) 대상 아님 —
+        /// 펜이 없어도 PDF 읽기·노트 캔버스 사용은 그대로 가능.
+        static var drawingPolicy: PKCanvasViewDrawingPolicy {
+            #if targetEnvironment(simulator)
+            return .anyInput
+            #else
+            return .pencilOnly
+            #endif
+        }
+
+        func setInkMode(_ on: Bool) {
+            guard on != inkMode else { return }
+            inkMode = on
+            applyInkModeToVisibleCanvases()
+        }
+
+        private func applyInkModeToVisibleCanvases() {
+            for canvas in canvasesByPage.values {
+                canvas.isUserInteractionEnabled = inkMode
+            }
+            if inkMode {
+                if let current = currentCanvas() { activatePicker(on: current) }
+            } else {
+                toolPicker.setVisible(false, forFirstResponder: currentCanvas() ?? PKCanvasView())
+                currentCanvas()?.resignFirstResponder()
+            }
+        }
+
+        private func currentCanvas() -> PKCanvasView? {
+            guard let pdfView, let page = pdfView.currentPage else { return nil }
+            return canvasesByPage[pageNumber(for: page)]
+        }
+
+        private func activatePicker(on canvas: PKCanvasView) {
+            toolPicker.addObserver(canvas)
+            toolPicker.setVisible(true, forFirstResponder: canvas)
+            canvas.becomeFirstResponder()
+        }
+
+        // MARK: - 저장 (디바운스 + tombstone)
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            guard let pageNum = canvasesByPage.first(where: { $0.value === canvasView })?.key else { return }
+            scheduleSave(pageNum, canvas: canvasView)
+        }
+
+        private func scheduleSave(_ pageNum: Int, canvas: PKCanvasView) {
+            saveWork[pageNum]?.cancel()
+            let work = DispatchWorkItem { [weak self, weak canvas] in
+                guard let self, let canvas else { return }
+                self.persist(pageNum, canvas: canvas)
+            }
+            saveWork[pageNum] = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+        }
+
+        private func flushSave(_ pageNum: Int, canvas: PKCanvasView) {
+            saveWork[pageNum]?.cancel()
+            saveWork[pageNum] = nil
+            persist(pageNum, canvas: canvas)
+        }
+
+        private func persist(_ pageNum: Int, canvas: PKCanvasView) {
+            guard let noteId else { return }
+            let drawing = canvas.drawing
+            if drawing.strokes.isEmpty {
+                // 비워졌으면 기존 행만 tombstone(없으면 no-op).
+                let existing = (try? db.pdfAnnotation(noteId: noteId, page: pageNum)) ?? nil
+                if existing != nil {
+                    try? db.deletePdfAnnotation(noteId: noteId, page: pageNum)
+                }
+            } else {
+                try? db.savePdfAnnotation(noteId: noteId, page: pageNum, data: drawing.dataRepresentation())
+            }
+        }
+
+        // MARK: - 앱 생명주기 (백그라운드 진입 시 전체 flush)
+
+        func observeAppLifecycle() {
+            guard !lifecycleObserved else { return }
+            lifecycleObserved = true
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(flushAll),
+                name: UIApplication.didEnterBackgroundNotification, object: nil)
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(flushAll),
+                name: UIApplication.willResignActiveNotification, object: nil)
+        }
+
+        @objc private func flushAll() {
+            for (pageNum, canvas) in canvasesByPage {
+                flushSave(pageNum, canvas: canvas)
+            }
         }
     }
 }

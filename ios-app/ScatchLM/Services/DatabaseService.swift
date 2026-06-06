@@ -211,6 +211,105 @@ final class DatabaseService {
             try db.execute(sql: "UPDATE feedback_chats SET updated_at = created_at WHERE updated_at IS NULL")
         }
 
+        // v8: 챕터 채팅 드로어 (chapter-chat-drawer-spec §4.1).
+        // 캔버스 비종속 chat_session 테이블 신설 + feedback_chats/feedbacks에 session_id 추가.
+        // 기존 feedback_chats를 feedback_id로 그룹핑해 kind=feedback 세션으로 백필한다.
+        // 세션 id는 feedback_id 기반 **결정적**("sess_"+feedback_id)으로 생성해 멀티디바이스
+        // 독립 백필이 같은 행으로 머지되도록 한다(§7 R1).
+        migrator.registerMigration("v8_chat_sessions") { db in
+            try db.create(table: "chat_sessions", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("kind", .text).notNull()
+                t.column("title", .text).notNull().defaults(to: "")
+                t.column("note_id", .text)
+                t.column("textbook_id", .text)
+                t.column("anchor_page", .integer)
+                t.column("chapter_title", .text)
+                t.column("source_feedback_id", .text)
+                t.column("created_at", .datetime).notNull()
+                // sync 메타 (v7과 동일 패턴)
+                t.column("user_id", .text).notNull().defaults(to: "")
+                t.column("updated_at", .datetime).notNull()
+                t.column("deleted", .boolean).notNull().defaults(to: false)
+                t.column("dirty", .boolean).notNull().defaults(to: true)
+            }
+            try db.create(index: "ix_chat_sessions_user_updated", on: "chat_sessions",
+                          columns: ["user_id", "updated_at"], ifNotExists: true)
+
+            // session_id 컬럼 추가. feedback_chats는 notNull(빈 sentinel) — 모든 기존 행은
+            // 아래 백필이 실제 세션으로 덮는다. feedbacks는 nullable(레거시 단독 카드 = null).
+            try db.alter(table: "feedback_chats") { t in
+                t.add(column: "session_id", .text).notNull().defaults(to: "")
+            }
+            try db.alter(table: "feedbacks") { t in
+                t.add(column: "session_id", .text)
+            }
+
+            // 백필: feedback_chats를 feedback_id로 그룹핑 → 그룹마다 kind=feedback 세션 1개.
+            let feedbackIds = try String.fetchAll(
+                db, sql: "SELECT DISTINCT feedback_id FROM feedback_chats WHERE feedback_id IS NOT NULL"
+            )
+            for feedbackId in feedbackIds {
+                let sessionId = "sess_" + feedbackId
+                guard let parent = try Row.fetchOne(
+                    db,
+                    sql: "SELECT note_id, server_feedback_id, user_id, created_at FROM feedbacks WHERE id = ?",
+                    arguments: [feedbackId]
+                ) else { continue }
+                let noteId: String? = parent["note_id"]
+                let sourceFeedbackId: String? = parent["server_feedback_id"]
+                let userId: String = parent["user_id"] ?? ""
+                let createdAt: Date = parent["created_at"] ?? Date()
+                // 제목 = 그룹 첫 user 메시지, 없으면 폴백.
+                let firstUserMsg = try String.fetchOne(
+                    db,
+                    sql: "SELECT content FROM feedback_chats WHERE feedback_id = ? AND role = 'user' ORDER BY created_at ASC LIMIT 1",
+                    arguments: [feedbackId]
+                )
+                let title = firstUserMsg ?? "피드백 대화"
+                try db.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO chat_sessions
+                        (id, kind, title, note_id, textbook_id, anchor_page, chapter_title,
+                         source_feedback_id, created_at, user_id, updated_at, deleted, dirty)
+                        VALUES (?, 'feedback', ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, 1)
+                        """,
+                    arguments: [sessionId, title, noteId, sourceFeedbackId, createdAt, userId, createdAt]
+                )
+                // 메시지 → 세션 연결, 부모 카드 → placement 연결. 둘 다 dirty=1로 재push.
+                try db.execute(
+                    sql: "UPDATE feedback_chats SET session_id = ?, dirty = 1 WHERE feedback_id = ?",
+                    arguments: [sessionId, feedbackId]
+                )
+                try db.execute(
+                    sql: "UPDATE feedbacks SET session_id = ?, dirty = 1 WHERE id = ?",
+                    arguments: [sessionId, feedbackId]
+                )
+            }
+        }
+
+        // v9: PDF 페이지 필기 오버레이 (pdf-annotation 필기 전용).
+        // 노트 종속(note_id) + PDF 페이지 번호(pdf_page) 키. note_pages와 동일한 sync 메타.
+        // drawing blob은 기존 content-addressed blob 채널(drawing_hash)로 동기화한다.
+        migrator.registerMigration("v9_pdf_annotations") { db in
+            try db.create(table: "pdf_annotations", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("note_id", .text).notNull().references("notes", onDelete: .cascade)
+                t.column("pdf_page", .integer).notNull()
+                t.column("drawing_data", .blob)
+                t.column("created_at", .datetime).notNull()
+                // sync 메타 (v7 패턴)
+                t.column("user_id", .text).notNull().defaults(to: "")
+                t.column("drawing_hash", .text)
+                t.column("updated_at", .datetime).notNull()
+                t.column("deleted", .boolean).notNull().defaults(to: false)
+                t.column("dirty", .boolean).notNull().defaults(to: true)
+                t.uniqueKey(["note_id", "pdf_page"])
+            }
+            try db.create(index: "ix_pdf_annotations_user_updated", on: "pdf_annotations",
+                          columns: ["user_id", "updated_at"], ifNotExists: true)
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -221,7 +320,7 @@ final class DatabaseService {
     func purgeAllData(userId: String) throws {
         guard !userId.isEmpty else { return }
         try dbQueue.write { db in
-            for table in ["feedback_chats", "feedbacks", "note_pages", "notes"] {
+            for table in ["feedback_chats", "feedbacks", "pdf_annotations", "note_pages", "notes"] {
                 try db.execute(sql: "DELETE FROM \(table) WHERE user_id = ?", arguments: [userId])
             }
             // pdf_drawings는 user 스코프 컬럼이 없음 — 디바이스 로컬 전체 삭제.
@@ -491,6 +590,80 @@ final class DatabaseService {
         notifyWrite()
     }
 
+    // MARK: - PDF Annotations (PDF 페이지 위 필기 오버레이, sync 대상)
+
+    /// 노트의 모든 PDF 필기. 페이지별로 조회해 캔버스에 로드한다.
+    func pdfAnnotations(noteId: String) throws -> [PdfAnnotation] {
+        guard let uid = scopedUserId else { return [] }
+        return try dbQueue.read { db in
+            try PdfAnnotation
+                .filter(PdfAnnotation.Columns.noteId == noteId
+                        && PdfAnnotation.Columns.userId == uid
+                        && PdfAnnotation.Columns.deleted == false)
+                .order(PdfAnnotation.Columns.pdfPage.asc)
+                .fetchAll(db)
+        }
+    }
+
+    /// 특정 PDF 페이지의 필기 1건.
+    func pdfAnnotation(noteId: String, page: Int) throws -> PdfAnnotation? {
+        guard let uid = scopedUserId else { return nil }
+        return try dbQueue.read { db in
+            try PdfAnnotation
+                .filter(PdfAnnotation.Columns.noteId == noteId
+                        && PdfAnnotation.Columns.pdfPage == page
+                        && PdfAnnotation.Columns.userId == uid
+                        && PdfAnnotation.Columns.deleted == false)
+                .fetchOne(db)
+        }
+    }
+
+    /// (note_id, pdf_page) upsert. 기존 행이 있으면 drawing만 갱신, 없으면 새로 만든다.
+    /// 빈 drawing은 호출 전에 거른다(스트로크 있을 때만 저장).
+    func savePdfAnnotation(noteId: String, page: Int, data: Data) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            let now = Date()
+            let hash = DrawingHash.hash(for: data)
+            if let existing = try PdfAnnotation
+                .filter(PdfAnnotation.Columns.noteId == noteId
+                        && PdfAnnotation.Columns.pdfPage == page
+                        && PdfAnnotation.Columns.userId == uid)
+                .fetchOne(db) {
+                try db.execute(
+                    sql: "UPDATE pdf_annotations SET drawing_data = ?, drawing_hash = ?, updated_at = ?, deleted = 0, dirty = 1 WHERE id = ?",
+                    arguments: [data, hash, now, existing.id]
+                )
+            } else {
+                var ann = PdfAnnotation(
+                    id: UUID().uuidString,
+                    noteId: noteId,
+                    pdfPage: page,
+                    drawingData: data,
+                    createdAt: now,
+                    userId: uid,
+                    drawingHash: hash,
+                    updatedAt: now,
+                    dirty: true
+                )
+                try ann.save(db)
+            }
+        }
+        notifyWrite()
+    }
+
+    /// 페이지 필기 전체 삭제(지우개로 비웠을 때). soft delete tombstone.
+    func deletePdfAnnotation(noteId: String, page: Int) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE pdf_annotations SET drawing_data = NULL, drawing_hash = NULL, deleted = 1, dirty = 1, updated_at = ? WHERE note_id = ? AND pdf_page = ? AND user_id = ?",
+                arguments: [Date(), noteId, page, uid]
+            )
+        }
+        notifyWrite()
+    }
+
     func updateCurrentPageIndex(noteId: String, index: Int) throws {
         let uid = try requireUserId()
         try dbQueue.write { db in
@@ -619,5 +792,103 @@ final class DatabaseService {
             )
         }
         notifyWrite()
+    }
+
+    // MARK: - Chat Sessions (chapter-chat-drawer-spec §4.1)
+
+    /// 세션 기반 메시지 로드 (드로어/세션 채팅 일반화 §4.4).
+    func messages(sessionId: String) throws -> [ChatMessageRecord] {
+        guard let uid = scopedUserId else { return [] }
+        return try dbQueue.read { db in
+            try ChatMessageRecord
+                .filter(ChatMessageRecord.Columns.sessionId == sessionId
+                        && ChatMessageRecord.Columns.userId == uid
+                        && ChatMessageRecord.Columns.deleted == false)
+                .order(ChatMessageRecord.Columns.createdAt.asc)
+                .fetchAll(db)
+        }
+    }
+
+    func session(id: String) throws -> ChatSessionRecord? {
+        guard let uid = scopedUserId else { return nil }
+        return try dbQueue.read { db in
+            try ChatSessionRecord
+                .filter(ChatSessionRecord.Columns.id == id
+                        && ChatSessionRecord.Columns.userId == uid
+                        && ChatSessionRecord.Columns.deleted == false)
+                .fetchOne(db)
+        }
+    }
+
+    /// 드로어용 세션 목록. 이 노트에 속하거나(note_id) 이 교재에 귀속된(textbook_id) 세션 전부.
+    /// 가이드 세션은 textbook_id로, 피드백 세션은 note_id로 잡힌다.
+    func sessions(noteId: String, textbookId: String?) throws -> [ChatSessionRecord] {
+        guard let uid = scopedUserId else { return [] }
+        return try dbQueue.read { db in
+            if let textbookId {
+                return try ChatSessionRecord
+                    .filter(sql: "user_id = ? AND deleted = 0 AND (note_id = ? OR textbook_id = ?)",
+                            arguments: [uid, noteId, textbookId])
+                    .order(ChatSessionRecord.Columns.updatedAt.desc)
+                    .fetchAll(db)
+            }
+            return try ChatSessionRecord
+                .filter(ChatSessionRecord.Columns.noteId == noteId
+                        && ChatSessionRecord.Columns.userId == uid
+                        && ChatSessionRecord.Columns.deleted == false)
+                .order(ChatSessionRecord.Columns.updatedAt.desc)
+                .fetchAll(db)
+        }
+    }
+
+    /// 같은 페이지·교재의 가이드 세션을 찾는다(있으면 이어가기, 없으면 새로 생성). §4.6.
+    func guideSession(kind: ChatSessionRecord.Kind, textbookId: String, anchorPage: Int, noteId: String?) throws -> ChatSessionRecord? {
+        guard let uid = scopedUserId else { return nil }
+        return try dbQueue.read { db in
+            try ChatSessionRecord
+                .filter(sql: "user_id = ? AND deleted = 0 AND kind = ? AND textbook_id = ? AND anchor_page = ?",
+                        arguments: [uid, kind.rawValue, textbookId, anchorPage])
+                .order(ChatSessionRecord.Columns.updatedAt.desc)
+                .fetchOne(db)
+        }
+    }
+
+    func saveSession(_ session: inout ChatSessionRecord) throws {
+        let uid = try requireUserId()
+        session.userId = uid
+        session.updatedAt = Date()
+        session.dirty = true
+        let toSave = session
+        try dbQueue.write { db in
+            var s = toSave
+            try s.save(db)
+        }
+        notifyWrite()
+    }
+
+    /// 세션 제목이 비어 있을 때만 첫 user 질문으로 세팅한다 (결정 2 / §4.4).
+    func setSessionTitleIfEmpty(sessionId: String, title: String) throws {
+        let uid = try requireUserId()
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE chat_sessions SET title = ?, updated_at = ?, dirty = 1 WHERE id = ? AND user_id = ? AND title = ''",
+                arguments: [trimmed, Date(), sessionId, uid]
+            )
+        }
+        notifyWrite()
+    }
+
+    /// 세션을 가리키는 캔버스 placement(피드백 카드) 중 가장 최근 것. 드로어 "캔버스로 점프"용.
+    func placement(sessionId: String) throws -> FeedbackRecord? {
+        guard let uid = scopedUserId else { return nil }
+        return try dbQueue.read { db in
+            try FeedbackRecord
+                .filter(sql: "session_id = ? AND user_id = ? AND deleted = 0",
+                        arguments: [sessionId, uid])
+                .order(FeedbackRecord.Columns.createdAt.desc)
+                .fetchOne(db)
+        }
     }
 }

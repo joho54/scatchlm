@@ -16,6 +16,15 @@ final class FeedbackClipboard {
     private init() {}
 }
 
+/// 세션 채팅 시트 표시 컨텍스트 (chapter-chat-drawer-spec §4.4).
+/// `.sheet(item:)`가 요구하는 Identifiable — id는 세션 id.
+struct ChatSheetContext: Identifiable {
+    var id: String { session.id }
+    let session: ChatSessionRecord
+    var headerContent: String?
+    var headerServerId: String?
+}
+
 /// PencilKit 기본 paste: 액션(시스템 클립보드 → 캔버스)을 억제한다. 그래야 길게누르기 시
 /// 시스템 "붙여넣기" 버블 대신 우리 커스텀 카드 붙여넣기 메뉴만 노출된다.
 final class NoteCanvasView: PKCanvasView {
@@ -35,7 +44,7 @@ struct NoteView: View {
     @State private var loading = false
     @State private var pdfOpen = false
     @State private var currentPage: Int = 1
-    @State private var chatFeedback: FeedbackRecord?
+    @State private var chatContext: ChatSheetContext?
     @State private var ratingSheetFeedback: FeedbackRecord?
     /// 카드 복사 클립보드(앱 세션 전역) — 복사 후 아무 페이지에서나 붙여넣기.
     private let clipboard = FeedbackClipboard.shared
@@ -57,6 +66,7 @@ struct NoteView: View {
     // 시뮬레이터 전용 — 마우스로 스크롤하려면 .pencilOnly로 전환 (true=스크롤 모드)
     @State private var simScrollMode: Bool = false
     @State private var pageNavOpen: Bool = false
+    @State private var showChapterDrawer: Bool = false
     @State private var canUndo: Bool = false
     @State private var canRedo: Bool = false
     // PDF/캔버스 분할 비율 (PDF 쪽 비율). 드래그 가능한 divider로 조정. 세션 휘발(영속 안 함).
@@ -226,10 +236,34 @@ struct NoteView: View {
                 }
             }
         }
-        .sheet(item: $chatFeedback) { fb in
-            FeedbackChatSheet(feedback: fb, textbookId: note?.textbookId, currentPage: currentPage, noteId: noteId, subject: note?.language, onPin: { content, responseId in
-                pinToCanvas(content: content, serverFeedbackId: responseId)
-            })
+        .sheet(item: $chatContext) { ctx in
+            SessionChatSheet(
+                session: ctx.session,
+                headerContent: ctx.headerContent,
+                headerServerId: ctx.headerServerId,
+                textbookId: note?.textbookId,
+                currentPage: currentPage,
+                noteId: noteId,
+                subject: note?.language,
+                onPin: { content, responseId in
+                    pinToCanvas(content: content, serverFeedbackId: responseId)
+                }
+            )
+        }
+        .sheet(isPresented: $showChapterDrawer) {
+            ChapterDrawerView(
+                noteId: noteId,
+                textbookId: note?.textbookId,
+                subject: note?.language,
+                onJump: { fb in
+                    showChapterDrawer = false
+                    jumpToPlacement(fb)
+                },
+                onScrap: { session in
+                    showChapterDrawer = false
+                    scrapSession(session)
+                }
+            )
         }
         .sheet(item: $ratingSheetFeedback) { fb in
             FeedbackRatingSheet(
@@ -346,7 +380,7 @@ struct NoteView: View {
             initialDrawingData: currentNotePage?.drawingData ?? (currentPageIndex == 0 ? note.drawingData : nil),
             feedbacks: feedbacks,
             onFeedbackTapped: { fb in
-                chatFeedback = fb
+                openChat(for: fb)
             },
             onFeedbackRevert: { fb in
                 pendingRevert = fb
@@ -404,6 +438,19 @@ struct NoteView: View {
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                 }
+
+                // 챕터 채팅 드로어 — 이 노트·교재에 귀속된 세션을 챕터별로 모아 본다(§4.3).
+                Button {
+                    showChapterDrawer = true
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 36, height: 36)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                }
             }
             .padding(.leading, 12)
             .padding(.top, 12)
@@ -434,7 +481,8 @@ struct NoteView: View {
                 },
                 onPin: { content, responseId in
                     pinToCanvas(content: content, serverFeedbackId: responseId)
-                }
+                },
+                noteId: noteId
             )
         }
     }
@@ -655,8 +703,11 @@ struct NoteView: View {
         (canvasView.delegate as? PencilKitCanvasView.Coordinator)?.contentView ?? canvasView
     }
 
-    /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수
-    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil) {
+    /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수.
+    /// 카드는 세션을 캔버스에 배치한 placement다(§4.5). `sessionId`가 주어지면 그 세션에 연결하고
+    /// (드로어 재스크랩 — 1 session→N cards), 없으면 이 카드용 kind=feedback 세션을 새로 만든다(세션화 통일).
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil) {
+        let placementSessionId = sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId)?.id
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
         // 먼저 인디케이터를 현재 스트로크/카드 기준으로 갱신해 nextCardLineY를 최신화한 뒤 그 값을 읽는다.
         let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
@@ -748,6 +799,96 @@ struct NoteView: View {
         // serverFeedbackId 없이 본문만 — 평점·자세히는 비활성, 대화는 새 컨텍스트로 시작.
         appendFeedbackCard(content: content)
         appLog("note", "feedback pasted", ["pageIndex": "\(currentPageIndex)", "contentLen": "\(content.count)"])
+    }
+
+    // MARK: - 세션 채팅 / 드로어 연동 (chapter-chat-drawer-spec §4.4/§4.5/Track D)
+
+    /// 카드 본문(AIResponse JSON 또는 평문)에서 드로어/세션 제목용 짧은 스니펫을 만든다.
+    private func feedbackTitleSnippet(_ content: String) -> String {
+        var text = content
+        if let data = content.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
+            text = parsed.displayText
+        }
+        let oneLine = text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if oneLine.isEmpty { return String(localized: "피드백 대화") }
+        return String(oneLine.prefix(40))
+    }
+
+    /// 카드 placement용 kind=feedback 세션을 새로 만든다. 교재 연결 시 anchorPage=현재 페이지.
+    private func createFeedbackSession(content: String, serverFeedbackId: String?) -> ChatSessionRecord? {
+        var session = ChatSessionRecord(
+            kind: ChatSessionRecord.Kind.feedback.rawValue,
+            title: feedbackTitleSnippet(content),
+            noteId: noteId,
+            textbookId: note?.textbookId,
+            anchorPage: note?.textbookId != nil ? currentPage : nil,
+            sourceFeedbackId: serverFeedbackId
+        )
+        do {
+            try db.saveSession(&session)
+            return session
+        } catch {
+            appLogError("note", "createFeedbackSession failed", ["error": "\(error)"])
+            return nil
+        }
+    }
+
+    /// 카드 탭 → 세션 채팅 열기. 카드에 세션이 없으면(레거시) 새로 만들어 연결한다.
+    private func openChat(for fb: FeedbackRecord) {
+        let session: ChatSessionRecord?
+        if let sid = fb.sessionId, let existing = try? db.session(id: sid) {
+            session = existing
+        } else {
+            // 레거시 단독 카드: 세션 생성 후 카드에 역연결.
+            guard let created = createFeedbackSession(content: fb.content, serverFeedbackId: fb.serverFeedbackId) else { return }
+            var card = fb
+            card.sessionId = created.id
+            do {
+                try db.saveFeedback(&card)
+                if let idx = feedbacks.firstIndex(where: { $0.id == fb.id }) { feedbacks[idx] = card }
+            } catch {
+                appLogError("note", "link card→session failed", ["error": "\(error)"])
+            }
+            session = created
+        }
+        guard let session else { return }
+        chatContext = ChatSheetContext(
+            session: session,
+            headerContent: fb.content,
+            headerServerId: fb.serverFeedbackId
+        )
+    }
+
+    /// 드로어 → 캔버스 재스크랩. 세션은 그대로 두고 placement(카드)만 현재 페이지에 신규 생성한다(§4.5).
+    private func scrapSession(_ session: ChatSessionRecord) {
+        // 카드 본문 = 기존 placement 본문 우선, 없으면 세션 첫 assistant 메시지(가이드 본문 등), 없으면 제목.
+        var content = (try? db.placement(sessionId: session.id))?.content
+        if content == nil {
+            let msgs = (try? db.messages(sessionId: session.id)) ?? []
+            if let body = msgs.first(where: { $0.role == "assistant" })?.content {
+                content = "{\"type\":\"feedback\",\"content\":\(jsonString(body))}"
+            }
+        }
+        let finalContent = content ?? "{\"type\":\"feedback\",\"content\":\(jsonString(session.title))}"
+        appendFeedbackCard(content: finalContent, serverFeedbackId: session.sourceFeedbackId, sessionId: session.id)
+        showToast(String(localized: "캔버스에 추가했어요."))
+    }
+
+    /// 드로어 → 캔버스로 점프. placement 카드의 페이지로 이동 후 해당 위치로 스크롤한다.
+    private func jumpToPlacement(_ fb: FeedbackRecord) {
+        if let pid = fb.pageId, let idx = notePages.firstIndex(where: { $0.id == pid }), idx != currentPageIndex {
+            goToPage(index: idx)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            (canvasView.delegate as? PencilKitCanvasView.Coordinator)?.scrollCardIntoView(positionY: fb.positionY)
+        }
+    }
+
+    /// Swift String → JSON 문자열 리터럴(이스케이프 포함).
+    private func jsonString(_ s: String) -> String {
+        String(data: (try? JSONEncoder().encode(s)) ?? Data(), encoding: .utf8) ?? "\"\""
     }
 
     private func refreshUndoState() {

@@ -32,6 +32,18 @@ struct SyncPageDTO: Codable {
     var created_at: String
 }
 
+/// PDF 페이지 필기 오버레이 (필기 전용). note 참조 → notes 다음에 적용.
+/// drawing 본문은 blob 채널(drawing_hash)로 별도 전송.
+struct SyncPdfAnnotationDTO: Codable {
+    var id: String
+    var updated_at: String
+    var deleted: Bool
+    var note_id: String
+    var pdf_page: Int
+    var drawing_hash: String?
+    var created_at: String
+}
+
 struct SyncFeedbackDTO: Codable {
     var id: String
     var updated_at: String
@@ -49,6 +61,7 @@ struct SyncFeedbackDTO: Codable {
     var stroke_range_end: Int?
     var server_feedback_id: String?
     var user_rating: Int?
+    var session_id: String?     // placement → 세션 (§3.2-a). 레거시 단독 카드는 null
     var created_at: String
 }
 
@@ -56,7 +69,8 @@ struct SyncChatDTO: Codable {
     var id: String
     var updated_at: String
     var deleted: Bool
-    var feedback_id: String
+    var session_id: String      // 신규 FK (§3.2-a)
+    var feedback_id: String?    // 레거시. 마이그레이션 후 null 가능
     var role: String
     var content: String
     var server_message_id: String?
@@ -64,16 +78,34 @@ struct SyncChatDTO: Codable {
     var created_at: String
 }
 
+/// 캔버스 비종속 채팅 세션 (§3.2-a). push/pull 양방향.
+struct SyncSessionDTO: Codable {
+    var id: String
+    var updated_at: String
+    var deleted: Bool
+    var kind: String            // page_guide | chapter_guide | feedback
+    var title: String
+    var note_id: String?
+    var textbook_id: String?
+    var anchor_page: Int?
+    var chapter_title: String?
+    var source_feedback_id: String?
+    var created_at: String
+}
+
 struct SyncChanges: Codable {
+    // sessions를 먼저 두어 직렬화/적용 순서에서 chat_messages보다 앞서게 한다(참조 무결성, §3.2-a).
+    var sessions: [SyncSessionDTO]
     var notes: [SyncNoteDTO]
     var note_pages: [SyncPageDTO]
+    var pdf_annotations: [SyncPdfAnnotationDTO]
     var feedbacks: [SyncFeedbackDTO]
     var chat_messages: [SyncChatDTO]
 
-    static let empty = SyncChanges(notes: [], note_pages: [], feedbacks: [], chat_messages: [])
+    static let empty = SyncChanges(sessions: [], notes: [], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: [])
 
     var isEmpty: Bool {
-        notes.isEmpty && note_pages.isEmpty && feedbacks.isEmpty && chat_messages.isEmpty
+        sessions.isEmpty && notes.isEmpty && note_pages.isEmpty && pdf_annotations.isEmpty && feedbacks.isEmpty && chat_messages.isEmpty
     }
 }
 

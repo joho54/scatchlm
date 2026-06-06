@@ -33,6 +33,13 @@ extension DatabaseService {
         }
     }
 
+    func dirtyPdfAnnotations() throws -> [PdfAnnotation] {
+        guard let uid = syncUserId else { return [] }
+        return try dbQueue.read { db in
+            try PdfAnnotation.filter(PdfAnnotation.Columns.userId == uid && PdfAnnotation.Columns.dirty == true).fetchAll(db)
+        }
+    }
+
     func dirtyFeedbacks() throws -> [FeedbackRecord] {
         guard let uid = syncUserId else { return [] }
         return try dbQueue.read { db in
@@ -47,8 +54,15 @@ extension DatabaseService {
         }
     }
 
+    func dirtySessions() throws -> [ChatSessionRecord] {
+        guard let uid = syncUserId else { return [] }
+        return try dbQueue.read { db in
+            try ChatSessionRecord.filter(ChatSessionRecord.Columns.userId == uid && ChatSessionRecord.Columns.dirty == true).fetchAll(db)
+        }
+    }
+
     func hasDirtyRecords() throws -> Bool {
-        try !dirtyNotes().isEmpty || !dirtyPages().isEmpty || !dirtyFeedbacks().isEmpty || !dirtyChats().isEmpty
+        try !dirtySessions().isEmpty || !dirtyNotes().isEmpty || !dirtyPages().isEmpty || !dirtyPdfAnnotations().isEmpty || !dirtyFeedbacks().isEmpty || !dirtyChats().isEmpty
     }
 
     // MARK: - markClean (push applied/conflict 후 dirty 해제)
@@ -103,6 +117,19 @@ extension DatabaseService {
     }
 
     @discardableResult
+    func applyPulledPdfAnnotation(_ incoming: PdfAnnotation) throws -> Bool {
+        guard let uid = syncUserId else { return false }
+        return try dbQueue.write { db in
+            guard try shouldApply(db, table: "pdf_annotations", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
+            var a = incoming
+            a.userId = uid
+            a.dirty = false
+            try a.save(db)
+            return true
+        }
+    }
+
+    @discardableResult
     func applyPulledFeedback(_ incoming: FeedbackRecord) throws -> Bool {
         guard let uid = syncUserId else { return false }
         return try dbQueue.write { db in
@@ -111,6 +138,19 @@ extension DatabaseService {
             f.userId = uid
             f.dirty = false
             try f.save(db)
+            return true
+        }
+    }
+
+    @discardableResult
+    func applyPulledSession(_ incoming: ChatSessionRecord) throws -> Bool {
+        guard let uid = syncUserId else { return false }
+        return try dbQueue.write { db in
+            guard try shouldApply(db, table: "chat_sessions", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
+            var s = incoming
+            s.userId = uid
+            s.dirty = false
+            try s.save(db)
             return true
         }
     }
@@ -136,6 +176,9 @@ extension DatabaseService {
         guard let uid = syncUserId else { return nil }
         return try dbQueue.read { db in
             if let d = try Data.fetchOne(db, sql: "SELECT drawing_data FROM note_pages WHERE drawing_hash = ? AND user_id = ? AND drawing_data IS NOT NULL LIMIT 1", arguments: [hash, uid]) {
+                return d
+            }
+            if let d = try Data.fetchOne(db, sql: "SELECT drawing_data FROM pdf_annotations WHERE drawing_hash = ? AND user_id = ? AND drawing_data IS NOT NULL LIMIT 1", arguments: [hash, uid]) {
                 return d
             }
             return try Data.fetchOne(db, sql: "SELECT drawing_data FROM notes WHERE drawing_hash = ? AND user_id = ? AND drawing_data IS NOT NULL LIMIT 1", arguments: [hash, uid])

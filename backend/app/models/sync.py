@@ -65,10 +65,54 @@ class NotePage(Base):
     __table_args__ = (Index("ix_note_pages_user_updated", "user_id", "updated_at"),)
 
 
+class PdfAnnotation(Base):
+    """PDF 페이지 위 필기 오버레이 (필기 전용). 노트 종속(note_id) + PDF 페이지 번호(pdf_page).
+
+    note_pages와 동일한 sync 모델이되 페이지 키가 PDF 페이지 번호(1-based)다.
+    drawing 본문은 blob 채널(drawing_hash)로 동기화한다.
+    """
+    __tablename__ = "pdf_annotations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
+    note_id: Mapped[str] = mapped_column(String, nullable=False)
+    pdf_page: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    drawing_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    __table_args__ = (Index("ix_pdf_annotations_user_updated", "user_id", "updated_at"),)
+
+
+class ChatSession(Base):
+    """캔버스 비종속 채팅 세션 (chapter-chat-drawer-spec §3.2-a).
+
+    가이드/피드백 채팅을 한 엔티티로 흡수. 서버는 sync 미러일 뿐 세션 로직은 없다.
+    챕터 귀속은 `textbook_id`+`anchor_page`로 보관(표시 시 클라가 chapters로 계산).
+    """
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="feedback")
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    note_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    textbook_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    anchor_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chapter_title: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_feedback_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    __table_args__ = (Index("ix_chat_sessions_user_updated", "user_id", "updated_at"),)
+
+
 class Feedback(Base):
     """클라 피드백 카드 메타(위치/bbox/stroke 범위). LLM 본문 로그인 AIResponse와 별개.
 
-    `server_feedback_id`로 AIResponse를 옵션 참조(§4.3).
+    `server_feedback_id`로 AIResponse를 옵션 참조(§4.3). `session_id`로 세션을 placement한다.
     """
     __tablename__ = "feedbacks"
 
@@ -87,6 +131,7 @@ class Feedback(Base):
     stroke_range_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     server_feedback_id: Mapped[str | None] = mapped_column(String, nullable=True)
     user_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -100,7 +145,8 @@ class ChatMessage(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
-    feedback_id: Mapped[str] = mapped_column(String, nullable=False)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, default="")
+    feedback_id: Mapped[str | None] = mapped_column(String, nullable=True)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     server_message_id: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -13,14 +13,8 @@ struct HomeView: View {
     private let sync = SyncService.shared
 
     private var filteredNotes: [Note] {
-        let term = search.trimmingCharacters(in: .whitespaces)
-        if term.isEmpty { return notes }
-        return notes.filter { note in
-            // 제목·과목(language)·연결된 교재명 중 하나라도 매칭되면 노출.
-            note.title.localizedCaseInsensitiveContains(term)
-                || note.language.localizedCaseInsensitiveContains(term)
-                || (note.textbookName?.localizedCaseInsensitiveContains(term) ?? false)
-        }
+        if search.trimmingCharacters(in: .whitespaces).isEmpty { return notes }
+        return notes.filter { $0.matchesSearch(search) }
     }
 
     private let columns = [

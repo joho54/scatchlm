@@ -31,7 +31,47 @@ def _note(id_: str, updated_at: str, title: str = "노트", deleted: bool = Fals
 
 
 def _empty_changes() -> dict:
-    return {"notes": [], "note_pages": [], "feedbacks": [], "chat_messages": []}
+    return {
+        "sessions": [],
+        "notes": [],
+        "note_pages": [],
+        "pdf_annotations": [],
+        "feedbacks": [],
+        "chat_messages": [],
+    }
+
+
+def _session(id_: str, updated_at: str, title: str = "이 챕터에서 제일 중요한 게 뭐야?",
+             kind: str = "chapter_guide", deleted: bool = False) -> dict:
+    return {
+        "id": id_,
+        "updated_at": updated_at,
+        "deleted": deleted,
+        "kind": kind,
+        "title": title,
+        "note_id": None,
+        "textbook_id": "tb-9",
+        "anchor_page": 42,
+        "chapter_title": "3장 동사 변화",
+        "source_feedback_id": None,
+        "created_at": "2026-06-06T01:00:00Z",
+    }
+
+
+def _chat(id_: str, updated_at: str, session_id: str, feedback_id: str | None = None,
+          content: str = "안녕", role: str = "user", deleted: bool = False) -> dict:
+    return {
+        "id": id_,
+        "updated_at": updated_at,
+        "deleted": deleted,
+        "session_id": session_id,
+        "feedback_id": feedback_id,
+        "role": role,
+        "content": content,
+        "server_message_id": None,
+        "user_rating": None,
+        "created_at": "2026-06-06T01:00:00Z",
+    }
 
 
 @pytest.mark.asyncio
@@ -191,6 +231,49 @@ async def test_cross_user_isolation(client: AsyncClient, db_session):
                                  json={"changes": {**_empty_changes(),
                                                    "notes": [_note("a-note", "2026-06-01T11:00:00Z", title="탈취")]}})
     assert conflict.json()["results"][0]["status"] == "conflict"
+
+
+@pytest.mark.asyncio
+async def test_session_push_pull_roundtrip(client: AsyncClient, auth_header: dict):
+    """chat_session 엔티티 push→pull 라운드트립 (chapter-chat-drawer-spec §3.2-a)."""
+    session = _session("sess-1", "2026-06-06T02:00:00Z")
+    push = await client.post(
+        "/api/sync/push", headers=auth_header,
+        json={"changes": {**_empty_changes(), "sessions": [session]}},
+    )
+    assert push.status_code == 200
+    result = push.json()["results"][0]
+    assert result["status"] == "applied"
+    assert result["entity"] == "chat_session"
+
+    pull = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    sessions = pull.json()["changes"]["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == "sess-1"
+    assert sessions[0]["kind"] == "chapter_guide"
+    assert sessions[0]["anchor_page"] == 42
+    assert sessions[0]["chapter_title"] == "3장 동사 변화"
+
+
+@pytest.mark.asyncio
+async def test_chat_message_session_id_preserved(client: AsyncClient, auth_header: dict):
+    """chat_message가 session_id를 보존하고 feedback_id는 null 가능해야 한다(§3.2-a / R3)."""
+    session = _session("sess-2", "2026-06-06T02:00:00Z")
+    msg = _chat("msg-1", "2026-06-06T02:00:01Z", session_id="sess-2", feedback_id=None)
+    res = await client.post(
+        "/api/sync/push", headers=auth_header,
+        json={"changes": {**_empty_changes(), "sessions": [session], "chat_messages": [msg]}},
+    )
+    assert res.status_code == 200
+    statuses = {r["entity"]: r["status"] for r in res.json()["results"]}
+    assert statuses["chat_session"] == "applied"
+    assert statuses["chat_message"] == "applied"
+
+    pull = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    msgs = pull.json()["changes"]["chat_messages"]
+    assert len(msgs) == 1
+    assert msgs[0]["session_id"] == "sess-2"
+    assert msgs[0]["feedback_id"] is None
 
 
 @pytest.mark.asyncio

@@ -302,11 +302,16 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
                 lastWidth = width
                 host.zoomScale = fit
             }
-            // 콘텐츠 높이 = max(드로잉 끝, 마지막 카드 끝, 뷰포트) + 여유
+            // 콘텐츠 높이 = max(드로잉 끝, 마지막 카드 끝, 뷰포트) + 여유.
+            // 빈 페이지의 PKDrawing().bounds는 CGRect.null → maxY가 무한대다. 그대로 쓰면
+            // contentSize가 Inf가 돼 스크롤 인디케이터 레이아웃에서 SIGABRT(즉시 크래시).
+            // null/비유한 값은 0으로 무력화한다.
             let s = max(host.zoomScale, 0.01)
-            let drawingMaxY = (canvas?.drawing.bounds.maxY ?? 0)
+            let dBounds = canvas?.drawing.bounds ?? .zero
+            let drawingMaxY = (dBounds.isNull || !dBounds.maxY.isFinite) ? 0 : dBounds.maxY
             let viewportH = host.bounds.height / s
-            let needed = max(drawingMaxY, maxCardBottom, viewportH) + 80
+            var needed = max(drawingMaxY, maxCardBottom, viewportH) + 80
+            if !needed.isFinite { needed = viewportH + 80 }
             if abs(contentView.bounds.height - needed) > 1 {
                 contentView.bounds = CGRect(x: 0, y: 0, width: logical, height: needed)
                 contentView.frame.origin = .zero

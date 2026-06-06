@@ -135,4 +135,20 @@ final class ReadOnlyNoteCanvasTests: XCTestCase {
         XCTAssertEqual(card!.frame.origin.y, 600, accuracy: 1.0,
             "zoom=0.5여도 카드 Y는 콘텐츠 좌표 600 그대로 (줌은 표시만)")
     }
+
+    // MARK: - 빈 드로잉 크래시 회귀 (PKDrawing().bounds == CGRect.null → maxY 무한대)
+
+    @MainActor
+    func testLayoutWithEmptyDrawingProducesFiniteContentSize() {
+        // 빈 페이지(스트로크 없음)의 PKDrawing().bounds는 CGRect.null → maxY가 무한대.
+        // 무력화하지 않으면 contentSize가 Inf가 돼 스크롤 인디케이터 레이아웃에서 SIGABRT.
+        let (coordinator, host, contentView, canvas) = makeWired(panelWidth: Config.logicalCanvasWidth)
+        XCTAssertTrue(canvas.drawing.bounds.isNull, "빈 PKDrawing의 bounds는 null (전제)")
+
+        coordinator.layout()
+
+        XCTAssertTrue(host.contentSize.height.isFinite, "빈 드로잉이어도 contentSize는 유한 (크래시 방지)")
+        XCTAssertGreaterThan(host.contentSize.height, 0)
+        XCTAssertTrue(contentView.bounds.height.isFinite, "contentView 높이도 유한")
+    }
 }

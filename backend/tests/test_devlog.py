@@ -104,6 +104,25 @@ async def test_emit_omits_provider_token_when_absent(client: AsyncClient, caplog
     assert "[prov:" not in line
 
 
+async def test_emit_debug_level_promoted_to_info_with_marker(client: AsyncClient, caplog):
+    """FE debug 로그는 stdout에서 묻히지 않도록 INFO로 승격되고 [debug] 마커가 붙는다.
+
+    배경: log.debug로 찍으면 uvicorn INFO 로거에서 stdout(docker logs)에 안 나와 추적
+    불가였다(app_logs엔 적재됨). INFO 레벨로 캡처했을 때 debug 엔트리가 보여야 한다 —
+    log.debug였다면 INFO 캡처에 잡히지 않아 이 테스트가 실패한다.
+    """
+    with caplog.at_level("INFO", logger="fe"):
+        res = await client.post("/api/dev/log/batch", json={
+            "logs": [_entry(level="debug", tag="canvas", message="geom")],
+            "context": {"user_id": _FULL_UID},
+        })
+    assert res.status_code == 200
+    rec = [r for r in caplog.records if "geom" in r.message]
+    assert rec, "debug 엔트리가 INFO 레벨로 방출되지 않음 — stdout에서 묻힘"
+    assert all(r.levelname == "INFO" for r in rec)
+    assert any("[debug]" in r.message for r in rec)
+
+
 # --- app_logs 영속 적재 회귀 (data-durability-spec §B.4 Track A) ---
 
 

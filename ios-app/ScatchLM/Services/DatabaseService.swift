@@ -334,6 +334,39 @@ final class DatabaseService {
                           columns: ["folder_id"], ifNotExists: true)
         }
 
+        // v11: feedback_chats.feedback_id NOT NULL 제약 해제 (chapter-chat-drawer 버그픽스).
+        // v2에서 feedback_id를 notNull+FK로 만들었는데, 세션 도입으로 가이드/피드백 메시지는
+        // feedback_id=nil로 저장된다. SQLite는 ALTER COLUMN으로 NOT NULL을 못 떼므로
+        // 테이블을 재생성한다(12-step). GRDB 마이그레이터는 기본 deferred FK check라 안전.
+        // (이걸 안 하면 모든 신규 세션 메시지 INSERT가 NOT NULL 위반으로 실패 → 채팅 저장 안 됨.)
+        migrator.registerMigration("v11_feedback_chats_nullable_feedback_id") { db in
+            try db.create(table: "feedback_chats_new") { t in
+                t.column("id", .text).primaryKey()
+                t.column("feedback_id", .text)            // nullable (FK 제거 — 앱 레벨 soft FK)
+                t.column("role", .text).notNull()
+                t.column("content", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("server_message_id", .text)
+                t.column("user_rating", .integer)
+                t.column("user_rating_synced_at", .datetime)
+                t.column("user_id", .text).notNull().defaults(to: "")
+                t.column("updated_at", .datetime)
+                t.column("deleted", .boolean).notNull().defaults(to: false)
+                t.column("dirty", .boolean).notNull().defaults(to: true)
+                t.column("session_id", .text).notNull().defaults(to: "")
+            }
+            try db.execute(sql: """
+                INSERT INTO feedback_chats_new
+                    (id, feedback_id, role, content, created_at, server_message_id,
+                     user_rating, user_rating_synced_at, user_id, updated_at, deleted, dirty, session_id)
+                SELECT id, feedback_id, role, content, created_at, server_message_id,
+                       user_rating, user_rating_synced_at, user_id, updated_at, deleted, dirty, session_id
+                FROM feedback_chats
+                """)
+            try db.drop(table: "feedback_chats")
+            try db.rename(table: "feedback_chats_new", to: "feedback_chats")
+        }
+
         try migrator.migrate(dbQueue)
     }
 

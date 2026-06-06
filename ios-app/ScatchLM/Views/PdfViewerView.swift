@@ -31,10 +31,10 @@ struct PdfViewerView: View {
     @State private var pdfStatus: PdfStatus?
     @State private var guideError: String?
     @State private var chapterGuideError: String?
-    /// PDF 필기 모드. ON이면 오버레이 캔버스가 입력을 받고 툴 팔레트가 뜬다(노트 연결 시만).
-    @State private var inkMode = false
+    /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
+    @Binding var inkMode: Bool
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil, noteId: String? = nil) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil, noteId: String? = nil, inkMode: Binding<Bool> = .constant(false)) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
@@ -42,6 +42,7 @@ struct PdfViewerView: View {
         self.onClose = onClose
         self.onPin = onPin
         self.noteId = noteId
+        self._inkMode = inkMode
         self._currentPage = State(initialValue: initialPage)
     }
 
@@ -103,6 +104,7 @@ struct PdfViewerView: View {
         .sheet(isPresented: $showGuide) { guideSheet }
         .sheet(isPresented: $showChapterGuide) { chapterGuideSheet }
         .task { await pollOcrStatus() }
+        .onDisappear { if inkMode { inkMode = false } }   // PDF 닫히면 노트 캔버스 그리기 복구
     }
 
     /// 스캔본 OCR 진행 배너. 상태별 문구 + 진행 중이면 결정형 프로그레스 바.
@@ -685,24 +687,28 @@ struct PdfViewerView: View {
 
     @ViewBuilder
     private var pdfContentView: some View {
-        let pdf = NativePdfView(
-            textbookId: textbookId,
-            noteId: noteId,
-            inkMode: inkMode,
-            initialPage: initialPage,
-            onPageChanged: { page in
-                currentPage = page
-                onPageChanged(page)
-            },
-            onPdfViewReady: { view in
-                pdfView = view
-            }
-        )
+        ZStack {
+            let pdf = NativePdfView(
+                textbookId: textbookId,
+                noteId: noteId,
+                inkMode: inkMode,
+                initialPage: initialPage,
+                onPageChanged: { page in
+                    currentPage = page
+                    onPageChanged(page)
+                },
+                onPdfViewReady: { view in
+                    pdfView = view
+                }
+            )
+            if colorScheme == .dark { pdf.colorInvert() } else { pdf }
 
-        if colorScheme == .dark {
-            pdf.colorInvert()
-        } else {
-            pdf
+            // 잉크 모드 입력 레이어 — 노트 연결 + pdfView 준비 시에만 PDFView 위 형제로 얹는다.
+            // 다크모드에선 표시 오버레이(PDF와 함께 반전)와 색을 맞추려 입력도 동일 반전.
+            if inkMode, let noteId, let pdfView {
+                let input = PdfInkInputView(pdfView: pdfView, noteId: noteId, pdfPage: currentPage)
+                if colorScheme == .dark { input.colorInvert() } else { input }
+            }
         }
     }
 
@@ -884,7 +890,7 @@ struct PdfViewerView: View {
     }
 }
 
-// MARK: - Native PDFView wrapper
+// MARK: - Native PDFView wrapper (렌더링 + 표시 전용 잉크 오버레이)
 
 struct NativePdfView: UIViewRepresentable {
     let textbookId: String
@@ -911,11 +917,12 @@ struct NativePdfView: UIViewRepresentable {
         let coordinator = context.coordinator
         coordinator.pdfView = pdfView
 
-        // 필기 오버레이: 노트에 연결됐을 때만 PencilKit 캔버스를 페이지 위에 띄운다.
-        // PDFPageOverlayViewProvider가 페이지 좌표계에 캔버스를 정렬해준다(iOS 16+).
+        // 표시 전용 잉크 오버레이: 저장된 필기를 페이지 좌표에 정렬해 "보여주기만" 한다.
+        // 입력은 별도 PdfInkInputView(형제 레이어)가 받는다 — pageVC에서 overlay가 터치를 못 받는
+        // PDFKit 비호환 우회. 표시는 overlay가 받아도 무방하므로 PDFKit의 페이징/줌 정렬을 그대로 활용.
         if coordinator.noteId != nil {
             pdfView.pageOverlayViewProvider = coordinator
-            coordinator.observeAppLifecycle()
+            appLogDebug("ink", "overlay provider set (display)", ["noteId": coordinator.noteId ?? "nil"])
         }
 
         // Reuse cached document if available (survives rotation/app switch)
@@ -1006,7 +1013,9 @@ struct NativePdfView: UIViewRepresentable {
         }
     }
 
-    class Coordinator: NSObject, PDFPageOverlayViewProvider, PKCanvasViewDelegate {
+    /// 표시 전용 오버레이 + 페이지 추적 Coordinator. 입력/저장은 PdfInkInputView가 담당한다.
+    /// 여기 캔버스는 항상 비대화형이라 pageVC의 overlay-touch 비호환과 무관하다.
+    class Coordinator: NSObject, PDFPageOverlayViewProvider {
         let noteId: String?
         let onPageChanged: (Int) -> Void
         var cachedDocument: PDFDocument?
@@ -1014,172 +1023,303 @@ struct NativePdfView: UIViewRepresentable {
 
         weak var pdfView: PDFView?
         private let db = DatabaseService.shared
-        /// 표시 중인 페이지별 캔버스(pdf_page 1-based → canvas). 저장/모드전환 대상.
-        private var canvasesByPage: [Int: PKCanvasView] = [:]
-        /// 페이지별 디바운스 저장 작업.
-        private var saveWork: [Int: DispatchWorkItem] = [:]
-        private let toolPicker = PKToolPicker()
+        /// 표시 중인 페이지별 표시 캔버스(pdf_page 1-based → canvas).
+        private var displayCanvases: [Int: PKCanvasView] = [:]
         private var inkMode = false
-        private var lifecycleObserved = false
 
         init(noteId: String?, onPageChanged: @escaping (Int) -> Void) {
             self.noteId = noteId
             self.onPageChanged = onPageChanged
         }
 
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
+        deinit { NotificationCenter.default.removeObserver(self) }
 
         @objc func pageChanged(_ notification: Notification) {
             guard let pdfView = notification.object as? PDFView,
                   let currentPage = pdfView.currentPage,
                   let document = pdfView.document else { return }
-            let pageIndex = document.index(for: currentPage)
-            let page = pageIndex + 1
+            let page = document.index(for: currentPage) + 1
             lastPage = page
             onPageChanged(page)
-            // 현재 페이지가 바뀌면 필기 모드에 맞춰 포커스/팔레트를 갱신.
-            applyInkModeToVisibleCanvases()
         }
-
-        // MARK: - PencilKit 오버레이
 
         private func pageNumber(for page: PDFPage) -> Int {
             (page.document?.index(for: page) ?? 0) + 1
         }
 
+        private func loadDrawing(page: Int) -> PKDrawing {
+            guard let noteId,
+                  let ann = try? db.pdfAnnotation(noteId: noteId, page: page),
+                  let data = ann.drawingData,
+                  let drawing = try? PKDrawing(data: data) else { return PKDrawing() }
+            return drawing
+        }
+
+        // MARK: - 표시 오버레이 (비대화형 — 저장된 필기 표시만)
+
         func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
-            guard let noteId else { return nil }
+            guard noteId != nil else { return nil }
             let pageNum = pageNumber(for: page)
             let canvas = PKCanvasView()
             canvas.backgroundColor = .clear
             canvas.isOpaque = false
-            canvas.isScrollEnabled = false               // 줌/페이징은 PDFView가 담당
-            canvas.drawingPolicy = Self.drawingPolicy
-            canvas.tool = PKInkingTool(.pen, color: .black, width: 3)
-            canvas.delegate = self
-            canvas.isUserInteractionEnabled = inkMode
-            // 저장된 필기 로드
-            if let ann = try? db.pdfAnnotation(noteId: noteId, page: pageNum),
-               let data = ann.drawingData, let drawing = try? PKDrawing(data: data) {
-                canvas.drawing = drawing
-            }
-            canvasesByPage[pageNum] = canvas
+            canvas.isUserInteractionEnabled = false       // 표시 전용 — 입력은 PdfInkInputView
+            canvas.drawing = loadDrawing(page: pageNum)
+            canvas.alpha = inkMode ? 0 : 1                 // 잉크 모드 중엔 입력 레이어가 대신 표시
+            displayCanvases[pageNum] = canvas
             return canvas
         }
 
         func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
             guard let canvas = overlayView as? PKCanvasView else { return }
             let pageNum = pageNumber(for: page)
-            canvasesByPage[pageNum] = canvas
-            canvas.isUserInteractionEnabled = inkMode
-            if inkMode { activatePicker(on: canvas) }
+            displayCanvases[pageNum] = canvas
+            canvas.drawing = loadDrawing(page: pageNum)    // 표시 시점 최신 DB 반영
+            canvas.alpha = inkMode ? 0 : 1
         }
 
         func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
-            guard let canvas = overlayView as? PKCanvasView else { return }
-            let pageNum = pageNumber(for: page)
-            flushSave(pageNum, canvas: canvas)            // 페이지 이탈 시 즉시 저장
-            canvasesByPage.removeValue(forKey: pageNum)
+            displayCanvases.removeValue(forKey: pageNumber(for: page))
         }
 
-        // MARK: - 필기 모드 토글
-
-        /// 시뮬레이터는 마우스/손가락으로 그려야 하므로 anyInput, 실기기는 펜 전용
-        /// (손가락은 PDF 페이징/줌으로 통과). 필기 전용 기능이라 G4(손가락 필기) 대상 아님 —
-        /// 펜이 없어도 PDF 읽기·노트 캔버스 사용은 그대로 가능.
-        static var drawingPolicy: PKCanvasViewDrawingPolicy {
-            #if targetEnvironment(simulator)
-            return .anyInput
-            #else
-            return .pencilOnly
-            #endif
-        }
+        // MARK: - 잉크 모드 표시 토글
 
         func setInkMode(_ on: Bool) {
             guard on != inkMode else { return }
             inkMode = on
-            applyInkModeToVisibleCanvases()
-        }
-
-        private func applyInkModeToVisibleCanvases() {
-            for canvas in canvasesByPage.values {
-                canvas.isUserInteractionEnabled = inkMode
-            }
-            if inkMode {
-                if let current = currentCanvas() { activatePicker(on: current) }
+            appLogDebug("ink", "display setInkMode", ["on": "\(on)"])
+            if on {
+                // 진입: 표시 오버레이 숨김(입력 레이어가 표시·편집을 가져감).
+                for canvas in displayCanvases.values { canvas.alpha = 0 }
             } else {
-                toolPicker.setVisible(false, forFirstResponder: currentCanvas() ?? PKCanvasView())
-                currentCanvas()?.resignFirstResponder()
+                // 종료: 입력 레이어(dismantle)가 DB 커밋을 끝낸 뒤 리로드되도록 다음 런루프에 반영.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    for (pageNum, canvas) in self.displayCanvases {
+                        canvas.drawing = self.loadDrawing(page: pageNum)
+                        canvas.alpha = 1
+                    }
+                }
             }
         }
+    }
+}
 
-        private func currentCanvas() -> PKCanvasView? {
-            guard let pdfView, let page = pdfView.currentPage else { return nil }
-            return canvasesByPage[pageNumber(for: page)]
-        }
+// MARK: - PDF 필기 입력 레이어 (ink 모드 전용 형제 레이어, 입력·저장을 우리가 100% 통제)
 
-        private func activatePicker(on canvas: PKCanvasView) {
-            toolPicker.addObserver(canvas)
-            toolPicker.setVisible(true, forFirstResponder: canvas)
+/// inkMode일 때만 PDFView 위에 형제로 얹히는 입력 레이어. 라이브 PDFView 대신 **현재 페이지를
+/// 정적 이미지로 렌더**해 host(UIScrollView) > contentView > [페이지이미지, 캔버스] 구조에 올린다
+/// (GoodNotes식). 1손가락=그리기(.anyInput), 2손가락=핀치 줌/팬(host). 라이브 PDFView 제스처와
+/// 완전히 분리돼 pageVC/overlay-touch 비호환과 무관. 드로잉 좌표는 페이지 point 공간(표시 오버레이와
+/// 동일)으로 저장돼 1:1 정렬된다.
+struct PdfInkInputView: UIViewRepresentable {
+    let pdfView: PDFView
+    let noteId: String
+    let pdfPage: Int
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeUIView(context: Context) -> InkHostScrollView {
+        let coord = context.coordinator
+        coord.noteId = noteId
+        coord.pageNum = pdfPage
+        coord.pdfDocument = pdfView.document
+
+        // host: 줌/팬 주체. 펜=그리기, 2손가락=팬/핀치줌 (pan 최소 2터치).
+        // 배경을 불투명으로 — 뒤의 라이브 PDFView(읽기 모드 줌 상태)를 완전히 덮어 겹침 방지.
+        let host = InkHostScrollView()
+        host.backgroundColor = colorScheme == .dark ? .white : .systemGray6
+        host.delegate = coord
+        host.contentInsetAdjustmentBehavior = .never
+        host.showsVerticalScrollIndicator = false
+        host.showsHorizontalScrollIndicator = false
+        host.bouncesZoom = true
+        // 실기기: .pencilOnly라 손가락은 그리기 안 함 → 1손가락 이동 허용(펜=그리기, 손=이동/줌).
+        // 시뮬레이터: .anyInput(마우스=그리기)라 1손가락 pan이 그리기와 충돌 → 2손가락 이동.
+        #if targetEnvironment(simulator)
+        host.panGestureRecognizer.minimumNumberOfTouches = 2
+        #else
+        host.panGestureRecognizer.minimumNumberOfTouches = 1
+        #endif
+        host.onLayout = { [weak coord] in coord?.applyLayout() }
+
+        // contentView: 줌 대상(viewForZooming). 페이지 point 크기 고정.
+        let contentView = UIView()
+        host.addSubview(contentView)
+
+        // 페이지 이미지(정적 렌더) — ink 모드 중 라이브 PDFView를 덮어 제스처 분리.
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleToFill
+        contentView.addSubview(imageView)
+
+        // 그리기 캔버스 — 페이지 point 공간, 스크롤은 host가 담당.
+        let canvas = PKCanvasView()
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        canvas.isScrollEnabled = false
+        #if targetEnvironment(simulator)
+        canvas.drawingPolicy = .anyInput        // 시뮬레이터엔 펜이 없어 마우스로 그려야 함
+        #else
+        canvas.drawingPolicy = .pencilOnly      // 펜만 그리기 — 손가락은 2지 줌/팬, 손바닥 거치 무시
+        #endif
+        canvas.tool = PKInkingTool(.pen, color: .black, width: 3)
+        canvas.delegate = coord
+        contentView.addSubview(canvas)
+
+        coord.host = host
+        coord.contentView = contentView
+        coord.imageView = imageView
+        coord.canvas = canvas
+
+        // PDF 전용 툴피커 — 노트 캔버스 툴피커와 분리(격리)
+        DispatchQueue.main.async {
+            let picker = PKToolPicker()
+            picker.addObserver(canvas)
+            picker.setVisible(true, forFirstResponder: canvas)
+            coord.toolPicker = picker
             canvas.becomeFirstResponder()
+            appLogDebug("ink", "input ready", ["page": "\(coord.pageNum)"])
         }
 
-        // MARK: - 저장 (디바운스 + tombstone)
+        NotificationCenter.default.addObserver(
+            coord, selector: #selector(Coordinator.onBackground),
+            name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        return host
+    }
+
+    func updateUIView(_ host: InkHostScrollView, context: Context) {
+        host.backgroundColor = colorScheme == .dark ? .white : .systemGray6
+        context.coordinator.update(page: pdfPage)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    static func dismantleUIView(_ host: InkHostScrollView, coordinator: Coordinator) {
+        coordinator.commit()                  // 사라질 때(잉크 모드 OFF) 즉시 저장
+        coordinator.canvas?.resignFirstResponder()
+        if let picker = coordinator.toolPicker, let canvas = coordinator.canvas {
+            picker.setVisible(false, forFirstResponder: canvas)
+        }
+        NotificationCenter.default.removeObserver(coordinator)
+    }
+
+    final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
+        weak var host: InkHostScrollView?
+        weak var contentView: UIView?
+        weak var imageView: UIImageView?
+        weak var canvas: PKCanvasView?
+        var toolPicker: PKToolPicker?
+        var pdfDocument: PDFDocument?
+        var noteId: String = ""
+        var pageNum: Int = 0
+        private let db = DatabaseService.shared
+        private var loaded = false
+        private var rendered = false
+        private var didInitialZoom = false
+        private var pageSize: CGSize = .zero
+        private var saveWork: DispatchWorkItem?
+
+        func update(page: Int) {
+            if page != pageNum {
+                commit()
+                pageNum = page
+                loaded = false; rendered = false; didInitialZoom = false
+            }
+            applyLayout()
+        }
+
+        /// 페이지 point 공간으로 contentView/이미지/캔버스를 세팅하고, host에 fit-zoom 적용.
+        func applyLayout() {
+            guard let host, let contentView, let imageView, let canvas,
+                  let doc = pdfDocument, pageNum >= 1, pageNum <= doc.pageCount,
+                  let page = doc.page(at: pageNum - 1) else { return }
+            let pb = page.bounds(for: .cropBox)
+            guard pb.width > 1, pb.height > 1 else { return }
+            pageSize = pb.size
+
+            if !rendered {
+                rendered = true
+                contentView.frame = CGRect(origin: .zero, size: pb.size)
+                imageView.frame = contentView.bounds
+                canvas.frame = contentView.bounds            // 페이지 point 공간 = 저장 좌표
+                host.contentSize = pb.size
+                // 페이지 정적 렌더(2x). PencilKit 잉크는 벡터라 줌해도 선명.
+                imageView.image = page.thumbnail(of: CGSize(width: pb.width * 2, height: pb.height * 2), for: .cropBox)
+                if let ann = try? db.pdfAnnotation(noteId: noteId, page: pageNum),
+                   let data = ann.drawingData, let drawing = try? PKDrawing(data: data) {
+                    canvas.drawing = drawing
+                } else {
+                    canvas.drawing = PKDrawing()
+                }
+                loaded = true
+                appLogDebug("ink", "input render", ["page": "\(pageNum)", "pageSize": "\(pb.size)", "loaded": "\(canvas.drawing.strokes.count)"])
+            }
+
+            let avail = host.bounds.size
+            guard avail.width > 1, avail.height > 1 else { return }
+            let fit = min(avail.width / pb.width, avail.height / pb.height)
+            if !didInitialZoom, fit > 0 {
+                didInitialZoom = true
+                host.minimumZoomScale = fit
+                host.maximumZoomScale = fit * 4
+                host.zoomScale = fit
+            }
+            centerContent()
+        }
+
+        /// 콘텐츠가 뷰포트보다 작으면 inset으로 가운데 정렬.
+        private func centerContent() {
+            guard let host, let contentView else { return }
+            let cw = contentView.frame.width, ch = contentView.frame.height
+            let insetX = max(0, (host.bounds.width - cw) / 2)
+            let insetY = max(0, (host.bounds.height - ch) / 2)
+            host.contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
+        }
+
+        // MARK: UIScrollViewDelegate (2손가락 줌/팬)
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { contentView }
+        func scrollViewDidZoom(_ scrollView: UIScrollView) { centerContent() }
+
+        // MARK: 저장
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            guard let pageNum = canvasesByPage.first(where: { $0.value === canvasView })?.key else { return }
-            scheduleSave(pageNum, canvas: canvasView)
+            guard loaded else { return }   // 초기 drawing 주입에 의한 콜백 무시
+            scheduleSave()
         }
 
-        private func scheduleSave(_ pageNum: Int, canvas: PKCanvasView) {
-            saveWork[pageNum]?.cancel()
-            let work = DispatchWorkItem { [weak self, weak canvas] in
-                guard let self, let canvas else { return }
-                self.persist(pageNum, canvas: canvas)
-            }
-            saveWork[pageNum] = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+        private func scheduleSave() {
+            saveWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.commit() }
+            saveWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
         }
 
-        private func flushSave(_ pageNum: Int, canvas: PKCanvasView) {
-            saveWork[pageNum]?.cancel()
-            saveWork[pageNum] = nil
-            persist(pageNum, canvas: canvas)
-        }
+        @objc func onBackground() { commit() }
 
-        private func persist(_ pageNum: Int, canvas: PKCanvasView) {
-            guard let noteId else { return }
+        func commit() {
+            saveWork?.cancel(); saveWork = nil
+            guard loaded, let canvas, pageNum >= 1, !noteId.isEmpty else { return }
             let drawing = canvas.drawing
             if drawing.strokes.isEmpty {
-                // 비워졌으면 기존 행만 tombstone(없으면 no-op).
-                let existing = (try? db.pdfAnnotation(noteId: noteId, page: pageNum)) ?? nil
-                if existing != nil {
+                if let ann = (try? db.pdfAnnotation(noteId: noteId, page: pageNum)) ?? nil, ann.drawingData != nil {
                     try? db.deletePdfAnnotation(noteId: noteId, page: pageNum)
+                    appLogDebug("ink", "input delete", ["page": "\(pageNum)"])
                 }
             } else {
-                try? db.savePdfAnnotation(noteId: noteId, page: pageNum, data: drawing.dataRepresentation())
+                let data = drawing.dataRepresentation()
+                try? db.savePdfAnnotation(noteId: noteId, page: pageNum, data: data)
+                appLogDebug("ink", "input save", ["page": "\(pageNum)", "strokes": "\(drawing.strokes.count)", "bytes": "\(data.count)"])
             }
         }
+    }
+}
 
-        // MARK: - 앱 생명주기 (백그라운드 진입 시 전체 flush)
-
-        func observeAppLifecycle() {
-            guard !lifecycleObserved else { return }
-            lifecycleObserved = true
-            NotificationCenter.default.addObserver(
-                self, selector: #selector(flushAll),
-                name: UIApplication.didEnterBackgroundNotification, object: nil)
-            NotificationCenter.default.addObserver(
-                self, selector: #selector(flushAll),
-                name: UIApplication.willResignActiveNotification, object: nil)
-        }
-
-        @objc private func flushAll() {
-            for (pageNum, canvas) in canvasesByPage {
-                flushSave(pageNum, canvas: canvas)
-            }
-        }
+/// 입력 레이어 host 스크롤뷰 — 레이아웃 시점에 fit-zoom/center를 재적용한다.
+final class InkHostScrollView: UIScrollView {
+    var onLayout: (() -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
     }
 }

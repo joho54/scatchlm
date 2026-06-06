@@ -373,6 +373,7 @@ struct NoteView: View {
             panelWidth: panelWidth,
             dividerDragging: dividerDragging,
             drawingDisabled: pdfInkActive,
+            onActivateWhileDisabled: { pdfInkActive = false },   // 노트 캔버스 터치 → PDF 잉크 자동 해제
             onDrawingChanged: {
                 saveDrawing()
                 refreshUndoState()
@@ -503,7 +504,7 @@ struct NoteView: View {
                     pinToCanvas(content: content, serverFeedbackId: responseId)
                 },
                 noteId: noteId,
-                onInkModeChanged: { active in pdfInkActive = active }
+                inkMode: $pdfInkActive
             )
         }
     }
@@ -1244,6 +1245,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var dividerDragging: Bool = false
     /// PDF 필기 모드 중이면 true → 노트 캔버스 그리기 제스처·툴피커를 꺼서 입력 꼬임 방지.
     var drawingDisabled: Bool = false
+    /// drawingDisabled(=PDF 잉크 모드) 중 노트 캔버스를 터치하면 호출 → PDF 잉크 자동 해제(UX).
+    var onActivateWhileDisabled: (() -> Void)?
     var onDrawingChanged: () -> Void
     var onStrokeChanged: (() -> Void)? = nil
     /// 캔버스 배경 템플릿(오선지/줄노트/격자). 노트 단위 속성.
@@ -1330,6 +1333,17 @@ struct PencilKitCanvasView: UIViewRepresentable {
         canvasView.addInteraction(editMenu)
         coordinator.editMenuInteraction = editMenu
 
+        // PDF 잉크 모드 중(drawingDisabled) 노트 캔버스에 **펜으로** 그리려 하면 PDF 잉크 자동 해제(UX).
+        // 펜 전용(allowedTouchTypes=.pencil) — 손가락/손바닥 우연 터치는 무시해 토글이 안 꺼지게.
+        // minimumPressDuration=0 → 펜 다운 즉시 .began. 평소엔 isEnabled=false라 그리기에 무간섭.
+        let activate = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleActivateWhileDisabled(_:)))
+        activate.minimumPressDuration = 0
+        activate.cancelsTouchesInView = false
+        activate.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        activate.isEnabled = false
+        canvasView.addGestureRecognizer(activate)
+        coordinator.activateRecognizer = activate
+
         // Load saved drawing — only if canvas is empty (avoid overwriting on rotation)
         if canvasView.drawing.strokes.isEmpty,
            let data = initialDrawingData,
@@ -1374,10 +1388,12 @@ struct PencilKitCanvasView: UIViewRepresentable {
             canvasView.tool = PKInkingTool(inkTool.inkType, color: isDark ? .white : .black, width: inkTool.width)
         }
 
+        coordinator.onActivateWhileDisabled = onActivateWhileDisabled
         // PDF 필기 모드 진입/이탈 시에만(전환 시) 노트 캔버스 그리기·툴피커 토글 — 두 캔버스 입력 꼬임 방지.
         if coordinator.drawingDisabled != drawingDisabled {
             coordinator.drawingDisabled = drawingDisabled
             canvasView.drawingGestureRecognizer.isEnabled = !drawingDisabled
+            coordinator.activateRecognizer?.isEnabled = drawingDisabled   // 막힌 동안만 터치→자동해제
             if drawingDisabled {
                 coordinator.toolPicker?.setVisible(false, forFirstResponder: canvasView)
                 canvasView.resignFirstResponder()
@@ -1425,6 +1441,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var toolPickerVisible: Bool = true
         /// PDF 필기 모드 동안 노트 캔버스 그리기 차단 상태(전환 감지용).
         var drawingDisabled: Bool = false
+        /// 차단 중 노트 캔버스 터치 → PDF 잉크 자동 해제 콜백 + 그 트리거 제스처.
+        var onActivateWhileDisabled: (() -> Void)?
+        weak var activateRecognizer: UILongPressGestureRecognizer?
         var lastRenderedBottom: CGFloat = 0
         var lastKnownWidth: CGFloat = 0
 
@@ -1902,6 +1921,12 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         /// 빈 영역 길게누르기 → "붙여넣기" 메뉴. 클립보드가 비어 있으면 메뉴를 띄우지 않는다.
+        /// PDF 잉크 모드 중 노트 캔버스 터치 → 잉크 자동 해제(부모가 pdfInkActive=false).
+        @objc func handleActivateWhileDisabled(_ g: UILongPressGestureRecognizer) {
+            guard g.state == .began, drawingDisabled else { return }
+            onActivateWhileDisabled?()
+        }
+
         @objc func handlePasteLongPress(_ g: UILongPressGestureRecognizer) {
             guard g.state == .began,
                   FeedbackClipboard.shared.content != nil,

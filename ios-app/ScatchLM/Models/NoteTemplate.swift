@@ -20,6 +20,16 @@ enum NoteTemplate: String, CaseIterable, Identifiable {
         self = NoteTemplate(rawValue: storage) ?? .blank
     }
 
+    /// 배경 선을 AI 피드백 이미지에 함께 렌더할지 여부.
+    /// "쓰기 교정"용(오선지·영어 4선·원고지)은 선이 음높이·baseline·칸 같은 컨텍스트라 포함하고,
+    /// "필기 정리"용(줄노트·격자·도트·코넬)은 OCR 노이즈가 되므로 잉크만 보낸다.
+    var includesLinesInFeedback: Bool {
+        switch self {
+        case .staff, .fourline, .manuscript: return true
+        case .blank, .lined, .grid, .dotgrid, .cornell: return false
+        }
+    }
+
     var displayName: String {
         switch self {
         case .blank:      return String(localized: "기본")

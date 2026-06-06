@@ -61,7 +61,11 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: true
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        TARGETED_DEVICE_FAMILY: "2"
+        # iPhone 컴패니언(iphone-companion-app-spec §4.6): portrait 전용 — 읽기 전용 단일 컬럼.
+        # 가로 분할 레이아웃 미고려(§4.1) → AppDelegate idiom 분기와 함께 portrait 락 모순 해소.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        # Universal 단일 타겟 — iPhone(1) + iPad(2). 같은 번들·App Store 리스팅(§1.3-1).
+        TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
         SWIFT_VERSION: "5.9"
         OTHER_LDFLAGS: "-lc++"   # 벤더 Sentry.xcframework(정적)가 요구하는 libc++ (SPM SentryCppHelper 대체)

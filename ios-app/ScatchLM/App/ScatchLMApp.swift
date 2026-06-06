@@ -3,6 +3,12 @@ import UIKit
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        // iPhone 컴패니언(iphone-companion-app-spec §4.1): iPhone은 portrait 전용.
+        // iPad는 기존 동작 유지(가로 분할 영향 없음 — 전역 .portrait 락은 INFOPLIST 4방향과
+        // 공존하던 기존 거동 그대로). idiom 분기로 iPhone 동작만 명시적으로 확정한다.
+        if Platform.isPhone {
+            return .portrait
+        }
         return .portrait
     }
 }
@@ -24,7 +30,13 @@ struct ScatchLMApp: App {
                 if auth.isLoading {
                     ProgressView("불러오는 중…")
                 } else if auth.isAuthenticated {
-                    HomeView()
+                    // iPhone 컴패니언(iphone-companion-app-spec §4.1·B-2): idiom 분기.
+                    // iPhone = 읽기 전용 컴패니언, iPad = 기존 편집 경로(무변경).
+                    if Platform.isPhone {
+                        PhoneHomeView()
+                    } else {
+                        HomeView()
+                    }
                 } else {
                     LoginView()
                 }

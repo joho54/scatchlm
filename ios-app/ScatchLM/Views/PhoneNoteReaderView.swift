@@ -27,27 +27,29 @@ struct PhoneNoteReaderView: View {
         let feedbacks: [FeedbackRecord]
     }
 
-    private var currentPage: ReaderPage? {
-        pages.indices.contains(pageIndex) ? pages[pageIndex] : nil
-    }
-
     var body: some View {
         Group {
-            if let page = currentPage {
-                ReadOnlyNoteCanvas(
-                    drawingData: page.drawingData,
-                    feedbacks: page.feedbacks,
-                    onChat: { openChat(for: $0) }
-                )
-                // 페이지 전환 시 캔버스 리마운트 — 드로잉/카드를 새로 로드(편집 NoteView의 .id 패턴과 동일).
-                .id(page.id)
-                .ignoresSafeArea(edges: .bottom)
-            } else {
+            if pages.isEmpty {
                 ContentUnavailableView(
                     "내용이 없어요",
                     systemImage: "note.text",
                     description: Text("이 노트에는 아직 필기가 없어요.")
                 )
+            } else {
+                // 좌우 손가락 스와이프로 페이지 전환(§4.5 TabView .page). 인디케이터 점은 끈다.
+                // 각 페이지는 독립 ReadOnlyNoteCanvas — 네비게이터/스와이프 모두 pageIndex로 동기화.
+                TabView(selection: $pageIndex) {
+                    ForEach(Array(pages.enumerated()), id: \.element.id) { idx, page in
+                        ReadOnlyNoteCanvas(
+                            drawingData: page.drawingData,
+                            feedbacks: page.feedbacks,
+                            onChat: { openChat(for: $0) }
+                        )
+                        .ignoresSafeArea(edges: .bottom)
+                        .tag(idx)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
         }
         .navigationTitle(note?.title ?? "노트")

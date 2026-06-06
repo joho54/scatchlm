@@ -87,11 +87,6 @@ struct PhoneNoteReaderView: View {
                 onJump: { _ in }   // iPhone: 캔버스 네비게이션 미지원 — 드로어에서 비노출(no-op)
             )
         }
-        .safeAreaInset(edge: .bottom) {
-            if pages.count > 1 {
-                pageBar
-            }
-        }
         .sheet(item: $chatContext) { ctx in
             // 카드 "대화" → 세션 채팅(§4.5 E-3). 채팅은 읽기 전용 앱에서도 허용되는 학습 행위(§4.3).
             SessionChatSheet(
@@ -107,36 +102,6 @@ struct PhoneNoteReaderView: View {
         .onAppear { load() }
     }
 
-    private var pageBar: some View {
-        HStack(spacing: 24) {
-            Button {
-                if pageIndex > 0 { pageIndex -= 1 }
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            .disabled(pageIndex == 0)
-
-            // 인디케이터 탭 → 페이지 네비게이터(썸네일 점프, #1).
-            Button {
-                showPages = true
-            } label: {
-                Text("\(pageIndex + 1) / \(pages.count)")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
-            Button {
-                if pageIndex < pages.count - 1 { pageIndex += 1 }
-            } label: {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(pageIndex >= pages.count - 1)
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 20)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.bottom, 6)
-    }
 
     private func load() {
         do {

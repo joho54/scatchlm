@@ -325,6 +325,32 @@ async def test_note_folder_id_preserved(client: AsyncClient, auth_header: dict):
 
 
 @pytest.mark.asyncio
+async def test_note_template_preserved(client: AsyncClient, auth_header: dict):
+    """note.template이 push→pull로 보존되어야 한다 (canvas-template)."""
+    note = {**_note("n-tpl", "2026-06-06T03:00:00Z"), "template": "staff"}
+    await client.post(
+        "/api/sync/push", headers=auth_header,
+        json={"changes": {**_empty_changes(), "notes": [note]}},
+    )
+    pull = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    pulled = pull.json()["changes"]["notes"][0]
+    assert pulled["template"] == "staff"
+
+
+@pytest.mark.asyncio
+async def test_note_template_defaults_blank_when_omitted(client: AsyncClient, auth_header: dict):
+    """구버전 클라(template 미전송)는 서버 기본값 'blank'로 채워져 pull된다."""
+    note = _note("n-notpl", "2026-06-06T03:00:01Z")  # template 키 없음
+    await client.post(
+        "/api/sync/push", headers=auth_header,
+        json={"changes": {**_empty_changes(), "notes": [note]}},
+    )
+    pull = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    pulled = pull.json()["changes"]["notes"][0]
+    assert pulled["template"] == "blank"
+
+
+@pytest.mark.asyncio
 async def test_unauthenticated_rejected(client: AsyncClient):
     res = await client.post("/api/sync/pull", json={"since": None})
     assert res.status_code == 401

@@ -50,8 +50,9 @@
 POST /api/pdf/upload  (get_verified_payload → user_id, tier)
   │
   ├─ save_pdf → total_pages, content_hash
-  ├─ 중복(content_hash) → 기존 레코드 재사용. 스캔본이 이미-시작됨(pending/paused/error)이면 즉시
-  │     재개 트리거. available(미시작)은 재개하지 않음 — 유저가 명시적으로 시작해야 함
+  ├─ 중복(content_hash) → 기존 레코드 재사용. + 파생상태 재조정(§2.5): is_scanned=false인데
+  │     ENABLE_OCR on & 텍스트레이어 없으면 → scanned/available로 갱신(stale-PDF 해결).
+  │     스캔본이 이미-시작됨(pending/paused/error)이면 즉시 재개. available(미시작)은 재개 안 함.
   │
   ├─ is_scanned = ENABLE_OCR && has_no_text_layer()   # 토글 off면 항상 false → 기존 흐름
   │     has_no_text_layer: 중앙부 최대 10p 샘플의 추출 텍스트가 전부 공백 → True (이진 사실,
@@ -118,6 +119,15 @@ return "\n".join("--- Page p ---\n" + content for present pages)         # 미OC
 - pending/running: 진행률 + 결정형 프로그레스 바. paused/error/capped: 상태 문구(capped는 Pro 업셀).
 
 가이드 409 `ocr_incomplete`는 "아직 인식 중"/capped 업셀 문구로 처리.
+
+### 2.5 dedup 파생상태 재조정 (stale-PDF 해결)
+
+`is_scanned`는 업로드 시점에 1회 계산돼 박제되고, content_hash dedup이 재업로드를 기존 레코드로 흡수한다. 그래서 **OCR을 켜기 전에 올라간 스캔본은 `is_scanned=false`로 굳어, 같은 파일을 재업로드해도 영원히 OCR이 안 켜진다.** 이를 중복 업로드 경로에서 **싼 파생상태를 현재 규칙과 재조정**해 해결한다:
+
+- `ENABLE_OCR` on & `is_scanned=false` & `has_no_text_layer(server_path)` → `is_scanned=true`, `ocr_status="available"`, tier별 `ocr_cap`/admin `ocr_unlimited` 설정.
+- `has_no_text_layer`는 텍스트 레이어 유무(이진)라 매 중복마다 무해 → **버전 스탬프 불필요**(재평가가 비싸지면 그때 도입).
+- 기존 "chunks 0 → 재인덱싱" 재트리거와 같은 자리·같은 철학(파생상태를 박제하지 않고 재조정).
+- **커버 범위**: *재업로드되는* stale 레코드. "재업로드 없이 열기만 하는" stale은 미래에 접근-시-재평가(C)로(현재 갭 0).
 
 ---
 

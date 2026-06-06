@@ -363,6 +363,28 @@ async def test_ocr_start_on_text_pdf_returns_400(client: AsyncClient, auth_heade
 
 
 @pytest.mark.asyncio
+async def test_dedup_reconciles_stale_scanned_record(client: AsyncClient, auth_header: dict):
+    """A(파생상태 재조정): OCR 꺼졌을 때 올라가 is_scanned=false로 굳은 스캔본을, OCR 켠 뒤
+    같은 파일 재업로드하면 dedup 경로가 재평가해 scanned/available로 살린다(stale-PDF 해결)."""
+    pdf_bytes = make_blank_pdf()
+    # 1) OCR off → 감지 단락으로 is_scanned=false 저장 (켜기 전 업로드 모사)
+    with patch("app.routers.pdf.settings.ENABLE_OCR", False), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_detect_chapters", new_callable=AsyncMock):
+        first = await _upload(client, auth_header, pdf_bytes)
+    assert first["is_scanned"] is False
+    # 2) OCR on + 같은 파일 재업로드 → dedup 재사용 + 재조정
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_ocr", new_callable=AsyncMock) as ocr_job:
+        second = await _upload(client, auth_header, pdf_bytes)
+    assert second["id"] == first["id"]          # dedup 재사용(새 레코드 아님)
+    assert second["is_scanned"] is True         # 재조정됨
+    assert second["ocr_status"] == "available"  # 자동 시작 X — 유저 명시적 start 대기
+    ocr_job.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_admin_scanned_upload_is_unlimited(client: AsyncClient, admin_header: dict):
     """admin(role=admin) 스캔본 → status.cap_limit=null(무제한). free 50p 캡 미적용."""
     with patch("app.routers.pdf.settings.ENABLE_OCR", True), \

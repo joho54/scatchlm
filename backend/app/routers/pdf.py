@@ -318,8 +318,27 @@ async def upload_pdf(
             )
             indexing_status = "started"
 
+        # 파생 상태 재조정(A): dedup이 박제한 is_scanned를 "현재 규칙"으로 다시 평가한다.
+        # 업로드 당시 OCR이 꺼져 있었거나 감지 전이라 is_scanned=false로 굳은 스캔본을, ENABLE_OCR이
+        # 켜진 지금 재검사해 살린다. has_no_text_layer는 싸므로(텍스트 레이어 유무) 매 중복마다 무해.
+        # 재업로드(같은 파일)로 OCR이 안 켜지던 stale-PDF 문제의 직접 해결.
+        if (settings.ENABLE_OCR and not existing_source.is_scanned
+                and has_no_text_layer(existing_source.server_path, existing_source.total_pages)):
+            is_admin = get_role(payload) == "admin"
+            existing_source.is_scanned = True
+            existing_source.ocr_status = "available"  # 자동 시작 안 함 — 유저가 명시적 start
+            existing_source.ocr_unlimited = is_admin
+            existing_source.ocr_cap = (
+                existing_source.total_pages if is_admin
+                else (settings.OCR_FREE_CAP_PAGES if tier != "pro" else settings.OCR_MAX_PAGES_PER_BOOK)
+            )
+            await db.commit()
+            log.info("PDF duplicate reconciled to scanned: textbook=%s → ocr_status=available",
+                     existing_source.id)
+
         # 스캔본이 미완(pending/paused/error)인 채 멈춰 있으면 재업로드로 즉시 재개한다.
         # (주기 스위퍼도 결국 재개하지만, 재업로드는 즉시 트리거. 원자 claim으로 중복 무해.)
+        # available(미시작)은 재개 대상 아님 — 유저가 명시적으로 시작해야 한다.
         if existing_source.is_scanned and existing_source.ocr_status in ("pending", "paused", "error"):
             log.info("PDF duplicate scanned, resuming OCR: textbook=%s status=%s",
                      existing_source.id, existing_source.ocr_status)

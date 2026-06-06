@@ -17,6 +17,7 @@ struct PhoneNoteReaderView: View {
     @State private var chatContext: ChatSheetContext?
     @State private var showDrawer = false
     @State private var showPages = false
+    @State private var showTextbook = false
 
     private let db = DatabaseService.shared
 
@@ -65,6 +66,17 @@ struct PhoneNoteReaderView: View {
                     }
                 }
             }
+            // 교재 진입(노트 종속). 연결 교재가 있을 때만 노출 → 읽기 전용 PDF를 full-screen push.
+            // noteId를 넘겨 그 노트의 PDF 필기(pdfAnnotation, noteId+page 키)를 함께 렌더한다.
+            if note?.textbookId != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showTextbook = true
+                    } label: {
+                        Image(systemName: "book")
+                    }
+                }
+            }
             // 챗 서랍 진입(§4.3·C-1, §6.x-3 결정: 노트 내부 버튼). 노트의 저장된 세션을
             // 챕터별로 열람하고 대화를 이어간다. 점프/스크랩은 iPhone에서 비노출(드로어 C-1).
             ToolbarItem(placement: .topBarTrailing) {
@@ -73,6 +85,23 @@ struct PhoneNoteReaderView: View {
                 } label: {
                     Image(systemName: "bubble.left.and.bubble.right")
                 }
+            }
+        }
+        .navigationDestination(isPresented: $showTextbook) {
+            if let note, let tbId = note.textbookId {
+                // 읽기 전용 PDF(§4.4). inkMode 기본 false → PdfInkInputView 미부착으로 입력 차단.
+                // 표시 overlay는 noteId로 노트별 필기를 렌더한다(PdfViewerView.swift:1085).
+                PdfViewerView(
+                    textbookId: tbId,
+                    totalPages: note.textbookPages,
+                    initialPage: note.lastPage,
+                    onPageChanged: { _ in },   // 읽기 전용 — 교재 페이지 영속 안 함
+                    onClose: { showTextbook = false },
+                    noteId: noteId,
+                    readOnly: true             // 필기 표시는 하되 편집(필기 버튼)은 가림
+                )
+                .navigationTitle(note.textbookName ?? "교재")
+                .navigationBarTitleDisplayMode(.inline)
             }
         }
         .sheet(isPresented: $showPages) {

@@ -3,20 +3,16 @@ import SwiftUI
 /// iPhone 컴패니언 홈 셸 (iphone-companion-app-spec §4.2·B-3).
 ///
 /// iPad의 `HomeView`(편집 가능)와 달리, iPhone은 **읽기 전용**이다:
-/// - 노트 탭: 동기화된 노트를 열람(`PhoneNoteReaderView`) — 필기/편집 불가.
-/// - 교재 탭: 연결된 교재 PDF를 읽기 전용으로 보기 + 가이드 채팅(`PdfViewerView`).
-/// - 챗 서랍 탭(§4.3, Track C)은 `chapter-chat-drawer-spec` 선행 필요 → 본 MVP 범위 외(§R1).
+/// - 노트를 열람(`PhoneNoteReaderView`) — 필기/편집 불가.
+/// - 교재 PDF는 **노트 내부에서** 진입한다(노트 종속). 교재 필기(`pdfAnnotation`)가
+///   `noteId`로 영속화되므로, 전역 교재 탭은 노트 컨텍스트가 없어 필기 레이어를 못 띄운다.
+///   따라서 교재 탭을 제거하고 `PhoneNoteReaderView`의 "교재" 진입점으로 일원화한다.
+/// - 챗 서랍은 노트 내부 툴바에서 진입(`PhoneNoteReaderView`).
 ///
 /// 편집 진입점(노트 생성 FAB, 교재 업로드, 메타 편집)은 **노출하지 않는다**(§4.2 마지막 줄).
 struct PhoneHomeView: View {
     var body: some View {
-        TabView {
-            PhoneNotesTab()
-                .tabItem { Label("노트", systemImage: "note.text") }
-
-            PhoneTextbooksTab()
-                .tabItem { Label("교재", systemImage: "books.vertical") }
-        }
+        PhoneNotesTab()
     }
 }
 
@@ -28,6 +24,8 @@ private struct PhoneNotesTab: View {
     @State private var selectedFolder: String? = nil   // nil = 전체(분류·미분류 모두)
     @State private var search = ""
     @State private var showSettings = false
+    @State private var showCreateSheet = false
+    @State private var path: [String] = []   // 생성 후 프로그래밍 push용 노트 ID 스택
 
     private let db = DatabaseService.shared
     private let sync = SyncService.shared
@@ -50,7 +48,7 @@ private struct PhoneNotesTab: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(spacing: 0) {
                 if !folders.isEmpty {
                     folderChips
@@ -87,12 +85,44 @@ private struct PhoneNotesTab: View {
                         SyncStatusIndicator()
                     }
                 }
+                // 노트 생성(§확장). iPhone도 노트+교재 생성 가능 — 필기는 iPad.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showCreateSheet = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
             }
+            .sheet(isPresented: $showCreateSheet) {
+                CreateNoteSheet { title, language, textbook in
+                    createNote(title: title, language: language, textbook: textbook)
+                }
+            }
             .onAppear { loadNotes() }
             .onChange(of: sync.lastSyncedAt) { loadNotes() }
+        }
+    }
+
+    /// 노트 생성 — iPad `HomeView.createNote`와 동일 영속(교재 연결 포함). 생성 후 즉시 리더로 push.
+    /// 필기·피드백은 iPad 전용이라, iPhone 리더(`PhoneNoteReaderView`)는 생성된 노트를 읽기·교재 열람만 한다.
+    private func createNote(title: String, language: String, textbook: TextbookListItem?) {
+        var note = Note.new(title: title, language: language, folderId: selectedFolder)
+        if let tb = textbook {
+            note.textbookId = tb.id
+            note.textbookName = tb.fileName
+            note.textbookPages = tb.totalPages
+        }
+        do {
+            try db.saveNote(&note)
+            notes.insert(note, at: 0)
+            appLog("phoneHome", "createNote OK", ["id": note.id, "hasPdf": "\(note.textbookId != nil)"])
+            path.append(note.id)   // 생성 직후 리더 진입
+        } catch {
+            appLogError("phoneHome", "createNote failed", ["error": "\(error)"])
         }
     }
 
@@ -158,94 +188,6 @@ private struct PhoneNotesTab: View {
             appLog("phoneHome", "loadNotes", ["count": notes.count, "folders": folders.count])
         } catch {
             appLogError("phoneHome", "loadNotes failed", ["error": "\(error)"])
-        }
-    }
-}
-
-// MARK: - 교재 탭
-
-private struct PhoneTextbooksTab: View {
-    @State private var textbooks: [TextbookListItem] = []
-    @State private var loading = false
-    @State private var loadError: String?
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if loading && textbooks.isEmpty {
-                    ProgressView("불러오는 중…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if textbooks.isEmpty {
-                    emptyState
-                } else {
-                    List(textbooks) { tb in
-                        NavigationLink(value: tb) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "book.closed.fill")
-                                    .foregroundStyle(.purple)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(tb.fileName)
-                                        .font(.body)
-                                        .lineLimit(2)
-                                    Text("\(tb.totalPages)페이지")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("교재")
-            .navigationDestination(for: TextbookListItem.self) { tb in
-                // 읽기 전용 PDF 뷰어(§4.4). PdfViewerView는 이미 비편집(PDFView 기본) +
-                // 플로팅 바라 compact에서 그대로 동작. 읽기 전용이므로 페이지 영속은 불필요.
-                PdfViewerView(
-                    textbookId: tb.id,
-                    totalPages: tb.totalPages,
-                    initialPage: 1,
-                    onPageChanged: { _ in },
-                    onClose: { }
-                )
-                .navigationTitle(tb.fileName)
-                .navigationBarTitleDisplayMode(.inline)
-            }
-            .task { await loadTextbooks() }
-            .refreshable { await loadTextbooks() }
-        }
-    }
-
-    @ViewBuilder
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: loadError == nil ? "books.vertical" : "exclamationmark.triangle")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text(loadError ?? "아직 교재가 없어요")
-                .font(.headline)
-            Text(loadError == nil
-                 ? "iPad에서 교재 PDF를 업로드하면 여기서 읽을 수 있어요."
-                 : "당겨서 새로고침 해보세요.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 80)
-        .padding(.horizontal, 32)
-    }
-
-    private func loadTextbooks() async {
-        loading = true
-        defer { loading = false }
-        do {
-            let items: [TextbookListItem] = try await APIClient.shared.get("/pdf/textbooks")
-            textbooks = items
-            loadError = nil
-            appLog("phoneHome", "loadTextbooks", ["count": items.count])
-        } catch {
-            loadError = "교재를 불러오지 못했어요"
-            appLogError("phoneHome", "loadTextbooks failed", ["error": "\(error)"])
         }
     }
 }

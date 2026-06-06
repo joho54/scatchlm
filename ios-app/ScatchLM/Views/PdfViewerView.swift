@@ -11,6 +11,8 @@ struct PdfViewerView: View {
     var onPin: ((String, String?) -> Void)?
     /// 가이드 채팅 세션을 귀속시킬 노트(있으면). 드로어가 노트 단위로 세션을 모은다(§4.6).
     var noteId: String?
+    /// 읽기 전용(iPhone 컴패니언). noteId는 필기 *표시*를 위해 받지만 *편집*(필기 버튼)은 가린다.
+    var readOnly: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
@@ -36,7 +38,7 @@ struct PdfViewerView: View {
     /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
     @Binding var inkMode: Bool
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil, noteId: String? = nil, inkMode: Binding<Bool> = .constant(false)) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, inkMode: Binding<Bool> = .constant(false)) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
@@ -44,6 +46,7 @@ struct PdfViewerView: View {
         self.onClose = onClose
         self.onPin = onPin
         self.noteId = noteId
+        self.readOnly = readOnly
         self._inkMode = inkMode
         self._currentPage = State(initialValue: initialPage)
     }
@@ -86,8 +89,8 @@ struct PdfViewerView: View {
                         Label("가이드", systemImage: "book")
                             .font(.caption)
                     }
-                    // 필기 모드 토글 — 노트에 연결된 PDF에서만 노출
-                    if noteId != nil {
+                    // 필기 모드 토글 — 노트에 연결된 PDF에서만 노출. 읽기 전용(iPhone)은 가린다.
+                    if noteId != nil, !readOnly {
                         Button { inkMode.toggle() } label: {
                             Label("필기", systemImage: inkMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
                                 .font(.caption)

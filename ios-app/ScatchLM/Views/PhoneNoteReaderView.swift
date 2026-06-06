@@ -421,16 +421,25 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             guard let contentView else { return }
             contentView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
             maxCardBottom = 0
-            let cardWidth = contentWidth - 32   // 종이 폭과 동일 좌표계(#2)
-
+            // 종이는 화면에 맞춰 fit(≈logical/contentWidth)으로 축소된다. 카드 텍스트가 그만큼 작아져
+            // 읽기 힘드므로, 카드를 그 역수 k배로 키워(content 좌표) 화면상 원래 크기로 보이게 한다.
+            // (필기는 좌표 그대로 축소, 카드만 counter-scale — 사용자 요청.)
+            let k = max(1, contentWidth / Config.logicalCanvasWidth)
+            var runningBottom: CGFloat = 0
             for fb in feedbacks {
-                let card = makeCard(fb: fb, cardWidth: cardWidth)
+                let card = makeCard(fb: fb, scale: k)
+                // 카드가 커져 서로 겹치지 않도록 순차 배치(원 위치 우선, 겹치면 아래로).
+                let y = max(fb.positionY, runningBottom + 12 * k)
+                card.frame.origin.y = y
+                runningBottom = card.frame.maxY
                 contentView.addSubview(card)
                 maxCardBottom = max(maxCardBottom, card.frame.maxY)
             }
         }
 
-        private func makeCard(fb: FeedbackRecord, cardWidth: CGFloat) -> UIView {
+        private func makeCard(fb: FeedbackRecord, scale k: CGFloat) -> UIView {
+            let cardWidth = (Config.logicalCanvasWidth - 32) * k
+            let fontSize = 14 * k
             let parsed = try? JSONDecoder().decode(AIResponse.self, from: fb.content.data(using: .utf8) ?? Data())
             let rawText = parsed?.displayText ?? fb.content
             let useKaTeX = MarkdownRender.shouldUseKaTeX(rawText)
@@ -458,23 +467,24 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             ) {
                 let m = NSMutableAttributedString(attributedString: attr)
                 m.addAttributes([
-                    .font: UIFont.systemFont(ofSize: 14),
+                    .font: UIFont.systemFont(ofSize: fontSize),
                     .foregroundColor: UIColor.label,
                 ], range: NSRange(location: 0, length: m.length))
                 textView.attributedText = m
             } else {
                 textView.text = rawText
-                textView.font = .systemFont(ofSize: 14)
+                textView.font = .systemFont(ofSize: fontSize)
                 textView.textColor = .label
             }
 
-            let label: UIView = useKaTeX ? BakedMarkdownUIView(content: rawText, fontSize: 14) : textView
+            let label: UIView = useKaTeX ? BakedMarkdownUIView(content: rawText, fontSize: fontSize) : textView
 
             // 버튼바 — "대화"만(읽기 전용)
             let chatBtn = UIButton(type: .system)
             chatBtn.setImage(UIImage(systemName: "bubble.left.fill"), for: .normal)
+            chatBtn.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 12 * k), forImageIn: .normal)
             chatBtn.setTitle(" " + String(localized: "대화"), for: .normal)
-            chatBtn.titleLabel?.font = .systemFont(ofSize: 12)
+            chatBtn.titleLabel?.font = .systemFont(ofSize: 12 * k)
             chatBtn.tintColor = .secondaryLabel
             let gesture = FeedbackTapGesture(target: self, action: #selector(chatTapped(_:)))
             gesture.feedbackRecord = fb
@@ -489,19 +499,20 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             label.translatesAutoresizingMaskIntoConstraints = false
             buttonBar.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-                label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-                label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-                buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
-                buttonBar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-                buttonBar.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-                buttonBar.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
-                buttonBar.heightAnchor.constraint(equalToConstant: 28),
+                label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12 * k),
+                label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12 * k),
+                label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12 * k),
+                buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8 * k),
+                buttonBar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12 * k),
+                buttonBar.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12 * k),
+                buttonBar.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8 * k),
+                buttonBar.heightAnchor.constraint(equalToConstant: 28 * k),
             ])
 
-            let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
-            let cardHeight = labelSize.height + 48
-            card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
+            let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24 * k, height: .greatestFiniteMagnitude))
+            let cardHeight = labelSize.height + 48 * k
+            // x는 makeCard에서, y는 renderCards가 순차 배치로 설정.
+            card.frame = CGRect(x: 16 * k, y: 0, width: cardWidth, height: cardHeight)
             return card
         }
 

@@ -166,14 +166,33 @@ final class ReadOnlyNoteCanvasTests: XCTestCase {
     }
 
     @MainActor
-    func testCardWidthFollowsContentWidth() {
-        // 카드도 같은 종이 폭(contentWidth)에서 렌더 → 필기와 동일 좌표계 유지.
-        let (coordinator, _, contentView, _) = makeWired(panelWidth: 400)
-        coordinator.contentWidth = 800
+    func testCardCounterScaledToNativeOnScreenWidth() {
+        // 카드는 fit 축소를 상쇄하도록 k=contentWidth/logical배로 키워 렌더된다.
+        // → content 폭은 (logical-32)*k지만 화면상(×fit)으로는 ≈ logical-32(아이폰 폭)로 보인다.
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, _, contentView, _) = makeWired(panelWidth: logical)
+        coordinator.contentWidth = logical * 2   // iPad 폭 시뮬레이션
         coordinator.renderCards([makeFeedback(y: 100)])
         let card = contentView.subviews.first { $0.tag == 9999 }
         XCTAssertNotNil(card)
-        XCTAssertEqual(card!.frame.width, 800 - 32, accuracy: 1.0,
-            "카드 폭은 종이 폭(contentWidth)-32 → 필기와 동일 좌표계")
+        let k = coordinator.contentWidth / logical
+        XCTAssertEqual(card!.frame.width, (logical - 32) * k, accuracy: 1.0,
+            "카드 content 폭은 (logical-32)*k (counter-scale)")
+        let fit = logical / coordinator.contentWidth
+        XCTAssertEqual(card!.frame.width * fit, logical - 32, accuracy: 1.0,
+            "화면상(×fit) 카드 폭은 ≈ 아이폰 폭(logical-32)")
+    }
+
+    @MainActor
+    func testCardsDoNotOverlapAfterCounterScale() {
+        // 커진 카드가 서로 겹치지 않도록 순차 배치 — 두 카드의 y 범위가 겹치지 않아야.
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, _, contentView, _) = makeWired(panelWidth: logical)
+        coordinator.contentWidth = logical * 2
+        coordinator.renderCards([makeFeedback(y: 100), makeFeedback(y: 120)])
+        let cards = contentView.subviews.filter { $0.tag == 9999 }.sorted { $0.frame.minY < $1.frame.minY }
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertGreaterThanOrEqual(cards[1].frame.minY, cards[0].frame.maxY,
+            "두 번째 카드는 첫 카드 아래에 배치(겹침 없음)")
     }
 }

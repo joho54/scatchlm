@@ -351,6 +351,36 @@ async def test_note_template_defaults_blank_when_omitted(client: AsyncClient, au
 
 
 @pytest.mark.asyncio
+async def test_purge_hard_deletes_note(client: AsyncClient, auth_header: dict):
+    """purge는 서버 행을 하드 삭제해 full-pull에 부활하지 않아야 한다 (휴지통 영구삭제)."""
+    note = _note("n-purge", "2026-06-01T09:00:00Z", deleted=True)
+    await client.post("/api/sync/push", headers=auth_header,
+                      json={"changes": {**_empty_changes(), "notes": [note]}})
+    # tombstone이 pull로 돌아옴(아직 살아있음)
+    pull1 = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    assert any(n["id"] == "n-purge" for n in pull1.json()["changes"]["notes"])
+
+    # purge → 하드 삭제
+    res = await client.post("/api/sync/purge", headers=auth_header,
+                            json={"note_ids": ["n-purge"]})
+    assert res.status_code == 200
+    assert res.json()["purged"] == ["n-purge"]
+
+    # full-pull에 더 이상 안 나옴(행 자체가 사라짐)
+    pull2 = await client.post("/api/sync/pull", headers=auth_header, json={"since": None})
+    assert all(n["id"] != "n-purge" for n in pull2.json()["changes"]["notes"])
+
+
+@pytest.mark.asyncio
+async def test_purge_is_idempotent_and_scoped(client: AsyncClient, auth_header: dict):
+    """없는 id/이미 purge된 id는 no-op(멱등). 빈 결과."""
+    res = await client.post("/api/sync/purge", headers=auth_header,
+                            json={"note_ids": ["does-not-exist"]})
+    assert res.status_code == 200
+    assert res.json()["purged"] == []
+
+
+@pytest.mark.asyncio
 async def test_unauthenticated_rejected(client: AsyncClient):
     res = await client.post("/api/sync/pull", json={"since": None})
     assert res.status_code == 401

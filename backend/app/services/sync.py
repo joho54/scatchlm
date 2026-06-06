@@ -262,6 +262,47 @@ async def push_changes(db: AsyncSession, user_id: str, changes: dict) -> dict:
     return {"results": results, "missing_blobs": sorted(missing_blobs)}
 
 
+# ---- purge (영구 삭제 — 하드 삭제) ------------------------------------------
+
+async def purge_notes(db: AsyncSession, user_id: str, note_ids: list[str]) -> dict:
+    """노트와 그 종속행을 서버에서 **하드 삭제**한다(휴지통 영구삭제 전파, 멱등).
+
+    soft delete(deleted=1)는 tombstone이라 영원히 pull로 돌아오므로, 진짜 영구삭제는
+    행 자체를 제거해야 신규 디바이스 full-pull에 부활하지 않는다. user 스코프로만 지운다.
+    종속: feedbacks/note_pages/pdf_annotations(note_id), chat_messages(그 feedbacks의 id).
+    """
+    from sqlalchemy import delete as sa_delete
+
+    ids = [i for i in (note_ids or []) if i]
+    if not ids:
+        return {"purged": []}
+
+    # 이 유저 소유의 대상 노트만 추린다(타 유저 id 무시).
+    owned = (await db.execute(
+        select(Note.id).where(Note.user_id == user_id, Note.id.in_(ids))
+    )).scalars().all()
+    if not owned:
+        return {"purged": []}
+
+    # 종속 feedbacks id (chat_messages 정리에 필요)
+    fb_ids = (await db.execute(
+        select(Feedback.id).where(Feedback.user_id == user_id, Feedback.note_id.in_(owned))
+    )).scalars().all()
+    if fb_ids:
+        await db.execute(sa_delete(ChatMessage).where(
+            ChatMessage.user_id == user_id, ChatMessage.feedback_id.in_(fb_ids)))
+    await db.execute(sa_delete(Feedback).where(
+        Feedback.user_id == user_id, Feedback.note_id.in_(owned)))
+    await db.execute(sa_delete(NotePage).where(
+        NotePage.user_id == user_id, NotePage.note_id.in_(owned)))
+    await db.execute(sa_delete(PdfAnnotation).where(
+        PdfAnnotation.user_id == user_id, PdfAnnotation.note_id.in_(owned)))
+    await db.execute(sa_delete(Note).where(
+        Note.user_id == user_id, Note.id.in_(owned)))
+    await db.commit()
+    return {"purged": list(owned)}
+
+
 # ---- blob -------------------------------------------------------------------
 
 def store_blob(user_id: str, hash_: str, data: bytes) -> bool:

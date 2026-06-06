@@ -31,6 +31,13 @@ final class MockSyncAPIClient: SyncAPIClient, @unchecked Sendable {
         return pushHandler?(changes, pushCallCount) ?? SyncPushResponse(results: [], missing_blobs: [])
     }
 
+    // purge
+    private(set) var purgedNoteIds: [String] = []
+    func syncPurge(noteIds: [String]) async throws -> SyncPurgeResponse {
+        purgedNoteIds.append(contentsOf: noteIds)
+        return SyncPurgeResponse(purged: noteIds)
+    }
+
     func syncUploadBlob(hash: String, data: Data) async throws -> SyncBlobResponse {
         uploadedBlobs[hash] = data
         downloadStore[hash] = data
@@ -397,5 +404,27 @@ final class SyncServiceTests: XCTestCase {
         XCTAssertTrue(try db.trashedNotes().isEmpty, "비우기 후 휴지통 비어있음")
         XCTAssertNil(try db.note(id: a.id))
         XCTAssertNil(try db.note(id: b.id))
+    }
+
+    func testPermanentDeleteEnqueuesServerPurge() throws {
+        var note = Note.new(title: "퍼지 큐")
+        try db.saveNote(&note)
+        try db.deleteNote(id: note.id)
+        try db.permanentlyDeleteNote(id: note.id)
+
+        XCTAssertTrue(try db.pendingPurgeIds().contains(note.id), "영구삭제는 서버 purge 큐에 적재")
+    }
+
+    func testFlushPurgesCallsServerAndClearsQueue() async throws {
+        var note = Note.new(title: "서버 퍼지")
+        try db.saveNote(&note)
+        try db.deleteNote(id: note.id)
+        try db.permanentlyDeleteNote(id: note.id)
+        XCTAssertFalse(try db.pendingPurgeIds().isEmpty)
+
+        try await sync.flushPurges()
+
+        XCTAssertTrue(api.purgedNoteIds.contains(note.id), "서버 /sync/purge 호출")
+        XCTAssertTrue(try db.pendingPurgeIds().isEmpty, "성공 후 큐 비움")
     }
 }

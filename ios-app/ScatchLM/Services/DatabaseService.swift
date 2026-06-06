@@ -375,6 +375,16 @@ final class DatabaseService {
             }
         }
 
+        // v13: 휴지통 영구삭제 큐. 영구삭제 시 노트를 로컬 하드 삭제하되, 서버에도 하드
+        // 삭제(POST /api/sync/purge)를 전파하기 위해 id를 큐에 적재한다. sync 사이클이
+        // pull 직전에 비워(서버 행 제거 → full-pull 부활 방지). soft delete(deleted=1)와 별개.
+        migrator.registerMigration("v13_purge_queue") { db in
+            try db.create(table: "purge_queue", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()        // note id
+                t.column("user_id", .text).notNull().defaults(to: "")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -385,7 +395,7 @@ final class DatabaseService {
     func purgeAllData(userId: String) throws {
         guard !userId.isEmpty else { return }
         try dbQueue.write { db in
-            for table in ["feedback_chats", "feedbacks", "pdf_annotations", "note_pages", "notes"] {
+            for table in ["feedback_chats", "feedbacks", "pdf_annotations", "note_pages", "notes", "folders", "purge_queue"] {
                 try db.execute(sql: "DELETE FROM \(table) WHERE user_id = ?", arguments: [userId])
             }
             // pdf_drawings는 user 스코프 컬럼이 없음 — 디바이스 로컬 전체 삭제.
@@ -653,13 +663,17 @@ final class DatabaseService {
         notifyWrite()
     }
 
-    /// 영구 삭제 — 로컬 하드 삭제(노트 + 페이지/피드백/채팅/PDF 필기). 복구 불가.
-    /// 서버 tombstone(deleted=1)은 이미 trash 시점에 동기화되어 타 기기엔 숨겨진 상태다.
-    /// 단, 서버는 tombstone을 영구 보관하므로 **전체 재동기화(재로그인 등)** 시 휴지통에 다시
-    /// 나타날 수 있다 — 서버측 purge 엔드포인트는 v1 범위 밖. 로컬 하드 삭제는 sync 트리거 안 함.
+    /// 영구 삭제 — 로컬 하드 삭제(노트 + 페이지/피드백/채팅/PDF 필기) + 서버 purge 큐 적재.
+    /// 복구 불가. 큐에 적재된 id는 다음 sync 사이클이 `POST /api/sync/purge`로 서버 행까지
+    /// 하드 삭제해(pull 직전) tombstone 부활을 막는다(`SyncService.flushPurges`).
     func permanentlyDeleteNote(id: String) throws {
         let uid = try requireUserId()
         try dbQueue.write { db in
+            // 서버 하드 삭제 전파용 큐에 먼저 적재(로컬 행을 지운 뒤엔 user_id를 모르므로 순서 중요).
+            try db.execute(
+                sql: "INSERT OR IGNORE INTO purge_queue (id, user_id) VALUES (?, ?)",
+                arguments: [id, uid]
+            )
             try db.execute(
                 sql: """
                     DELETE FROM feedback_chats WHERE user_id = ? AND feedback_id IN (
@@ -673,6 +687,8 @@ final class DatabaseService {
             try db.execute(sql: "DELETE FROM pdf_annotations WHERE note_id = ? AND user_id = ?", arguments: [id, uid])
             try db.execute(sql: "DELETE FROM notes WHERE id = ? AND user_id = ?", arguments: [id, uid])
         }
+        // 서버 purge를 즉시 시도하도록 sync 트리거(오프라인이면 큐에 남아 다음 사이클에 재시도).
+        notifyWrite()
     }
 
     /// 휴지통 비우기 — 모든 soft-deleted 노트를 영구 삭제.

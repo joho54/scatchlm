@@ -158,6 +158,7 @@ final class SyncService: @unchecked Sendable {
         setStatus(.syncing)
         do {
             try await pushDirty()
+            try await flushPurges()
             try await pullChanges()
             backoffStep = 0
             retryTask?.cancel(); retryTask = nil
@@ -219,6 +220,19 @@ final class SyncService: @unchecked Sendable {
         for (table, ids) in byTable {
             try db.markClean(table: table, ids: ids)
         }
+    }
+
+    // MARK: - Purge (휴지통 영구삭제 → 서버 하드 삭제)
+
+    /// pull 직전에 호출. 영구삭제 대기 노트를 서버에서 하드 삭제(멱등)한 뒤 큐를 비운다.
+    /// pull보다 먼저 처리해 서버 행이 제거된 후 pull이 돌아 tombstone 부활을 막는다.
+    func flushPurges() async throws {
+        let ids = try db.pendingPurgeIds()
+        guard !ids.isEmpty else { return }
+        let res = try await api.syncPurge(noteIds: ids)
+        // 요청 id 전부 제거(서버가 소유분만 purged로 돌려줘도, 미소유/이미없음 id는 재시도 의미 없음).
+        try db.clearPurges(ids: ids)
+        appLog("sync", "flushPurges", ["requested": ids.count, "purged": res.purged.count])
     }
 
     // MARK: - Pull (§3.2-a, C-2)

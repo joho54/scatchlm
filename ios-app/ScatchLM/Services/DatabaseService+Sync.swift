@@ -188,6 +188,30 @@ extension DatabaseService {
         }
     }
 
+    // MARK: - Purge queue (휴지통 영구삭제 → 서버 하드 삭제 전파)
+
+    /// 서버 purge 대기 중인 노트 id. 현재 유저 스코프.
+    func pendingPurgeIds() throws -> [String] {
+        guard let uid = syncUserId else { return [] }
+        return try dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM purge_queue WHERE user_id = ?", arguments: [uid])
+        }
+    }
+
+    /// 서버 purge 성공한 id를 큐에서 제거.
+    func clearPurges(ids: [String]) throws {
+        guard let uid = syncUserId, !ids.isEmpty else { return }
+        try dbQueue.write { db in
+            let placeholders = databaseQuestionMarks(count: ids.count)
+            var args: [DatabaseValueConvertible] = [uid]
+            args.append(contentsOf: ids)
+            try db.execute(
+                sql: "DELETE FROM purge_queue WHERE user_id = ? AND id IN (\(placeholders))",
+                arguments: StatementArguments(args)
+            )
+        }
+    }
+
     // MARK: - Blob (content-addressed)
 
     /// 로컬에 보유한 hash의 drawing blob을 찾는다(note_pages 우선, 없으면 notes).

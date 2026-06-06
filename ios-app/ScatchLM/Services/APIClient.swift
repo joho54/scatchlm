@@ -285,6 +285,10 @@ extension APIClient: SyncAPIClient {
         try await postCodable("/sync/push", body: SyncPushRequest(changes: changes))
     }
 
+    func syncPurge(noteIds: [String]) async throws -> SyncPurgeResponse {
+        try await postCodable("/sync/purge", body: SyncPurgeRequest(note_ids: noteIds))
+    }
+
     func syncUploadBlob(hash: String, data: Data) async throws -> SyncBlobResponse {
         try await postMultipart(
             "/sync/blob",

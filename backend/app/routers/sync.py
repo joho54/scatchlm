@@ -40,6 +40,10 @@ class PushRequest(BaseModel):
     changes: Changes
 
 
+class PurgeRequest(BaseModel):
+    note_ids: list[str] = Field(default_factory=list)
+
+
 @router.post("/pull")
 async def pull(
     req: PullRequest,
@@ -71,6 +75,20 @@ async def push(
     applied = sum(1 for r in result["results"] if r["status"] == "applied")
     log.info("sync push: user=%s applied=%d/%d missing_blobs=%d",
              user_id, applied, len(result["results"]), len(result["missing_blobs"]))
+    return result
+
+
+@router.post("/purge")
+async def purge(
+    req: PurgeRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """휴지통 영구삭제 — 노트+종속행 하드 삭제(멱등). soft delete tombstone과 달리
+    서버 행 자체를 제거해 신규 디바이스 full-pull 부활을 막는다."""
+    result = await sync_service.purge_notes(db, user_id, req.note_ids)
+    log.info("sync purge: user=%s requested=%d purged=%d",
+             user_id, len(req.note_ids), len(result["purged"]))
     return result
 
 

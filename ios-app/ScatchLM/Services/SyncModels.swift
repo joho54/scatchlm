@@ -158,11 +158,21 @@ struct SyncBlobResponse: Decodable {
     var stored: Bool
 }
 
+/// 휴지통 영구삭제 — 노트 하드 삭제 요청/응답 (서버 행 제거로 full-pull 부활 방지).
+struct SyncPurgeRequest: Encodable {
+    var note_ids: [String]
+}
+
+struct SyncPurgeResponse: Decodable {
+    var purged: [String]
+}
+
 // MARK: - API 추상화 (테스트 더블로 모킹 가능, §3.2 MSW 비고 / C-5)
 
 protocol SyncAPIClient {
     func syncPull(since: String?, limit: Int) async throws -> SyncPullResponse
     func syncPush(_ changes: SyncChanges) async throws -> SyncPushResponse
+    func syncPurge(noteIds: [String]) async throws -> SyncPurgeResponse
     func syncUploadBlob(hash: String, data: Data) async throws -> SyncBlobResponse
     func syncDownloadBlob(hash: String) async throws -> Data
 }

@@ -13,8 +13,14 @@ struct HomeView: View {
     private let sync = SyncService.shared
 
     private var filteredNotes: [Note] {
-        if search.isEmpty { return notes }
-        return notes.filter { $0.title.localizedCaseInsensitiveContains(search) }
+        let term = search.trimmingCharacters(in: .whitespaces)
+        if term.isEmpty { return notes }
+        return notes.filter { note in
+            // 제목·과목(language)·연결된 교재명 중 하나라도 매칭되면 노출.
+            note.title.localizedCaseInsensitiveContains(term)
+                || note.language.localizedCaseInsensitiveContains(term)
+                || (note.textbookName?.localizedCaseInsensitiveContains(term) ?? false)
+        }
     }
 
     private let columns = [
@@ -52,7 +58,7 @@ struct HomeView: View {
         .navigationDestination(for: String.self) { noteId in
             NoteView(noteId: noteId)
         }
-        .searchable(text: $search, prompt: "노트 검색")
+        .searchable(text: $search, prompt: "제목·과목·교재로 검색")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack {

@@ -151,4 +151,29 @@ final class ReadOnlyNoteCanvasTests: XCTestCase {
         XCTAssertGreaterThan(host.contentSize.height, 0)
         XCTAssertTrue(contentView.bounds.height.isFinite, "contentView 높이도 유한")
     }
+
+    // MARK: - 필기 오버플로 회귀 (#2: iPad 필기 폭 > iPhone 화면 → zoom-fit으로 축소)
+
+    @MainActor
+    func testWideContentWidthZoomsToFitViewport() {
+        // iPad에서 그린 넓은 필기(예 800폭)는 종이 폭을 800으로 잡고 iPhone 뷰포트(400)에 맞춰
+        // 축소돼야 한다(zoom 0.5). 안 그러면 필기가 화면 밖으로 넘침(#2).
+        let (coordinator, host, _, _) = makeWired(panelWidth: 400)
+        coordinator.contentWidth = 800
+        coordinator.layout()
+        XCTAssertEqual(host.zoomScale, 0.5, accuracy: 0.001,
+            "종이 800폭을 400 뷰포트에 fit → zoom 0.5 (필기 오버플로 방지)")
+    }
+
+    @MainActor
+    func testCardWidthFollowsContentWidth() {
+        // 카드도 같은 종이 폭(contentWidth)에서 렌더 → 필기와 동일 좌표계 유지.
+        let (coordinator, _, contentView, _) = makeWired(panelWidth: 400)
+        coordinator.contentWidth = 800
+        coordinator.renderCards([makeFeedback(y: 100)])
+        let card = contentView.subviews.first { $0.tag == 9999 }
+        XCTAssertNotNil(card)
+        XCTAssertEqual(card!.frame.width, 800 - 32, accuracy: 1.0,
+            "카드 폭은 종이 폭(contentWidth)-32 → 필기와 동일 좌표계")
+    }
 }

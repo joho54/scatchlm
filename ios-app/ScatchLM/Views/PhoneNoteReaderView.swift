@@ -16,6 +16,7 @@ struct PhoneNoteReaderView: View {
     @State private var pageIndex: Int = 0
     @State private var chatContext: ChatSheetContext?
     @State private var showDrawer = false
+    @State private var showPages = false
 
     private let db = DatabaseService.shared
 
@@ -52,6 +53,16 @@ struct PhoneNoteReaderView: View {
         .navigationTitle(note?.title ?? "노트")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 페이지 네비게이터(슬라이드 오버) — 썸네일로 한 번에 점프(#1).
+            if pages.count > 1 {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showPages = true
+                    } label: {
+                        Image(systemName: "rectangle.stack")
+                    }
+                }
+            }
             // 챗 서랍 진입(§4.3·C-1, §6.x-3 결정: 노트 내부 버튼). 노트의 저장된 세션을
             // 챕터별로 열람하고 대화를 이어간다. 점프/스크랩은 iPhone에서 비노출(드로어 C-1).
             ToolbarItem(placement: .topBarTrailing) {
@@ -61,6 +72,12 @@ struct PhoneNoteReaderView: View {
                     Image(systemName: "bubble.left.and.bubble.right")
                 }
             }
+        }
+        .sheet(isPresented: $showPages) {
+            PhonePageNavigator(pages: pages, currentIndex: pageIndex) { idx in
+                pageIndex = idx
+            }
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showDrawer) {
             ChapterDrawerView(
@@ -99,9 +116,14 @@ struct PhoneNoteReaderView: View {
             }
             .disabled(pageIndex == 0)
 
-            Text("\(pageIndex + 1) / \(pages.count)")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
+            // 인디케이터 탭 → 페이지 네비게이터(썸네일 점프, #1).
+            Button {
+                showPages = true
+            } label: {
+                Text("\(pageIndex + 1) / \(pages.count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
             Button {
                 if pageIndex < pages.count - 1 { pageIndex += 1 }
@@ -212,6 +234,91 @@ struct PhoneNoteReaderView: View {
     }
 }
 
+// MARK: - 페이지 네비게이터 (읽기 전용 슬라이드 오버, #1)
+
+/// 페이지 썸네일 그리드. 탭 한 번으로 해당 페이지로 점프(편집용 PageNavigatorView의
+/// 추가/삭제/순서변경/템플릿은 제외 — 읽기 전용).
+private struct PhonePageNavigator: View {
+    let pages: [PhoneNoteReaderView.ReaderPage]
+    let currentIndex: Int
+    let onSelect: (Int) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let columns = [GridItem(.adaptive(minimum: 110), spacing: 16)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(Array(pages.enumerated()), id: \.element.id) { idx, page in
+                        Button {
+                            onSelect(idx)
+                            dismiss()
+                        } label: {
+                            VStack(spacing: 6) {
+                                PhonePageThumbnail(drawingData: page.drawingData)
+                                    .frame(height: 150)
+                                    .frame(maxWidth: .infinity)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(idx == currentIndex ? Color.blue : Color.clear, lineWidth: 2)
+                                    )
+                                Text("\(idx + 1)페이지")
+                                    .font(.caption)
+                                    .foregroundStyle(idx == currentIndex ? .blue : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("페이지")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("닫기") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+/// 페이지 드로잉 썸네일 (NoteCardView/PageThumbnail과 동일 렌더 패턴).
+private struct PhonePageThumbnail: View {
+    let drawingData: Data?
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            (colorScheme == .dark ? Color(white: 0.12) : Color.white)
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .task { await render() }
+    }
+
+    private func render() async {
+        let data = drawingData
+        let img: UIImage? = await Task.detached(priority: .utility) {
+            guard let data,
+                  let drawing = try? PKDrawing(data: data),
+                  !drawing.strokes.isEmpty else { return nil }
+            let sourceWidth: CGFloat = 800
+            let aspect: CGFloat = 150.0 / 110.0
+            let rect = CGRect(x: 0, y: 0, width: sourceWidth, height: sourceWidth * aspect)
+            let scale = 240.0 / sourceWidth
+            return drawing.image(from: rect, scale: scale)
+        }.value
+        await MainActor.run { self.image = img }
+    }
+}
+
 // MARK: - 읽기 전용 캔버스 (좌표 정합 보장)
 
 /// host(UIScrollView) > contentView(논리폭 종이) > PKCanvasView(읽기 전용) 구조를 편집 캔버스와
@@ -236,10 +343,21 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         host.showsHorizontalScrollIndicator = false
         host.alwaysBounceVertical = true
 
+        // 드로잉을 먼저 파싱해 "종이 폭"을 정한다(#2). iPad에서 그린 필기는 iPad 논리폭(예 ~820)
+        // 좌표를 가지므로, iPhone 논리폭(~390)짜리 종이에 fit=1로 두면 필기가 화면을 넘친다.
+        // 종이를 필기 실제 폭까지 넓힌 뒤 zoom-to-fit으로 화면에 맞춰 축소 → 카드도 같은 폭에서
+        // 렌더돼 좌표 정합 유지(카드는 화면상 거의 iPhone 폭으로 보임).
+        let parsedDrawing: PKDrawing? = drawingData.flatMap { try? PKDrawing(data: $0) }
+        var paperWidth = logical
+        if let b = parsedDrawing?.bounds, !b.isNull, b.maxX.isFinite {
+            paperWidth = max(logical, ceil(b.maxX) + 8)
+        }
+        coordinator.contentWidth = paperWidth
+
         // 종이(줌 대상)
         let contentView = UIView()
         contentView.backgroundColor = isDark ? .black : .white
-        contentView.frame = CGRect(x: 0, y: 0, width: logical, height: logical * 2)
+        contentView.frame = CGRect(x: 0, y: 0, width: paperWidth, height: paperWidth * 2)
         host.addSubview(contentView)
         host.contentSize = contentView.bounds.size
 
@@ -252,9 +370,7 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         canvas.isOpaque = false
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.frame = contentView.bounds
-        if let data = drawingData, let drawing = try? PKDrawing(data: data) {
-            canvas.drawing = drawing
-        }
+        if let drawing = parsedDrawing { canvas.drawing = drawing }
         contentView.addSubview(canvas)
 
         coordinator.host = host
@@ -283,6 +399,8 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         weak var canvas: PKCanvasView?
         var isDark = false
         var onChat: ((FeedbackRecord) -> Void)?
+        /// 종이(콘텐츠) 폭 — 필기 실제 폭까지 확장된 값(#2). fit/카드 폭의 SSOT.
+        var contentWidth: CGFloat = Config.logicalCanvasWidth
         private var lastWidth: CGFloat = 0
         private var maxCardBottom: CGFloat = 0
 
@@ -294,7 +412,7 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             guard let host, let contentView else { return }
             let width = host.bounds.width
             guard width > 0 else { return }
-            let logical = Config.logicalCanvasWidth
+            let logical = contentWidth   // 필기 폭까지 확장된 종이 폭(#2)
             let fit = min(1, width / logical)
             host.minimumZoomScale = fit
             host.maximumZoomScale = max(fit, 3.0)
@@ -336,7 +454,7 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             guard let contentView else { return }
             contentView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
             maxCardBottom = 0
-            let cardWidth = Config.logicalCanvasWidth - 32
+            let cardWidth = contentWidth - 32   // 종이 폭과 동일 좌표계(#2)
 
             for fb in feedbacks {
                 let card = makeCard(fb: fb, cardWidth: cardWidth)

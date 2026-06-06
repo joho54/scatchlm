@@ -269,6 +269,40 @@ final class SyncServiceTests: XCTestCase {
         XCTAssertEqual(storedPage?.drawingData, drawing, "다운로드한 blob이 drawing_data로 복원")
     }
 
+    /// 부모 note 없는 orphan feedback(서버 purge 잔해 등)이 와도, 그 행만 skip하고 정상 행은
+    /// 적용 + 커서 전진. 과거엔 FK 위반이 merge 전체를 throw → 커서 미저장 → fresh-install sync brick.
+    func testPullSkipsOrphanFeedbackWithoutBricking() async throws {
+        let noteId = UUID().uuidString
+        let okId = UUID().uuidString
+        let orphanId = UUID().uuidString
+        let noteDTO = SyncNoteDTO(
+            id: noteId, updated_at: iso(0), deleted: false, title: "노트", language: "fr",
+            folder_id: nil, textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
+            pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
+        )
+        func fb(_ id: String, _ note: String) -> SyncFeedbackDTO {
+            SyncFeedbackDTO(
+                id: id, updated_at: iso(0), deleted: false, note_id: note, page_id: nil,
+                content: "c", position_x: 0, position_y: 0, bbox_x: 0, bbox_y: 0,
+                bbox_width: 0, bbox_height: 0, stroke_range_start: nil, stroke_range_end: nil,
+                server_feedback_id: nil, user_rating: nil, session_id: nil, created_at: iso(-60)
+            )
+        }
+        api.pullResponses = [
+            SyncPullResponse(changes: SyncChanges(
+                sessions: [], folders: [], notes: [noteDTO], note_pages: [], pdf_annotations: [],
+                feedbacks: [fb(okId, noteId), fb(orphanId, UUID().uuidString)], chat_messages: []),
+                cursor: iso(0), has_more: false)
+        ]
+        try await sync.pullChanges()   // orphan이 있어도 throw하지 않아야 함
+
+        let stored = try db.feedbacks(noteId: noteId)
+        XCTAssertTrue(stored.contains { $0.id == okId }, "정상 feedback은 저장")
+        XCTAssertFalse(stored.contains { $0.id == orphanId }, "orphan(부모 note 없음)은 skip")
+        XCTAssertEqual(defaults.string(forKey: "syncCursor.\(user!)"), iso(0),
+                       "orphan에도 커서 전진 — sync가 brick되지 않음")
+    }
+
     // MARK: - 유저 격리
 
     func testCrossUserIsolation() throws {

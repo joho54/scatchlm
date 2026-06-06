@@ -97,6 +97,13 @@ extension DatabaseService {
         return true
     }
 
+    /// 부모 행이 로컬에 존재하는지. pull 적용 시 자식(feedback/chat/page/annotation)의 FK 부모가
+    /// 없으면 INSERT가 FK 위반으로 throw → merge 전체가 죽고 커서가 안 넘어가 sync가 brick된다.
+    /// (서버 orphan: purge로 부모만 하드삭제된 잔해 등.) 부모 없으면 그 행만 skip해 sync를 지킨다.
+    private func rowExists(_ db: Database, table: String, id: String) throws -> Bool {
+        (try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \(table) WHERE id = ?)", arguments: [id])) ?? false
+    }
+
     @discardableResult
     func applyPulledNote(_ incoming: Note) throws -> Bool {
         guard let uid = syncUserId else { return false }
@@ -114,6 +121,11 @@ extension DatabaseService {
     func applyPulledPage(_ incoming: NotePage) throws -> Bool {
         guard let uid = syncUserId else { return false }
         return try dbQueue.write { db in
+            guard try rowExists(db, table: "notes", id: incoming.noteId) else {
+                appLogWarn("sync", "skip orphan page (parent note absent)",
+                           ["pageId": incoming.id, "noteId": incoming.noteId])
+                return false
+            }
             guard try shouldApply(db, table: "note_pages", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
             var p = incoming
             p.userId = uid
@@ -127,6 +139,11 @@ extension DatabaseService {
     func applyPulledPdfAnnotation(_ incoming: PdfAnnotation) throws -> Bool {
         guard let uid = syncUserId else { return false }
         return try dbQueue.write { db in
+            guard try rowExists(db, table: "notes", id: incoming.noteId) else {
+                appLogWarn("sync", "skip orphan pdf annotation (parent note absent)",
+                           ["annotationId": incoming.id, "noteId": incoming.noteId])
+                return false
+            }
             guard try shouldApply(db, table: "pdf_annotations", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
             var a = incoming
             a.userId = uid
@@ -140,6 +157,11 @@ extension DatabaseService {
     func applyPulledFeedback(_ incoming: FeedbackRecord) throws -> Bool {
         guard let uid = syncUserId else { return false }
         return try dbQueue.write { db in
+            guard try rowExists(db, table: "notes", id: incoming.noteId) else {
+                appLogWarn("sync", "skip orphan feedback (parent note absent)",
+                           ["feedbackId": incoming.id, "noteId": incoming.noteId])
+                return false
+            }
             guard try shouldApply(db, table: "feedbacks", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
             var f = incoming
             f.userId = uid
@@ -179,6 +201,12 @@ extension DatabaseService {
     func applyPulledChat(_ incoming: ChatMessageRecord) throws -> Bool {
         guard let uid = syncUserId else { return false }
         return try dbQueue.write { db in
+            // 레거시 feedbackId가 있는데 부모 feedback이 없으면 skip(FK 방어). nil이면 FK 무관.
+            if let fid = incoming.feedbackId, try !rowExists(db, table: "feedbacks", id: fid) {
+                appLogWarn("sync", "skip orphan chat (parent feedback absent)",
+                           ["chatId": incoming.id, "feedbackId": fid])
+                return false
+            }
             guard try shouldApply(db, table: "feedback_chats", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
             var c = incoming
             c.userId = uid

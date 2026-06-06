@@ -21,7 +21,12 @@ enum Config {
 
     static var apiBaseURL: String {
         #if DEBUG
-        return "http://\(devApiHost):18000/api"
+        // 기본은 운영 — 실기기 Debug 빌드에서도 그냥 닿고, #if DEBUG 디버그 로그(canvas 등)가
+        // 운영 로그로 흐른다. 로컬 백엔드로 작업할 땐 UserDefaults `devApiHost`를 LAN IP로 세팅.
+        if let host = UserDefaults.standard.string(forKey: "devApiHost") {
+            return "http://\(host):18000/api"
+        }
+        return "https://scatchlm.duckdns.org/api"
         #else
         return "https://scatchlm.duckdns.org/api"
         #endif

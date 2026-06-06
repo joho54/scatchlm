@@ -95,6 +95,13 @@ grep "RAG\|Query rewrite" backend/logs/uvicorn.log  # RAG 검색 로그
 - 백엔드 로그에서 `[fe]` 또는 `FE` 태그로 필터링
 - `appLog("tag", "message", ["key": "value"])` / `appLogError(...)` 사용
 
+**로그 레벨과 전송 경로 (디버깅 시 반드시 숙지)**:
+- `appLog`=info, `appLogWarn`=warn, `appLogError`=error, **`appLogDebug`=debug**.
+- **`appLogDebug`는 Debug 빌드(`make reinstall-dev`)에서만 백엔드로 전송**된다. Release 빌드는 클라이언트(`LogService.enqueue`)가 debug를 드롭 — `#if DEBUG` 밖에서 `if level == "debug" { return }`. 즉 실유저(Release/TestFlight) 트래픽엔 debug가 안 온다.
+- 빌드 대상 백엔드는 `Config.apiBaseURL`이 결정: Debug 빌드는 `devApiHost` UserDefaults **미설정 시 운영**, 설정 시 `http://<host>:18000`(로컬). Release는 항상 운영.
+- **debug 로그는 stdout(docker logs)에 `[debug]` 마커로 찍히고, 동시에 `app_logs` 테이블에도 적재**된다(`devlog.py:_emit`). 과거엔 `log.debug()`라 stdout에서 묻혔으나 INFO로 승격함. 그래도 누락이 의심되면 `app_logs`가 단일 진실 — `/check-prod-db`로 `SELECT … FROM app_logs WHERE tag='…'` 조회. (`[access]` API 호출 로그는 `_emit`을 안 거쳐 app_logs에 없음 — docker logs grep만 가능.)
+- 고빈도 렌더/내부 상태(canvas geom 등)는 `appLogDebug`로, 사용자 행동/네트워크는 `appLog`로 — 운영 노이즈·비용 분리.
+
 ### DB 마이그레이션 (Alembic)
 
 모델(`app/models/`) 변경 시 반드시 마이그레이션을 생성하고 적용할 것.
@@ -152,6 +159,7 @@ pgvector 기반 의미 검색(`retrieval_service.search_relevant_chunks`: Haiku 
 
 - 회의주의적 시니어 엔지니어 태도로 대답할 것. 추측으로 행동하지 말고 확인 먼저.
 - 디버깅 시 로그 기반으로 분석. BE 로그: `backend/logs/uvicorn.log`, FE 로그: 같은 파일에서 `FE` 필터.
+- **로그가 부족하면 로그를 더 심어라.** 현재 계측만으로 원인을 확정할 수 없으면(예: 깜빡임 같은 렌더링 글리치인데 frame/bounds/contentOffset/zoom 같은 기하값이 안 찍힘), 추측으로 고치지 말고 먼저 의심 지점에 로그(`appLog`/`appLogDebug`/BE 로그)를 추가한 뒤 재현 → 로그로 원인을 좁혀라. 원인 확정 후 디버그 전용 로그는 정리(또는 `appLogDebug`로 강등)할 것.
 - 구현에 어려움을 겪을 때 사용자에게 사과하는 대신, 명세나 문제에 대한 합의에 먼저 도달한 후 표준적인 솔루션을 제공할 것.
 
 ## 배포 (프로덕션)

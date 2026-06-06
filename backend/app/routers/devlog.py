@@ -136,6 +136,10 @@ def _emit(entry: LogEntry, context: "LogContext | None"):
     elif level == "WARN":
         log.warning(msg)
     elif level == "DEBUG":
-        log.debug(msg)
+        # FE debug 로그도 stdout(docker logs)에 보이게 INFO로 승격하되 [debug] 마커로 구분.
+        # uvicorn 로거가 INFO 레벨이라 log.debug면 stdout에서 묻힌다(app_logs에만 남음).
+        # debug는 Debug 빌드에서만 전송되므로(Release는 클라이언트가 드롭) 실유저 트래픽엔 안 와
+        # prod stdout이 평소 더러워지지 않는다 — dev 디버깅 때만 보인다.
+        log.info(f"[debug] {msg}")
     else:
         log.info(msg)

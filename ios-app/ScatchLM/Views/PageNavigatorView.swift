@@ -40,7 +40,6 @@ struct PageNavigatorView: View {
             Divider()
 
             HStack(spacing: 8) {
-                Spacer()
                 // 순서 변경(드래그 핸들) 모드 토글. 활성화 시 체크 아이콘 + 액센트로 "완료" 의미를 드러냄.
                 // 편집모드에선 빨간 − 로 삭제도 가능.
                 if pages.count > 1 {
@@ -63,6 +62,7 @@ struct PageNavigatorView: View {
                         .background(Color.primary.opacity(0.06))
                         .clipShape(Circle())
                 }
+                Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

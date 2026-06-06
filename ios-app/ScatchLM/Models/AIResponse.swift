@@ -30,7 +30,7 @@ struct AIResponse: Codable {
     }
 }
 
-struct TextbookListItem: Codable, Identifiable {
+struct TextbookListItem: Codable, Identifiable, Hashable {
     let id: String
     let fileName: String
     let totalPages: Int

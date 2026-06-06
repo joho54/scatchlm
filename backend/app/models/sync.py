@@ -29,6 +29,25 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+class Folder(Base):
+    """노트 정리용 플랫(단일 레벨) 폴더 — note-folders-spec §4.1.
+
+    note.folder_id가 이 폴더를 가리킨다(FK 강제 안 함, 단순 컬럼). 폴더 삭제는
+    soft delete이며 소속 노트는 클라가 folder_id=NULL로 옮긴다(노트 유실 방지, §4.4).
+    """
+    __tablename__ = "folders"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # 클라 생성 UUID
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    __table_args__ = (Index("ix_folders_user_updated", "user_id", "updated_at"),)
+
+
 class Note(Base):
     __tablename__ = "notes"
 
@@ -36,6 +55,7 @@ class Note(Base):
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False, default="")
     language: Mapped[str] = mapped_column(String, nullable=False, default=DEFAULT_SUBJECT)
+    folder_id: Mapped[str | None] = mapped_column(String, nullable=True)  # 미분류=NULL (FK 강제 안 함)
     textbook_id: Mapped[str | None] = mapped_column(String, nullable=True)
     textbook_name: Mapped[str | None] = mapped_column(String, nullable=True)
     textbook_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

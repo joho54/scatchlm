@@ -201,6 +201,7 @@ final class SyncService: @unchecked Sendable {
     private func collectDirtyChanges() throws -> SyncChanges {
         SyncChanges(
             sessions: try db.dirtySessions().map(Self.sessionDTO),
+            folders: try db.dirtyFolders().map(Self.folderDTO),
             notes: try db.dirtyNotes().map(Self.noteDTO),
             note_pages: try db.dirtyPages().map(Self.pageDTO),
             pdf_annotations: try db.dirtyPdfAnnotations().map(Self.pdfAnnotationDTO),
@@ -239,6 +240,10 @@ final class SyncService: @unchecked Sendable {
         // sessions를 chat_messages/feedbacks보다 먼저 적용해 참조 무결성을 지킨다(§3.2-a / R2).
         for dto in changes.sessions {
             try db.applyPulledSession(Self.session(from: dto, userId: uid))
+        }
+        // folders를 notes 앞에 적용해 note.folder_id 참조 무결성을 지킨다(§3.2-a / R1).
+        for dto in changes.folders {
+            try db.applyPulledFolder(Self.folder(from: dto, userId: uid))
         }
         for dto in changes.notes {
             let blob = try await resolveBlob(hash: dto.drawing_hash)
@@ -301,6 +306,7 @@ final class SyncService: @unchecked Sendable {
 
     static let tableForEntity: [String: String] = [
         "chat_session": "chat_sessions",
+        "folder": "folders",
         "note": "notes",
         "note_page": "note_pages",
         "pdf_annotation": "pdf_annotations",
@@ -328,10 +334,28 @@ final class SyncService: @unchecked Sendable {
         )
     }
 
+    static func folderDTO(_ f: Folder) -> SyncFolderDTO {
+        SyncFolderDTO(
+            id: f.id, updated_at: SyncDate.string(from: f.updatedAt), deleted: f.deleted,
+            name: f.name, sort_order: f.sortOrder,
+            created_at: SyncDate.string(from: f.createdAt)
+        )
+    }
+
+    static func folder(from d: SyncFolderDTO, userId: String) -> Folder {
+        Folder(
+            id: d.id, name: d.name, sortOrder: d.sort_order,
+            createdAt: SyncDate.date(from: d.created_at) ?? Date(),
+            userId: userId, updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),
+            deleted: d.deleted, dirty: false
+        )
+    }
+
     static func noteDTO(_ n: Note) -> SyncNoteDTO {
         SyncNoteDTO(
             id: n.id, updated_at: SyncDate.string(from: n.updatedAt), deleted: n.deleted,
-            title: n.title, language: n.language, textbook_id: n.textbookId, textbook_name: n.textbookName,
+            title: n.title, language: n.language, folder_id: n.folderId,
+            textbook_id: n.textbookId, textbook_name: n.textbookName,
             textbook_pages: n.textbookPages, last_page: n.lastPage, pdf_open: n.pdfOpen,
             current_page_index: n.currentPageIndex, drawing_hash: n.drawingHash,
             created_at: SyncDate.string(from: n.createdAt)
@@ -340,7 +364,8 @@ final class SyncService: @unchecked Sendable {
 
     static func note(from d: SyncNoteDTO, drawingData: Data?, userId: String) -> Note {
         Note(
-            id: d.id, title: d.title, language: d.language, textbookId: d.textbook_id,
+            id: d.id, title: d.title, language: d.language, folderId: d.folder_id,
+            textbookId: d.textbook_id,
             textbookName: d.textbook_name, textbookPages: d.textbook_pages, drawingData: drawingData,
             lastPage: d.last_page, pdfOpen: d.pdf_open, currentPageIndex: d.current_page_index,
             createdAt: SyncDate.date(from: d.created_at) ?? Date(),

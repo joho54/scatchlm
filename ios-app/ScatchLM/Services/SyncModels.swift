@@ -12,6 +12,7 @@ struct SyncNoteDTO: Codable {
     var deleted: Bool
     var title: String
     var language: String
+    var folder_id: String?      // 미분류=null (§3.2-a). 폴더 정리
     var textbook_id: String?
     var textbook_name: String?
     var textbook_pages: Int
@@ -93,19 +94,32 @@ struct SyncSessionDTO: Codable {
     var created_at: String
 }
 
+/// 노트 정리 폴더 (note-folders-spec §3.2-a). push/pull 양방향.
+/// notes보다 먼저 적용해 note.folder_id가 가리키는 폴더를 우선 머지한다(참조 무결성).
+struct SyncFolderDTO: Codable {
+    var id: String
+    var updated_at: String
+    var deleted: Bool
+    var name: String
+    var sort_order: Int
+    var created_at: String
+}
+
 struct SyncChanges: Codable {
     // sessions를 먼저 두어 직렬화/적용 순서에서 chat_messages보다 앞서게 한다(참조 무결성, §3.2-a).
+    // folders는 notes 앞 — note.folder_id 참조 무결성(§3.2-a / R1).
     var sessions: [SyncSessionDTO]
+    var folders: [SyncFolderDTO]
     var notes: [SyncNoteDTO]
     var note_pages: [SyncPageDTO]
     var pdf_annotations: [SyncPdfAnnotationDTO]
     var feedbacks: [SyncFeedbackDTO]
     var chat_messages: [SyncChatDTO]
 
-    static let empty = SyncChanges(sessions: [], notes: [], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: [])
+    static let empty = SyncChanges(sessions: [], folders: [], notes: [], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: [])
 
     var isEmpty: Bool {
-        sessions.isEmpty && notes.isEmpty && note_pages.isEmpty && pdf_annotations.isEmpty && feedbacks.isEmpty && chat_messages.isEmpty
+        sessions.isEmpty && folders.isEmpty && notes.isEmpty && note_pages.isEmpty && pdf_annotations.isEmpty && feedbacks.isEmpty && chat_messages.isEmpty
     }
 }
 

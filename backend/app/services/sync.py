@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.sync import Note, NotePage, PdfAnnotation, Feedback, ChatMessage, ChatSession
+from app.models.sync import Note, NotePage, PdfAnnotation, Feedback, ChatMessage, ChatSession, Folder
 from app.services.storage import storage
 
 log = logging.getLogger(__name__)
@@ -19,8 +19,11 @@ log = logging.getLogger(__name__)
 # 엔티티 키(요청/응답 JSON의 키) → SQLAlchemy 모델
 # chat_sessions를 chat_messages/feedbacks보다 앞에 둬 pull/push 적용 순서에서 먼저 처리한다
 # (참조 무결성, chapter-chat-drawer-spec §3.2-a / R2). dict 삽입 순서가 곧 적용 순서다.
+# folders를 notes보다 앞에 둬 note.folder_id가 가리키는 폴더를 먼저 적용한다
+# (참조 무결성, note-folders-spec §3.2-a / R1). FK 강제는 안 하므로 dangling은 허용.
 ENTITY_MODELS: dict[str, type] = {
     "sessions": ChatSession,
+    "folders": Folder,
     "notes": Note,
     "note_pages": NotePage,
     "pdf_annotations": PdfAnnotation,
@@ -31,6 +34,7 @@ ENTITY_MODELS: dict[str, type] = {
 # 응답 results의 entity 라벨 (단수)
 ENTITY_SINGULAR: dict[str, str] = {
     "sessions": "chat_session",
+    "folders": "folder",
     "notes": "note",
     "note_pages": "note_page",
     "pdf_annotations": "pdf_annotation",
@@ -44,8 +48,9 @@ ENTITY_FIELDS: dict[str, list[str]] = {
         "kind", "title", "note_id", "textbook_id", "anchor_page",
         "chapter_title", "source_feedback_id", "created_at",
     ],
+    "folders": ["name", "sort_order", "created_at"],
     "notes": [
-        "title", "language", "textbook_id", "textbook_name", "textbook_pages",
+        "title", "language", "folder_id", "textbook_id", "textbook_name", "textbook_pages",
         "last_page", "pdf_open", "current_page_index", "drawing_hash", "created_at",
     ],
     "note_pages": ["note_id", "page_index", "drawing_hash", "created_at"],
@@ -65,6 +70,7 @@ ENTITY_FIELDS: dict[str, list[str]] = {
 # 해당 엔티티에서 blob(drawing_hash)을 참조하는지
 ENTITY_BLOB_FIELD: dict[str, str | None] = {
     "sessions": None,
+    "folders": None,
     "notes": "drawing_hash",
     "note_pages": "drawing_hash",
     "pdf_annotations": "drawing_hash",

@@ -78,11 +78,11 @@ final class SyncServiceTests: XCTestCase {
         let id = UUID().uuidString
         let dto = SyncNoteDTO(
             id: id, updated_at: iso(0), deleted: false, title: "불어 1과", language: "fr",
-            textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
+            folder_id: nil, textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], folders: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(0), has_more: false)
         ]
         try await sync.pullChanges()
@@ -99,11 +99,11 @@ final class SyncServiceTests: XCTestCase {
 
         let dto = SyncNoteDTO(
             id: note.id, updated_at: iso(10), deleted: true, title: note.title, language: "fr",
-            textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
+            folder_id: nil, textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], folders: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(10), has_more: false)
         ]
         try await sync.pullChanges()
@@ -121,11 +121,11 @@ final class SyncServiceTests: XCTestCase {
         // incoming은 더 오래된 버전
         let dto = SyncNoteDTO(
             id: note.id, updated_at: iso(-100), deleted: false, title: "서버 옛버전", language: "fr",
-            textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
+            folder_id: nil, textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-200)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], folders: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(0), has_more: false)
         ]
         try await sync.pullChanges()
@@ -139,11 +139,11 @@ final class SyncServiceTests: XCTestCase {
 
         let dto = SyncNoteDTO(
             id: note.id, updated_at: iso(100), deleted: false, title: "서버 최신", language: "fr",
-            textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
+            folder_id: nil, textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], folders: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(100), has_more: false)
         ]
         try await sync.pullChanges()
@@ -248,11 +248,11 @@ final class SyncServiceTests: XCTestCase {
         // note도 함께 내려 FK 충족
         let noteDTO = SyncNoteDTO(
             id: noteId, updated_at: iso(0), deleted: false, title: "원격 노트", language: "fr",
-            textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
+            folder_id: nil, textbook_id: nil, textbook_name: nil, textbook_pages: 0, last_page: 1,
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [noteDTO], note_pages: [pageDTO], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], folders: [], notes: [noteDTO], note_pages: [pageDTO], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(0), has_more: false)
         ]
         try await sync.pullChanges()
@@ -274,5 +274,76 @@ final class SyncServiceTests: XCTestCase {
 
         db.currentUserId = user           // back to A
         XCTAssertNotNil(try db.note(id: note.id))
+    }
+
+    // MARK: - Folders (note-folders-spec)
+
+    func testFolderCRUDAndNoteMove() throws {
+        var folder = Folder(name: "라틴어", sortOrder: 0)
+        try db.saveFolder(&folder)
+        XCTAssertTrue(try db.allFolders().contains { $0.id == folder.id })
+
+        var note = Note.new(title: "1과")
+        try db.saveNote(&note)
+        try db.moveNote(id: note.id, toFolder: folder.id)
+        XCTAssertEqual(try db.note(id: note.id)?.folderId, folder.id, "노트가 폴더로 이동")
+
+        // 폴더 삭제 시 노트는 보존되고 folder_id=NULL로 이동 (§4.4 R2)
+        try db.deleteFolder(id: folder.id)
+        XCTAssertFalse(try db.allFolders().contains { $0.id == folder.id }, "삭제된 폴더는 목록에서 제외")
+        let moved = try db.note(id: note.id)
+        XCTAssertNotNil(moved, "노트는 절대 삭제 안 함")
+        XCTAssertNil(moved?.folderId, "소속 노트는 전체(NULL)로 이동")
+    }
+
+    func testFolderPushRoundTrip() async throws {
+        var folder = Folder(name: "그리스어", sortOrder: 2)
+        try db.saveFolder(&folder)
+
+        api.pushHandler = { changes, _ in
+            SyncPushResponse(
+                results: changes.folders.map {
+                    SyncPushResult(id: $0.id, entity: "folder", status: "applied", server_updated_at: $0.updated_at)
+                },
+                missing_blobs: []
+            )
+        }
+        try await sync.pushDirty()
+
+        let pushed = api.lastPushedChanges?.folders.first { $0.id == folder.id }
+        XCTAssertEqual(pushed?.name, "그리스어")
+        XCTAssertEqual(pushed?.sort_order, 2)
+        XCTAssertTrue(try db.dirtyFolders().isEmpty, "applied 후 dirty 해제")
+    }
+
+    func testFolderPullMerge() async throws {
+        let id = UUID().uuidString
+        let dto = SyncFolderDTO(id: id, updated_at: iso(0), deleted: false,
+                                name: "수학", sort_order: 1, created_at: iso(-60))
+        api.pullResponses = [
+            SyncPullResponse(changes: SyncChanges(sessions: [], folders: [dto], notes: [], note_pages: [],
+                                                  pdf_annotations: [], feedbacks: [], chat_messages: []),
+                             cursor: iso(0), has_more: false)
+        ]
+        try await sync.pullChanges()
+
+        let fetched = try db.allFolders().first { $0.id == id }
+        XCTAssertEqual(fetched?.name, "수학")
+        XCTAssertEqual(fetched?.dirty, false, "서버발 머지는 dirty=0")
+    }
+
+    func testNoteFolderIdSurvivesPushRoundTrip() async throws {
+        var folder = Folder(name: "F", sortOrder: 0)
+        try db.saveFolder(&folder)
+        var note = Note.new(title: "분류된 노트", folderId: folder.id)
+        try db.saveNote(&note)
+
+        var captured: String??
+        api.pushHandler = { changes, _ in
+            captured = changes.notes.first { $0.id == note.id }?.folder_id
+            return SyncPushResponse(results: [], missing_blobs: [])
+        }
+        try await sync.pushDirty()
+        XCTAssertEqual(captured ?? nil, folder.id, "note.folder_id가 와이어로 전송")
     }
 }

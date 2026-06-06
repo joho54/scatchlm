@@ -13,6 +13,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var id: String
     var title: String
     var language: String
+    var folderId: String?   // 미분류=nil (전체). 폴더 정리 (note-folders-spec §4.1)
     var textbookId: String?
     var textbookName: String?
     var textbookPages: Int
@@ -31,6 +32,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
     // DB 컬럼명 매핑 (snake_case)
     enum CodingKeys: String, CodingKey {
         case id, title, language
+        case folderId = "folder_id"
         case textbookId = "textbook_id"
         case textbookName = "textbook_name"
         case textbookPages = "textbook_pages"
@@ -47,6 +49,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
 
     enum Columns: String, ColumnExpression {
         case id, title, language
+        case folderId = "folder_id"
         case textbookId = "textbook_id"
         case textbookName = "textbook_name"
         case textbookPages = "textbook_pages"
@@ -65,6 +68,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         id: String,
         title: String,
         language: String,
+        folderId: String? = nil,
         textbookId: String?,
         textbookName: String?,
         textbookPages: Int,
@@ -82,6 +86,7 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
         self.id = id
         self.title = title
         self.language = language
+        self.folderId = folderId
         self.textbookId = textbookId
         self.textbookName = textbookName
         self.textbookPages = textbookPages
@@ -118,11 +123,12 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
             || (textbookName?.localizedCaseInsensitiveContains(term) ?? false)
     }
 
-    static func new(title: String, language: String = "") -> Note {
+    static func new(title: String, language: String = "", folderId: String? = nil) -> Note {
         Note(
             id: UUID().uuidString,
             title: title,
             language: language,  // 빈 문자열이면 분야 중립 튜터 (백엔드가 처리)
+            folderId: folderId,
             textbookId: nil,
             textbookName: nil,
             textbookPages: 0,
@@ -133,6 +139,61 @@ struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable {
             createdAt: Date(),
             updatedAt: Date()
         )
+    }
+}
+
+/// 노트 정리용 플랫(단일 레벨) 폴더 (note-folders-spec §4.1).
+/// note.folderId가 이 폴더를 가리킨다. 삭제는 soft delete이며 소속 노트는
+/// folderId=nil(전체)로 옮겨 보존한다(§4.4). sync 메타는 다른 엔티티와 동일.
+struct Folder: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    static let databaseTableName = "folders"
+
+    var id: String
+    var name: String
+    var sortOrder: Int
+    var createdAt: Date
+    // sync 메타
+    var userId: String
+    var updatedAt: Date
+    var deleted: Bool
+    var dirty: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case userId = "user_id"
+        case updatedAt = "updated_at"
+        case deleted, dirty
+    }
+
+    enum Columns: String, ColumnExpression {
+        case id, name
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case userId = "user_id"
+        case updatedAt = "updated_at"
+        case deleted, dirty
+    }
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        sortOrder: Int = 0,
+        createdAt: Date = Date(),
+        userId: String = "",
+        updatedAt: Date = Date(),
+        deleted: Bool = false,
+        dirty: Bool = true
+    ) {
+        self.id = id
+        self.name = name
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.userId = userId
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+        self.dirty = dirty
     }
 }
 

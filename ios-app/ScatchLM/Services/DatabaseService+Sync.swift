@@ -61,8 +61,15 @@ extension DatabaseService {
         }
     }
 
+    func dirtyFolders() throws -> [Folder] {
+        guard let uid = syncUserId else { return [] }
+        return try dbQueue.read { db in
+            try Folder.filter(Folder.Columns.userId == uid && Folder.Columns.dirty == true).fetchAll(db)
+        }
+    }
+
     func hasDirtyRecords() throws -> Bool {
-        try !dirtySessions().isEmpty || !dirtyNotes().isEmpty || !dirtyPages().isEmpty || !dirtyPdfAnnotations().isEmpty || !dirtyFeedbacks().isEmpty || !dirtyChats().isEmpty
+        try !dirtySessions().isEmpty || !dirtyFolders().isEmpty || !dirtyNotes().isEmpty || !dirtyPages().isEmpty || !dirtyPdfAnnotations().isEmpty || !dirtyFeedbacks().isEmpty || !dirtyChats().isEmpty
     }
 
     // MARK: - markClean (push applied/conflict 후 dirty 해제)
@@ -151,6 +158,19 @@ extension DatabaseService {
             s.userId = uid
             s.dirty = false
             try s.save(db)
+            return true
+        }
+    }
+
+    @discardableResult
+    func applyPulledFolder(_ incoming: Folder) throws -> Bool {
+        guard let uid = syncUserId else { return false }
+        return try dbQueue.write { db in
+            guard try shouldApply(db, table: "folders", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
+            var f = incoming
+            f.userId = uid
+            f.dirty = false
+            try f.save(db)
             return true
         }
     }

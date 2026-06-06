@@ -3,18 +3,36 @@ import PencilKit
 
 struct HomeView: View {
     @State private var notes: [Note] = []
+    @State private var folders: [Folder] = []
+    @State private var selectedFolderId: String?      // nil = "전체"
+    @State private var showSidebar = true
     @State private var search = ""
     @State private var path: [String] = []
     @State private var showCreateSheet = false
     @State private var showSettings = false
     @State private var editingNote: Note?
+    @State private var movingNote: Note?
+    @State private var folderEdit: FolderEditTarget?
 
     private let db = DatabaseService.shared
     private let sync = SyncService.shared
 
+    /// 폴더 필터(전체=필터 없음) AND 검색(§4.5). 전체는 분류·미분류·dangling을 모두 노출.
     private var filteredNotes: [Note] {
-        if search.trimmingCharacters(in: .whitespaces).isEmpty { return notes }
-        return notes.filter { $0.matchesSearch(search) }
+        var result = notes
+        if let fid = selectedFolderId {
+            result = result.filter { $0.folderId == fid }
+        }
+        if !search.trimmingCharacters(in: .whitespaces).isEmpty {
+            result = result.filter { $0.matchesSearch(search) }
+        }
+        return result
+    }
+
+    /// 사이드바 카운트 — 검색 무시, 전체 노트 기준. nil=전체.
+    private func noteCount(_ folderId: String?) -> Int {
+        guard let folderId else { return notes.count }
+        return notes.filter { $0.folderId == folderId }.count
     }
 
     private let columns = [
@@ -23,30 +41,19 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-        ScrollView {
-            if filteredNotes.isEmpty {
-                emptyState
+        HStack(spacing: 0) {
+            if showSidebar {
+                FolderSidebar(
+                    folders: folders,
+                    selectedFolderId: $selectedFolderId,
+                    noteCount: noteCount,
+                    onAddFolder: { folderEdit = FolderEditTarget(folder: nil) },
+                    onRename: { folderEdit = FolderEditTarget(folder: $0) },
+                    onDelete: deleteFolder
+                )
+                Divider()
             }
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(filteredNotes) { note in
-                    NavigationLink(value: note.id) {
-                        NoteCardView(note: note)
-                    }
-                    .contextMenu {
-                        Button {
-                            editingNote = note
-                        } label: {
-                            Label("편집", systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            deleteNote(note)
-                        } label: {
-                            Label("삭제", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            .padding()
+            notesGrid
         }
         .navigationTitle("노트")
         .navigationDestination(for: String.self) { noteId in
@@ -73,6 +80,11 @@ struct HomeView: View {
             ToolbarItem(placement: .topBarLeading) {
                 HStack {
                     Button {
+                        withAnimation { showSidebar.toggle() }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                    }
+                    Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape")
@@ -94,10 +106,54 @@ struct HomeView: View {
                 updateNote(updated)
             }
         }
-        .onAppear { loadNotes() }
+        .sheet(item: $movingNote) { note in
+            MoveToFolderSheet(folders: folders, currentFolderId: note.folderId) { target in
+                moveNote(note, to: target)
+            }
+        }
+        .sheet(item: $folderEdit) { target in
+            FolderEditSheet(folder: target.folder) { name in
+                saveFolder(existing: target.folder, name: name)
+            }
+        }
+        .onAppear { loadFolders(); loadNotes() }
         // 로그인 직후 full pull로 복원된 노트는 .onAppear 이후 DB에 머지되므로,
         // sync 완료(lastSyncedAt 변화) 때 다시 읽어 화면에 반영한다. (재실행해야 보이던 문제)
-        .onChange(of: sync.lastSyncedAt) { loadNotes() }
+        .onChange(of: sync.lastSyncedAt) { loadFolders(); loadNotes() }
+        }
+    }
+
+    @ViewBuilder
+    private var notesGrid: some View {
+        ScrollView {
+            if filteredNotes.isEmpty {
+                emptyState
+            }
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(filteredNotes) { note in
+                    NavigationLink(value: note.id) {
+                        NoteCardView(note: note)
+                    }
+                    .contextMenu {
+                        Button {
+                            editingNote = note
+                        } label: {
+                            Label("편집", systemImage: "pencil")
+                        }
+                        Button {
+                            movingNote = note
+                        } label: {
+                            Label("폴더로 이동", systemImage: "folder")
+                        }
+                        Button(role: .destructive) {
+                            deleteNote(note)
+                        } label: {
+                            Label("삭제", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .padding()
         }
     }
 
@@ -130,11 +186,61 @@ struct HomeView: View {
         }
     }
 
+    private func loadFolders() {
+        do {
+            folders = try db.allFolders()
+            // 선택 폴더가 사라졌으면(다른 기기 삭제 등) 전체로 폴백 (§7 R1).
+            if let sel = selectedFolderId, !folders.contains(where: { $0.id == sel }) {
+                selectedFolderId = nil
+            }
+        } catch {
+            appLogError("home", "loadFolders failed", ["error": "\(error)"])
+        }
+    }
+
+    private func saveFolder(existing: Folder?, name: String) {
+        do {
+            if var folder = existing {
+                folder.name = name
+                try db.saveFolder(&folder)
+            } else {
+                var folder = Folder(name: name, sortOrder: folders.count)
+                try db.saveFolder(&folder)
+            }
+            loadFolders()
+        } catch {
+            appLogError("home", "saveFolder failed", ["error": "\(error)"])
+        }
+    }
+
+    private func deleteFolder(_ folder: Folder) {
+        do {
+            try db.deleteFolder(id: folder.id)
+            if selectedFolderId == folder.id { selectedFolderId = nil }
+            loadFolders()
+            loadNotes()   // 소속 노트가 folder_id=NULL로 이동됨
+        } catch {
+            appLogError("home", "deleteFolder failed", ["error": "\(error)"])
+        }
+    }
+
+    private func moveNote(_ note: Note, to folderId: String?) {
+        do {
+            try db.moveNote(id: note.id, toFolder: folderId)
+            if let idx = notes.firstIndex(where: { $0.id == note.id }) {
+                notes[idx].folderId = folderId
+            }
+        } catch {
+            appLogError("home", "moveNote failed", ["error": "\(error)"])
+        }
+    }
+
     /// 노트 생성 후 곧바로 진입한다.
     /// - 인자 없이 호출하면 빈 노트(제목 없음·주제 없음·교재 없음)를 즉시 만든다.
     /// - "교재로 시작" 시트에서는 title/language/textbook을 채워 호출한다.
     private func createNote(title: String = "", language: String = "", textbook: TextbookListItem? = nil) {
-        var note = Note.new(title: title, language: language)
+        // 현재 선택 폴더를 기본 폴더로 (전체 화면이면 nil = 미분류).
+        var note = Note.new(title: title, language: language, folderId: selectedFolderId)
         if let tb = textbook {
             note.textbookId = tb.id
             note.textbookName = tb.fileName
@@ -170,6 +276,13 @@ struct HomeView: View {
             appLogError("home", "deleteNote failed", ["error": "\(error)"])
         }
     }
+}
+
+/// 폴더 생성/이름변경 시트 식별자. folder=nil 이면 신규 생성.
+/// (.sheet(item:)은 Identifiable이 필요하므로 옵셔널 Folder를 감싼다.)
+struct FolderEditTarget: Identifiable {
+    let folder: Folder?
+    var id: String { folder?.id ?? "__new__" }
 }
 
 struct NoteCardView: View {

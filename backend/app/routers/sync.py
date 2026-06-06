@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 class Changes(BaseModel):
     sessions: list[dict] = Field(default_factory=list)
+    folders: list[dict] = Field(default_factory=list)
     notes: list[dict] = Field(default_factory=list)
     note_pages: list[dict] = Field(default_factory=list)
     pdf_annotations: list[dict] = Field(default_factory=list)

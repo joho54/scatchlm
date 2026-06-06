@@ -12,6 +12,8 @@
 		14C34B1E0B2CB242F8C0AF67 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639004ECF07091105D464672 /* SyncService.swift */; };
 		172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */; };
 		18AC9BB7343336EE101ACA63 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380787FC7AF195DA35EE153 /* APIClient.swift */; };
+		27F35F95F92188CB80F6E5DD /* MoveToFolderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB59BE6EEE292BBCB6EFFF61 /* MoveToFolderSheet.swift */; };
+		29767428ECA536B01783F8D4 /* FolderEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62027EE95AB235B602002766 /* FolderEditSheet.swift */; };
 		2BD1B671389331E7F0DC1E98 /* ChapterDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC2179BEC204EBD835987DD /* ChapterDrawerView.swift */; };
 		2CB209193FCAAD7BB4F35E3A /* BakedMarkdownHTMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */; };
 		2E4DE5B39114BE137C2444A3 /* ScatchLMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E694681F7B469459BF1C53F /* ScatchLMApp.swift */; };
@@ -39,6 +41,7 @@
 		7E87EBB94433FC4D7672837C /* FeedbackRatingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5997BF81BCD5D68E0CF767A /* FeedbackRatingSheet.swift */; };
 		7FD0731BAB0D61F38AE8A28E /* PencilKitCanvasViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49741ADF8AF82F0E85EF90D6 /* PencilKitCanvasViewTests.swift */; };
 		8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9978D4A1B1559395568666 /* ViewExtensions.swift */; };
+		95E15082217EB5770880C84B /* FolderSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC172E785A1151DEE61A85B /* FolderSidebar.swift */; };
 		98722C743994C9B3F946C0AE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B229BDBE6FB4105C3256CA5C /* Supabase */; };
 		A363BADAC46B647E4A5E59D3 /* ForgotPasswordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596BA4326DFC0203F244AE26 /* ForgotPasswordView.swift */; };
 		A5EC85307225CFA25BC44E60 /* Sentry.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */; };
@@ -85,6 +88,7 @@
 		596BA4326DFC0203F244AE26 /* ForgotPasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForgotPasswordView.swift; sourceTree = "<group>"; };
 		5AFE523FFC2200C1FC82A2E4 /* Note.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Note.swift; sourceTree = "<group>"; };
 		5FC2179BEC204EBD835987DD /* ChapterDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterDrawerView.swift; sourceTree = "<group>"; };
+		62027EE95AB235B602002766 /* FolderEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderEditSheet.swift; sourceTree = "<group>"; };
 		639004ECF07091105D464672 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		679B23706BB3597C8044006F /* AIResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIResponse.swift; sourceTree = "<group>"; };
 		6E8E5B179E66B5F1157A8FE6 /* Color+Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Hex.swift"; sourceTree = "<group>"; };
@@ -97,9 +101,11 @@
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		947225FE2D686B29C56F4B97 /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = SOURCE_ROOT; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
+		9DC172E785A1151DEE61A85B /* FolderSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderSidebar.swift; sourceTree = "<group>"; };
 		B9020268EE7920E07C66AEEA /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		C37AAE771009E3533316E278 /* PdfViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfViewerView.swift; sourceTree = "<group>"; };
 		CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseService.swift; sourceTree = "<group>"; };
+		CB59BE6EEE292BBCB6EFFF61 /* MoveToFolderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveToFolderSheet.swift; sourceTree = "<group>"; };
 		D0B1940235A9FDF08A1E9126 /* NoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteView.swift; sourceTree = "<group>"; };
 		D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusIndicator.swift; sourceTree = "<group>"; };
 		D7A77C93C22BFC716A884820 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -241,10 +247,13 @@
 				971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */,
 				F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */,
 				F5997BF81BCD5D68E0CF767A /* FeedbackRatingSheet.swift */,
+				62027EE95AB235B602002766 /* FolderEditSheet.swift */,
+				9DC172E785A1151DEE61A85B /* FolderSidebar.swift */,
 				596BA4326DFC0203F244AE26 /* ForgotPasswordView.swift */,
 				2C56EBDAD48612F30CF2C40B /* HomeView.swift */,
 				1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */,
 				83513D52E0AEE8A1123D5420 /* MarkdownContentView.swift */,
+				CB59BE6EEE292BBCB6EFFF61 /* MoveToFolderSheet.swift */,
 				267A5359DA46F3B9B3393963 /* NoteMetaSheet.swift */,
 				D0B1940235A9FDF08A1E9126 /* NoteView.swift */,
 				548034A17894523B72F0EE4E /* PageNavigatorView.swift */,
@@ -393,11 +402,14 @@
 				48593657C2174AD1AF1E6EC5 /* DrawingHash.swift in Sources */,
 				172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */,
 				7E87EBB94433FC4D7672837C /* FeedbackRatingSheet.swift in Sources */,
+				29767428ECA536B01783F8D4 /* FolderEditSheet.swift in Sources */,
+				95E15082217EB5770880C84B /* FolderSidebar.swift in Sources */,
 				A363BADAC46B647E4A5E59D3 /* ForgotPasswordView.swift in Sources */,
 				039F959CE948FF511E7CDE36 /* HomeView.swift in Sources */,
 				6E5F523088581A9AF68C62BE /* LogService.swift in Sources */,
 				140E3D2A6BBC4C122DA48283 /* LoginView.swift in Sources */,
 				FF204548E1EBCDABB5A96A8B /* MarkdownContentView.swift in Sources */,
+				27F35F95F92188CB80F6E5DD /* MoveToFolderSheet.swift in Sources */,
 				60EE77BCF6CA71AFF68B7653 /* Note.swift in Sources */,
 				527E3460CB3B7483BB962D3E /* NoteMetaSheet.swift in Sources */,
 				3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */,

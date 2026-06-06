@@ -310,6 +310,30 @@ final class DatabaseService {
                           columns: ["user_id", "updated_at"], ifNotExists: true)
         }
 
+        // v10: 노트 폴더 정리 (note-folders-spec §4.2).
+        // 플랫(단일 레벨) folders 테이블 + notes.folder_id(NULL=미분류). 기존 노트는
+        // folder_id NULL로 자연 호환. sync 메타는 v7/v8 패턴과 동일.
+        migrator.registerMigration("v10_note_folders") { db in
+            try db.create(table: "folders", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull().defaults(to: "")
+                t.column("sort_order", .integer).notNull().defaults(to: 0)
+                t.column("created_at", .datetime).notNull()
+                // sync 메타 (v7 패턴)
+                t.column("user_id", .text).notNull().defaults(to: "")
+                t.column("updated_at", .datetime).notNull()
+                t.column("deleted", .boolean).notNull().defaults(to: false)
+                t.column("dirty", .boolean).notNull().defaults(to: true)
+            }
+            try db.create(index: "ix_folders_user_updated", on: "folders",
+                          columns: ["user_id", "updated_at"], ifNotExists: true)
+            try db.alter(table: "notes") { t in
+                t.add(column: "folder_id", .text)
+            }
+            try db.create(index: "idx_notes_folder_id", on: "notes",
+                          columns: ["folder_id"], ifNotExists: true)
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -451,6 +475,62 @@ final class DatabaseService {
             try db.execute(
                 sql: "UPDATE notes SET textbook_id = ?, textbook_name = ?, textbook_pages = ?, updated_at = ?, dirty = 1 WHERE id = ? AND user_id = ?",
                 arguments: [textbookId, name, pages, Date(), noteId, uid]
+            )
+        }
+        notifyWrite()
+    }
+
+    // MARK: - Folders (note-folders-spec §4.1 / B-2)
+
+    /// 현재 유저의 폴더 목록(미삭제). sort_order 오름차순, 동률은 생성순.
+    func allFolders() throws -> [Folder] {
+        guard let uid = scopedUserId else { return [] }
+        return try dbQueue.read { db in
+            try Folder
+                .filter(Folder.Columns.userId == uid && Folder.Columns.deleted == false)
+                .order(Folder.Columns.sortOrder.asc, Folder.Columns.createdAt.asc)
+                .fetchAll(db)
+        }
+    }
+
+    func saveFolder(_ folder: inout Folder) throws {
+        let uid = try requireUserId()
+        folder.userId = uid
+        folder.updatedAt = Date()
+        folder.dirty = true
+        let toSave = folder
+        try dbQueue.write { db in
+            var f = toSave
+            try f.save(db)
+        }
+        notifyWrite()
+    }
+
+    /// 폴더 soft delete + 소속 노트를 folder_id=NULL(전체)로 이동(노트 유실 방지, §4.4).
+    /// 노트 자체는 절대 삭제하지 않는다. 이동된 노트는 dirty=1로 재push된다.
+    func deleteFolder(id: String) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            let now = Date()
+            try db.execute(
+                sql: "UPDATE notes SET folder_id = NULL, updated_at = ?, dirty = 1 WHERE folder_id = ? AND user_id = ?",
+                arguments: [now, id, uid]
+            )
+            try db.execute(
+                sql: "UPDATE folders SET deleted = 1, dirty = 1, updated_at = ? WHERE id = ? AND user_id = ?",
+                arguments: [now, id, uid]
+            )
+        }
+        notifyWrite()
+    }
+
+    /// 노트를 폴더로 이동(folderId=nil이면 전체로). note dirty 경로로 자동 동기화.
+    func moveNote(id: String, toFolder folderId: String?) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE notes SET folder_id = ?, updated_at = ?, dirty = 1 WHERE id = ? AND user_id = ?",
+                arguments: [folderId, Date(), id, uid]
             )
         }
         notifyWrite()

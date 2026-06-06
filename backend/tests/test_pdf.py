@@ -363,6 +363,20 @@ async def test_ocr_start_on_text_pdf_returns_400(client: AsyncClient, auth_heade
 
 
 @pytest.mark.asyncio
+async def test_free_scanned_status_shows_page_cap(client: AsyncClient, auth_header: dict):
+    """free(normal) tier 스캔본 status: cap_limit=50, ocr_pages_total=min(total,50) (예산 표시 파생)."""
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock):
+        up = await _upload(client, auth_header, make_blank_pdf(pages=60))
+        st = await client.get(f"/api/pdf/{up['id']}/status", headers=auth_header)
+    assert st.status_code == 200
+    body = st.json()
+    assert body["cap_limit"] == 50
+    assert body["ocr_pages_total"] == 50   # min(60, 50)
+    assert body["capped"] is False         # 아직 시작 전
+
+
+@pytest.mark.asyncio
 async def test_scanned_eval_unconditional_status_derives_available(client: AsyncClient, auth_header: dict):
     """is_scanned는 ENABLE_OCR과 무관하게 upload 때 평가(파일 고유 속성). ocr_status='available'
     제안은 ENABLE_OCR이 켜진 뒤 status 첫 읽기에서 파생 — 재사용/노트첨부로 열어도 OCR이 뜬다."""

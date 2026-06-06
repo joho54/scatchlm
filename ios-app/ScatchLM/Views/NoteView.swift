@@ -750,7 +750,8 @@ struct NoteView: View {
             strokeRangeStart: rangeStart,
             strokeRangeEnd: rangeEnd,
             createdAt: Date(),
-            serverFeedbackId: serverFeedbackId
+            serverFeedbackId: serverFeedbackId,
+            sessionId: placementSessionId
         )
         do {
             try db.saveFeedback(&record)

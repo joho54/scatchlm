@@ -11,8 +11,9 @@ struct ChapterDrawerView: View {
     var subject: String?
     /// 드로어 → 캔버스 점프(placement 카드 위치로 이동). NoteView가 네비게이션·dismiss 처리.
     var onJump: (FeedbackRecord) -> Void
-    /// 드로어 → 캔버스 재스크랩(placement 신규 생성). NoteView가 처리.
-    var onScrap: (ChatSessionRecord) -> Void
+    /// 서랍에서 연 채팅의 **개별 메시지** 스크랩(pin). NoteView의 pinToCanvas로 연결.
+    /// (세션 통째 스크랩은 제공하지 않는다 — 긴 대화를 캔버스에 올릴 필요가 없음.)
+    var onPin: ((String, String?) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var sessions: [ChatSessionRecord] = []
@@ -63,7 +64,8 @@ struct ChapterDrawerView: View {
                     textbookId: ctx.session.textbookId ?? textbookId,
                     currentPage: ctx.session.anchorPage,
                     noteId: noteId,
-                    subject: subject
+                    subject: subject,
+                    onPin: onPin
                 )
             }
         }
@@ -74,6 +76,7 @@ struct ChapterDrawerView: View {
     @ViewBuilder
     private func sessionRow(_ session: ChatSessionRecord) -> some View {
         let placement = placements[session.id]
+        // 행 탭 → 채팅 열기(개별 메시지 보기·스크랩). 세션 통째 스크랩은 없음.
         Button {
             openSession(session)
         } label: {
@@ -89,23 +92,20 @@ struct ChapterDrawerView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                // 캔버스에 이 세션의 카드가 있으면 표시(점프는 스와이프).
                 if placement != nil {
                     Image(systemName: "mappin.circle.fill")
                         .foregroundStyle(.orange)
                         .font(.caption)
                 }
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                onScrap(session)
-            } label: {
-                Label("캔버스로", systemImage: "pin.fill")
-            }
-            .tint(.blue)
-
             if let placement {
                 Button {
                     onJump(placement)

@@ -259,9 +259,9 @@ struct NoteView: View {
                     showChapterDrawer = false
                     jumpToPlacement(fb)
                 },
-                onScrap: { session in
+                onPin: { content, responseId in
                     showChapterDrawer = false
-                    scrapSession(session)
+                    pinToCanvas(content: content, serverFeedbackId: responseId)
                 }
             )
         }
@@ -900,21 +900,6 @@ struct NoteView: View {
         )
     }
 
-    /// 드로어 → 캔버스 재스크랩. 세션은 그대로 두고 placement(카드)만 현재 페이지에 신규 생성한다(§4.5).
-    private func scrapSession(_ session: ChatSessionRecord) {
-        // 카드 본문 = 기존 placement 본문 우선, 없으면 세션 첫 assistant 메시지(가이드 본문 등), 없으면 제목.
-        var content = (try? db.placement(sessionId: session.id))?.content
-        if content == nil {
-            let msgs = (try? db.messages(sessionId: session.id)) ?? []
-            if let body = msgs.first(where: { $0.role == "assistant" })?.content {
-                content = "{\"type\":\"feedback\",\"content\":\(jsonString(body))}"
-            }
-        }
-        let finalContent = content ?? "{\"type\":\"feedback\",\"content\":\(jsonString(session.title))}"
-        appendFeedbackCard(content: finalContent, serverFeedbackId: session.sourceFeedbackId, sessionId: session.id)
-        showToast(String(localized: "캔버스에 추가했어요."))
-    }
-
     /// 드로어 → 캔버스로 점프. placement 카드의 페이지로 이동 후 해당 위치로 스크롤한다.
     private func jumpToPlacement(_ fb: FeedbackRecord) {
         if let pid = fb.pageId, let idx = notePages.firstIndex(where: { $0.id == pid }), idx != currentPageIndex {
@@ -923,11 +908,6 @@ struct NoteView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             (canvasView.delegate as? PencilKitCanvasView.Coordinator)?.scrollCardIntoView(positionY: fb.positionY)
         }
-    }
-
-    /// Swift String → JSON 문자열 리터럴(이스케이프 포함).
-    private func jsonString(_ s: String) -> String {
-        String(data: (try? JSONEncoder().encode(s)) ?? Data(), encoding: .utf8) ?? "\"\""
     }
 
     private func refreshUndoState() {

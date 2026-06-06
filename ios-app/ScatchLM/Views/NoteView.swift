@@ -1321,6 +1321,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let s = host.zoomScale
             let w = contentView.bounds.width
             let origin = contentView.frame.origin
+            // 변환 입력값 — origin/zoomScale이 스크롤 직후 흔들리면 center가 매번 미세하게 달라져 상하 진동.
+            appLogDebug("canvas", "setH", [
+                "h": "\(Int(h))",
+                "zoom": String(format: "%.4f", s),
+                "originY": String(format: "%.1f", origin.y),
+                "newCenterY": String(format: "%.1f", origin.y + (h * s) / 2),
+            ])
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
             canvas?.frame = contentView.bounds
@@ -1735,9 +1742,17 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 let invalidIdx = added.enumerated().compactMap { (i, s) -> Int? in
                     s.renderBounds.minY < frozenBottom ? (previousStrokeCount + i) : nil
                 }
+                // 거부 판정의 입력값을 그대로 남긴다 — minY가 frozenBottom 바로 위(오판 의심)인지,
+                // 좌표계가 어긋나 정상 영역 입력이 거부되는지(이동/스크롤 후 깜빡임 원인 후보) 구분용.
+                appLogDebug("canvas", "stroke check", [
+                    "addedMinYs": "\(added.map { Int($0.renderBounds.minY) })",
+                    "frozenBottom": "\(Int(frozenBottom))",
+                    "rejected": "\(invalidIdx.count)",
+                ])
                 if !invalidIdx.isEmpty {
                     let invalidSet = Set(invalidIdx)
                     let kept = strokes.enumerated().filter { !invalidSet.contains($0.offset) }.map { $0.element }
+                    // PKDrawing 통째 재할당 → PencilKit 전체 재래스터화(큰 깜빡임 후보).
                     canvasView.drawing = PKDrawing(strokes: kept)
                     appLog("canvas", "stroke rejected", ["count": "\(invalidIdx.count)", "frozenBottom": "\(Int(frozenBottom))"])
                     onStrokeRejected?()
@@ -1747,9 +1762,27 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
             // Auto-expand content height (downward only). 버퍼는 viewport를 콘텐츠 좌표로 환산(줌 반영).
             let viewportInContent = host.map { $0.bounds.height / max($0.zoomScale, 0.01) } ?? canvasView.bounds.height
+            // 빈 드로잉의 bottom은 의미상 0. (과거엔 viewportInContent로 부풀렸으나, 그러면 undo로
+            // 마지막 획이 지워질 때 drawingBottom이 0→viewport로 점프 → targetH 증가 → setContentHeight가
+            // 캔버스를 reframe → PencilKit '비우기' 렌더를 끊어 마지막 획이 잔상으로 남았다. 빈 캔버스 최소
+            // 높이는 ensureMinimumContentHeight(updateUIView)가 별도 보장하므로 여기선 0이 맞다.)
             let drawingBottom = canvasView.drawing.strokes.isEmpty
-                ? viewportInContent
+                ? 0
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
+            // 스트로크마다의 기하 스냅샷 — 진동은 이 값들(특히 zoom/offset/contentSize)이 한 입력 안에서
+            // 흔들릴 때 발생한다고 의심. host.bounds/zoomScale이 스크롤 직후 transient면 여기서 드러난다.
+            if let h = host {
+                appLogDebug("canvas", "geom", [
+                    "zoom": String(format: "%.4f", h.zoomScale),
+                    "offsetY": "\(Int(h.contentOffset.y))",
+                    "insetTop": "\(Int(h.contentInset.top))",
+                    "contentH": "\(Int(h.contentSize.height))",
+                    "boundsH": "\(Int(h.bounds.height))",
+                    "cvBoundsH": "\(Int(contentView?.bounds.height ?? 0))",
+                    "drawBottom": "\(Int(drawingBottom))",
+                    "targetH": "\(Int(drawingBottom + viewportInContent * 2))",
+                ])
+            }
             ensureContentHeight(drawingBottom + viewportInContent * 2, fallbackCanvas: canvasView)
 
             updateNextPositionIndicator(on: canvasView)

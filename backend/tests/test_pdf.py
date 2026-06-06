@@ -298,3 +298,81 @@ async def test_chapter_guide_returns_feedback_id_cache_miss_then_hit(
         json={"rating": -1, "reason_tags": ["tone_off"]},
     )
     assert rate.status_code == 204
+
+
+# --- 스캔본 OCR: 자동시작 제거 + 명시적 시작 (scanned-pdf-ocr-spec §2.1, §3.2-d) ---
+
+def make_blank_pdf(pages: int = 4) -> bytes:
+    """텍스트 레이어 없는(스캔본 모사) 빈 페이지 PDF — has_no_text_layer → True."""
+    import fitz
+
+    doc = fitz.open()
+    for _ in range(pages):
+        doc.new_page()
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+async def _upload(client: AsyncClient, header: dict, pdf_bytes: bytes) -> dict:
+    res = await client.post(
+        "/api/pdf/upload",
+        headers=header,
+        files={"file": ("scan.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+    )
+    assert res.status_code == 200
+    return res.json()
+
+
+@pytest.mark.asyncio
+async def test_scanned_upload_does_not_autostart_ocr(client: AsyncClient, auth_header: dict):
+    """스캔본 업로드 → is_scanned, ocr_status='available'(시작 대기). _background_ocr 자동등록 안 함."""
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_ocr", new_callable=AsyncMock) as ocr_job:
+        data = await _upload(client, auth_header, make_blank_pdf())
+    assert data["is_scanned"] is True
+    assert data["ocr_status"] == "available"
+    ocr_job.assert_not_called()  # 자동 시작 없음
+
+
+@pytest.mark.asyncio
+async def test_ocr_start_transitions_available_to_pending(client: AsyncClient, auth_header: dict):
+    """명시적 start → available→pending, 백그라운드 잡 등록."""
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_ocr", new_callable=AsyncMock) as ocr_job:
+        data = await _upload(client, auth_header, make_blank_pdf())
+        tid = data["id"]
+        res = await client.post(f"/api/pdf/{tid}/ocr/start", headers=auth_header)
+        assert res.status_code == 200
+        assert res.json()["ocr_status"] == "pending"
+        ocr_job.assert_called_once()  # 명시적 시작 시에만 등록
+
+
+@pytest.mark.asyncio
+async def test_ocr_start_on_text_pdf_returns_400(client: AsyncClient, auth_header: dict):
+    """텍스트 레이어 있는 PDF(is_scanned=false)에 start → 400."""
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_detect_chapters", new_callable=AsyncMock):
+        data = await _upload(client, auth_header, make_test_pdf())
+        assert data["is_scanned"] is False
+        res = await client.post(f"/api/pdf/{data['id']}/ocr/start", headers=auth_header)
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_scanned_upload_is_unlimited(client: AsyncClient, admin_header: dict):
+    """admin(role=admin) 스캔본 → status.cap_limit=null(무제한). free 50p 캡 미적용."""
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_ocr", new_callable=AsyncMock):
+        data = await _upload(client, admin_header, make_blank_pdf(pages=8))
+        tid = data["id"]
+        status = await client.get(f"/api/pdf/{tid}/status", headers=admin_header)
+    assert status.status_code == 200
+    body = status.json()
+    assert body["is_scanned"] is True
+    assert body["cap_limit"] is None          # 무제한
+    assert body["ocr_pages_total"] == body["total_pages"]  # 풀북

@@ -200,8 +200,10 @@ final class SyncService: @unchecked Sendable {
 
     private func collectDirtyChanges() throws -> SyncChanges {
         SyncChanges(
+            sessions: try db.dirtySessions().map(Self.sessionDTO),
             notes: try db.dirtyNotes().map(Self.noteDTO),
             note_pages: try db.dirtyPages().map(Self.pageDTO),
+            pdf_annotations: try db.dirtyPdfAnnotations().map(Self.pdfAnnotationDTO),
             feedbacks: try db.dirtyFeedbacks().map(Self.feedbackDTO),
             chat_messages: try db.dirtyChats().map(Self.chatDTO)
         )
@@ -234,6 +236,10 @@ final class SyncService: @unchecked Sendable {
 
     /// pull 결과를 로컬에 LWW 머지. note/page는 drawing_hash로 blob을 해소(로컬 재사용/다운로드).
     private func merge(_ changes: SyncChanges, uid: String) async throws {
+        // sessions를 chat_messages/feedbacks보다 먼저 적용해 참조 무결성을 지킨다(§3.2-a / R2).
+        for dto in changes.sessions {
+            try db.applyPulledSession(Self.session(from: dto, userId: uid))
+        }
         for dto in changes.notes {
             let blob = try await resolveBlob(hash: dto.drawing_hash)
             try db.applyPulledNote(Self.note(from: dto, drawingData: blob, userId: uid))
@@ -241,6 +247,10 @@ final class SyncService: @unchecked Sendable {
         for dto in changes.note_pages {
             let blob = try await resolveBlob(hash: dto.drawing_hash)
             try db.applyPulledPage(Self.page(from: dto, drawingData: blob, userId: uid))
+        }
+        for dto in changes.pdf_annotations {
+            let blob = try await resolveBlob(hash: dto.drawing_hash)
+            try db.applyPulledPdfAnnotation(Self.pdfAnnotation(from: dto, drawingData: blob, userId: uid))
         }
         for dto in changes.feedbacks {
             try db.applyPulledFeedback(Self.feedback(from: dto, userId: uid))
@@ -290,11 +300,33 @@ final class SyncService: @unchecked Sendable {
     // MARK: - DTO 매핑 (local model ↔ wire, §3.2)
 
     static let tableForEntity: [String: String] = [
+        "chat_session": "chat_sessions",
         "note": "notes",
         "note_page": "note_pages",
+        "pdf_annotation": "pdf_annotations",
         "feedback": "feedbacks",
         "chat_message": "feedback_chats"
     ]
+
+    static func sessionDTO(_ s: ChatSessionRecord) -> SyncSessionDTO {
+        SyncSessionDTO(
+            id: s.id, updated_at: SyncDate.string(from: s.updatedAt), deleted: s.deleted,
+            kind: s.kind, title: s.title, note_id: s.noteId, textbook_id: s.textbookId,
+            anchor_page: s.anchorPage, chapter_title: s.chapterTitle,
+            source_feedback_id: s.sourceFeedbackId,
+            created_at: SyncDate.string(from: s.createdAt)
+        )
+    }
+
+    static func session(from d: SyncSessionDTO, userId: String) -> ChatSessionRecord {
+        ChatSessionRecord(
+            id: d.id, kind: d.kind, title: d.title, noteId: d.note_id, textbookId: d.textbook_id,
+            anchorPage: d.anchor_page, chapterTitle: d.chapter_title, sourceFeedbackId: d.source_feedback_id,
+            createdAt: SyncDate.date(from: d.created_at) ?? Date(),
+            userId: userId, updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),
+            deleted: d.deleted, dirty: false
+        )
+    }
 
     static func noteDTO(_ n: Note) -> SyncNoteDTO {
         SyncNoteDTO(
@@ -335,6 +367,24 @@ final class SyncService: @unchecked Sendable {
         )
     }
 
+    static func pdfAnnotationDTO(_ a: PdfAnnotation) -> SyncPdfAnnotationDTO {
+        SyncPdfAnnotationDTO(
+            id: a.id, updated_at: SyncDate.string(from: a.updatedAt), deleted: a.deleted,
+            note_id: a.noteId, pdf_page: a.pdfPage, drawing_hash: a.drawingHash,
+            created_at: SyncDate.string(from: a.createdAt)
+        )
+    }
+
+    static func pdfAnnotation(from d: SyncPdfAnnotationDTO, drawingData: Data?, userId: String) -> PdfAnnotation {
+        PdfAnnotation(
+            id: d.id, noteId: d.note_id, pdfPage: d.pdf_page, drawingData: drawingData,
+            createdAt: SyncDate.date(from: d.created_at) ?? Date(),
+            userId: userId, drawingHash: d.drawing_hash,
+            updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),
+            deleted: d.deleted, dirty: false
+        )
+    }
+
     static func feedbackDTO(_ f: FeedbackRecord) -> SyncFeedbackDTO {
         SyncFeedbackDTO(
             id: f.id, updated_at: SyncDate.string(from: f.updatedAt), deleted: f.deleted,
@@ -343,6 +393,7 @@ final class SyncService: @unchecked Sendable {
             bbox_x: f.bboxX, bbox_y: f.bboxY, bbox_width: f.bboxWidth, bbox_height: f.bboxHeight,
             stroke_range_start: f.strokeRangeStart, stroke_range_end: f.strokeRangeEnd,
             server_feedback_id: f.serverFeedbackId, user_rating: f.userRating,
+            session_id: f.sessionId,
             created_at: SyncDate.string(from: f.createdAt)
         )
     }
@@ -355,6 +406,7 @@ final class SyncService: @unchecked Sendable {
             strokeRangeStart: d.stroke_range_start ?? 0, strokeRangeEnd: d.stroke_range_end ?? 0,
             createdAt: SyncDate.date(from: d.created_at) ?? Date(),
             serverFeedbackId: d.server_feedback_id, userRating: d.user_rating, userRatingSyncedAt: nil,
+            sessionId: d.session_id,
             userId: userId, updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),
             deleted: d.deleted, dirty: false
         )
@@ -363,7 +415,7 @@ final class SyncService: @unchecked Sendable {
     static func chatDTO(_ c: ChatMessageRecord) -> SyncChatDTO {
         SyncChatDTO(
             id: c.id, updated_at: SyncDate.string(from: c.updatedAt), deleted: c.deleted,
-            feedback_id: c.feedbackId, role: c.role, content: c.content,
+            session_id: c.sessionId, feedback_id: c.feedbackId, role: c.role, content: c.content,
             server_message_id: c.serverMessageId, user_rating: c.userRating,
             created_at: SyncDate.string(from: c.createdAt)
         )
@@ -371,7 +423,7 @@ final class SyncService: @unchecked Sendable {
 
     static func chat(from d: SyncChatDTO, userId: String) -> ChatMessageRecord {
         ChatMessageRecord(
-            id: d.id, feedbackId: d.feedback_id, role: d.role, content: d.content,
+            id: d.id, sessionId: d.session_id, feedbackId: d.feedback_id, role: d.role, content: d.content,
             createdAt: SyncDate.date(from: d.created_at) ?? Date(),
             serverMessageId: d.server_message_id, userRating: d.user_rating, userRatingSyncedAt: nil,
             userId: userId, updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),

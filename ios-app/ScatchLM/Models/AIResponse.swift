@@ -85,6 +85,14 @@ struct ChapterItem: Codable, Identifiable {
     let title: String
     let pageStart: Int
     let pageEnd: Int
+
+    /// page를 포함하는 가장 좁은(level≥1, 페이지 범위가 가장 작은) 챕터를 찾는다 (§4.2).
+    /// 표시 시점에 세션의 `anchorPage`를 챕터로 매핑하는 데 쓴다. 매칭 실패 시 nil.
+    static func narrowest(for page: Int, in chapters: [ChapterItem]) -> ChapterItem? {
+        chapters
+            .filter { $0.level >= 1 && page >= $0.pageStart && page <= $0.pageEnd }
+            .min { ($0.pageEnd - $0.pageStart) < ($1.pageEnd - $1.pageStart) }
+    }
 }
 
 struct PageGuide: Codable {

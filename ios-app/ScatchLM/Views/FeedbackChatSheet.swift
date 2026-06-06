@@ -1,12 +1,20 @@
 import SwiftUI
 
-struct FeedbackChatSheet: View {
-    let feedback: FeedbackRecord
+/// 세션 기반 채팅 시트 (chapter-chat-drawer-spec §4.4).
+/// 피드백 카드·가이드 채팅·드로어가 모두 이 한 뷰로 진입한다. 데이터는 `session_id` 종속.
+///
+/// `headerContent`는 메시지로 저장되지 않은 원본 본문(피드백 카드 body 등)을 헤더 버블로
+/// 보여줄 때만 쓴다. 가이드 세션은 본문이 message[0]로 영속화되므로 headerContent=nil이다.
+struct SessionChatSheet: View {
+    let session: ChatSessionRecord
+    var headerContent: String?
+    var headerServerId: String?
     var textbookId: String?
     var currentPage: Int?
     var noteId: String?
     var subject: String?
     var onPin: ((String, String?) -> Void)?
+
     @Environment(\.dismiss) private var dismiss
     @State private var messages: [ChatMessageRecord] = []
     @State private var input = ""
@@ -16,9 +24,14 @@ struct FeedbackChatSheet: View {
 
     private let db = DatabaseService.shared
 
-    private var parsed: AIResponse? {
-        guard let data = feedback.content.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(AIResponse.self, from: data)
+    /// headerContent가 AIResponse JSON일 수 있으니 표시용 텍스트로 파싱(아니면 원문).
+    private var headerDisplay: String? {
+        guard let headerContent else { return nil }
+        if let data = headerContent.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
+            return parsed.displayText
+        }
+        return headerContent
     }
 
     var body: some View {
@@ -27,30 +40,21 @@ struct FeedbackChatSheet: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 12) {
-                            // Original feedback — 평가는 카드에서 하므로 채팅 헤더에서는 미노출
-                            chatBubble(
-                                role: "assistant",
-                                content: parsed?.displayText ?? feedback.content,
-                                serverId: feedback.serverFeedbackId,
-                                message: nil
-                            )
-                            .id("original")
+                            if let headerDisplay {
+                                chatBubble(role: "assistant", content: headerDisplay,
+                                           serverId: headerServerId, message: nil)
+                                    .id("header")
+                            }
 
-                            // Chat history
                             ForEach(messages) { msg in
-                                chatBubble(
-                                    role: msg.role,
-                                    content: msg.content,
-                                    serverId: msg.serverMessageId,
-                                    message: msg
-                                )
-                                .id(msg.id)
+                                chatBubble(role: msg.role, content: msg.content,
+                                           serverId: msg.serverMessageId, message: msg)
+                                    .id(msg.id)
                             }
 
                             if sending {
                                 HStack {
-                                    ProgressView()
-                                        .padding(.leading, 16)
+                                    ProgressView().padding(.leading, 16)
                                     Spacer()
                                 }
                                 .id("loading")
@@ -60,14 +64,13 @@ struct FeedbackChatSheet: View {
                     }
                     .onChange(of: messages.count) { _, _ in
                         withAnimation {
-                            proxy.scrollTo(messages.last?.id ?? "original", anchor: .bottom)
+                            proxy.scrollTo(messages.last?.id ?? "header", anchor: .bottom)
                         }
                     }
                 }
 
                 Divider()
 
-                // Input bar
                 HStack(spacing: 8) {
                     TextField("질문을 입력하세요...", text: $input, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
@@ -85,7 +88,7 @@ struct FeedbackChatSheet: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .navigationTitle("피드백 대화")
+            .navigationTitle(session.title.isEmpty ? String(localized: "대화") : session.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -168,7 +171,6 @@ struct FeedbackChatSheet: View {
                             .disabled(serverId == nil)
 
                             Button {
-                                appLog("chat-detail", "tapped", ["msgId": msg.id, "serverId": serverId ?? "nil"])
                                 pushedRatingMessageId = msg.id
                             } label: {
                                 Text("자세히")
@@ -190,8 +192,8 @@ struct FeedbackChatSheet: View {
 
     private func loadMessages() {
         do {
-            messages = try db.chatMessages(feedbackId: feedback.id)
-            appLog("chat", "loadMessages", ["feedbackId": feedback.id, "count": "\(messages.count)"])
+            messages = try db.messages(sessionId: session.id)
+            appLog("chat", "loadMessages", ["sessionId": session.id, "count": "\(messages.count)"])
         } catch {
             appLogError("chat", "loadMessages failed", ["error": "\(error)"])
         }
@@ -226,20 +228,17 @@ struct FeedbackChatSheet: View {
         input = ""
         sending = true
 
-        // Save user message locally
         var userMsg = ChatMessageRecord(
             id: UUID().uuidString,
-            feedbackId: feedback.id,
+            sessionId: session.id,
             role: "user",
             content: text,
-            createdAt: Date(),
-            serverMessageId: nil,
-            userRating: nil,
-            userRatingSyncedAt: nil
+            createdAt: Date()
         )
-        // 사용자 메시지 로컬 저장 — 실패 시 롤백 + 알림 (L7/O11)
         do {
             try db.saveChatMessage(&userMsg)
+            // 세션 제목이 비어 있으면 첫 user 질문으로 세팅 (결정 2).
+            try db.setSessionTitleIfEmpty(sessionId: session.id, title: text)
         } catch {
             appLogError("chat", "saveChatMessage(user) failed", ["error": "\(error)"])
             errorMessage = String(localized: "메시지를 저장하지 못했어요.")
@@ -248,10 +247,11 @@ struct FeedbackChatSheet: View {
         }
         messages.append(userMsg)
 
-        // Build history for API
-        var history: [[String: String]] = [
-            ["role": "assistant", "content": parsed?.displayText ?? feedback.content]
-        ]
+        // history: 헤더 본문(있으면) + 세션 메시지. 가이드 세션은 본문이 messages[0]에 이미 있음.
+        var history: [[String: String]] = []
+        if let headerDisplay {
+            history.append(["role": "assistant", "content": headerDisplay])
+        }
         for msg in messages {
             history.append(["role": msg.role, "content": msg.content])
         }
@@ -281,22 +281,18 @@ struct FeedbackChatSheet: View {
                     textbook_id: textbookId,
                     current_page: currentPage,
                     note_id: noteId,
-                    parent_feedback_id: feedback.serverFeedbackId
+                    parent_feedback_id: session.sourceFeedbackId ?? headerServerId
                 )
 
-                // 오프라인 일관성·429 처리를 위해 별도 URLSession 대신 APIClient로 통일 (§5.5/F-4)
                 let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
 
-                // Save assistant message with server id
                 var assistantMsg = ChatMessageRecord(
                     id: UUID().uuidString,
-                    feedbackId: feedback.id,
+                    sessionId: session.id,
                     role: "assistant",
                     content: res.content,
                     createdAt: Date(),
-                    serverMessageId: res.feedback_id,
-                    userRating: nil,
-                    userRatingSyncedAt: nil
+                    serverMessageId: res.feedback_id
                 )
                 do {
                     try db.saveChatMessage(&assistantMsg)

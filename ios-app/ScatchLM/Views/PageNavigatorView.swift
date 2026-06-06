@@ -39,19 +39,20 @@ struct PageNavigatorView: View {
 
             Divider()
 
-            HStack(spacing: 10) {
-                Text("페이지")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
                 Spacer()
-                // 순서 변경(드래그 핸들) 모드 토글. 편집모드에선 빨간 − 로 삭제도 가능.
+                // 순서 변경(드래그 핸들) 모드 토글. 활성화 시 체크 아이콘 + 액센트로 "완료" 의미를 드러냄.
+                // 편집모드에선 빨간 − 로 삭제도 가능.
                 if pages.count > 1 {
                     Button {
                         withAnimation { editMode = editMode.isEditing ? .inactive : .active }
                     } label: {
-                        Text(editMode.isEditing ? "완료" : "순서변경")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(editMode.isEditing ? Color.accentColor : .secondary)
+                        Image(systemName: editMode.isEditing ? "checkmark" : "arrow.up.arrow.down")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(editMode.isEditing ? Color.white : .primary)
+                            .frame(width: 32, height: 32)
+                            .background(editMode.isEditing ? Color.accentColor : Color.primary.opacity(0.06))
+                            .clipShape(Circle())
                     }
                 }
                 Button(action: onAdd) {

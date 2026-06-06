@@ -24,6 +24,8 @@ struct PhoneHomeView: View {
 
 private struct PhoneNotesTab: View {
     @State private var notes: [Note] = []
+    @State private var folders: [Folder] = []
+    @State private var selectedFolder: String? = nil   // nil = 전체(분류·미분류 모두)
     @State private var search = ""
     @State private var showSettings = false
 
@@ -31,31 +33,43 @@ private struct PhoneNotesTab: View {
     private let sync = SyncService.shared
 
     private var filteredNotes: [Note] {
-        let term = search.trimmingCharacters(in: .whitespaces)
-        if term.isEmpty { return notes }
-        return notes.filter { note in
-            note.title.localizedCaseInsensitiveContains(term)
-                || note.language.localizedCaseInsensitiveContains(term)
-                || (note.textbookName?.localizedCaseInsensitiveContains(term) ?? false)
+        var result = notes
+        // 폴더 필터(읽기 전용 — note-folders-spec §4.5). 전체(nil)는 모든 노트 노출.
+        if let sel = selectedFolder {
+            result = result.filter { $0.folderId == sel }
         }
+        let term = search.trimmingCharacters(in: .whitespaces)
+        if !term.isEmpty {
+            result = result.filter { note in
+                note.title.localizedCaseInsensitiveContains(term)
+                    || note.language.localizedCaseInsensitiveContains(term)
+                    || (note.textbookName?.localizedCaseInsensitiveContains(term) ?? false)
+            }
+        }
+        return result
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                if filteredNotes.isEmpty {
-                    emptyState
+            VStack(spacing: 0) {
+                if !folders.isEmpty {
+                    folderChips
                 }
-                // iPhone은 단일 컬럼(§4.2). 썸네일/카드 렌더는 iPad와 동일 컴포넌트 재사용.
-                LazyVStack(spacing: 12) {
-                    ForEach(filteredNotes) { note in
-                        NavigationLink(value: note.id) {
-                            NoteCardView(note: note)
-                        }
-                        .buttonStyle(.plain)
+                ScrollView {
+                    if filteredNotes.isEmpty {
+                        emptyState
                     }
+                    // iPhone은 단일 컬럼(§4.2). 썸네일/카드 렌더는 iPad와 동일 컴포넌트 재사용.
+                    LazyVStack(spacing: 12) {
+                        ForEach(filteredNotes) { note in
+                            NavigationLink(value: note.id) {
+                                NoteCardView(note: note)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
                 }
-                .padding()
             }
             .navigationTitle("노트")
             .navigationDestination(for: String.self) { noteId in
@@ -82,6 +96,37 @@ private struct PhoneNotesTab: View {
         }
     }
 
+    // 폴더 필터 칩 바(읽기 전용 — 생성/이름변경/삭제는 iPad 전용). 전체 + 폴더 목록.
+    private var folderChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                folderChip(title: "전체", id: nil)
+                ForEach(folders) { folder in
+                    folderChip(title: folder.name, id: folder.id)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func folderChip(title: String, id: String?) -> some View {
+        let selected = selectedFolder == id
+        return Button {
+            selectedFolder = id
+        } label: {
+            Text(title)
+                .font(.subheadline)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(selected ? Color.accentColor : Color(.secondarySystemBackground))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -105,7 +150,12 @@ private struct PhoneNotesTab: View {
     private func loadNotes() {
         do {
             notes = try db.allNotes()
-            appLog("phoneHome", "loadNotes", ["count": notes.count])
+            folders = (try? db.allFolders()) ?? []
+            // 선택한 폴더가 동기화로 사라졌으면 전체로 되돌린다.
+            if let sel = selectedFolder, !folders.contains(where: { $0.id == sel }) {
+                selectedFolder = nil
+            }
+            appLog("phoneHome", "loadNotes", ["count": notes.count, "folders": folders.count])
         } catch {
             appLogError("phoneHome", "loadNotes failed", ["error": "\(error)"])
         }

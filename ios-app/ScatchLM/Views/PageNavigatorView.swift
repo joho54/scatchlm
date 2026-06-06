@@ -111,9 +111,13 @@ struct PageNavigatorView: View {
                 size: thumbSize
             )
             .frame(maxWidth: .infinity)
+            .padding(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            // 셀 전체를 패널과 같은 material로 채운다 → 드래그로 들어올린 셀이
+            // 배경 없이 검은 사각형으로 폴백하던 문제 제거(셀 스냅샷이 프로스트를 포함).
+            .background(.regularMaterial)
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         // 길게누르기 → 삭제(사용자 직관). 스와이프·편집모드 빨간 −는 위 .onDelete가 함께 제공.

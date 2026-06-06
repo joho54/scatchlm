@@ -82,7 +82,7 @@ final class SyncServiceTests: XCTestCase {
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(0), has_more: false)
         ]
         try await sync.pullChanges()
@@ -103,7 +103,7 @@ final class SyncServiceTests: XCTestCase {
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(10), has_more: false)
         ]
         try await sync.pullChanges()
@@ -125,7 +125,7 @@ final class SyncServiceTests: XCTestCase {
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-200)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(0), has_more: false)
         ]
         try await sync.pullChanges()
@@ -143,7 +143,7 @@ final class SyncServiceTests: XCTestCase {
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [dto], note_pages: [], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], notes: [dto], note_pages: [], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(100), has_more: false)
         ]
         try await sync.pullChanges()
@@ -252,7 +252,7 @@ final class SyncServiceTests: XCTestCase {
             pdf_open: false, current_page_index: 0, drawing_hash: nil, created_at: iso(-60)
         )
         api.pullResponses = [
-            SyncPullResponse(changes: SyncChanges(notes: [noteDTO], note_pages: [pageDTO], feedbacks: [], chat_messages: []),
+            SyncPullResponse(changes: SyncChanges(sessions: [], notes: [noteDTO], note_pages: [pageDTO], pdf_annotations: [], feedbacks: [], chat_messages: []),
                              cursor: iso(0), has_more: false)
         ]
         try await sync.pullChanges()

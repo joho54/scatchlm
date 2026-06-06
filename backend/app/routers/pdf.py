@@ -155,6 +155,7 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
 
             doc = _open_pdf(source.server_path)
             status = "complete"
+            blocked_pages = 0
             try:
                 for page in range(1, target + 1):
                     if page in done_pages:
@@ -164,7 +165,20 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
                         status = "paused"
                         log.info("OCR job paused (quota): textbook=%s at page=%d", textbook_id, page)
                         break
-                    image_bytes = render_page(doc, page - 1)
+
+                    # 페이지 단위 격리: 렌더 실패(손상 페이지)는 빈 페이지로 박제하고 다음으로.
+                    try:
+                        image_bytes = render_page(doc, page - 1)
+                    except Exception:
+                        log.warning("OCR render failed, storing empty: textbook=%s page=%d",
+                                    textbook_id, page, exc_info=True)
+                        db.add(OcrPageText(textbook_id=textbook_id, page=page, content=""))
+                        source.ocr_pages_done = (source.ocr_pages_done or 0) + 1
+                        source.ocr_updated_at = _utcnow()
+                        await db.commit()
+                        blocked_pages += 1
+                        continue
+
                     result = await ocr_page(image_bytes)
                     db.add(OcrPageText(
                         textbook_id=textbook_id,
@@ -173,12 +187,17 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
                     ))
                     source.ocr_pages_done = (source.ocr_pages_done or 0) + 1
                     source.ocr_updated_at = _utcnow()  # 하트비트
-                    await log_llm_usage(
-                        db, user_id=user_id, model=result.model,
-                        input_tokens=result.input_tokens, output_tokens=result.output_tokens,
-                        cost_usd=result.cost_usd, latency_ms=result.latency_ms,
-                        task_type="ocr",
-                    )
+                    if result.blocked:
+                        # 비재시도성 400(콘텐츠 필터 등) — 빈 페이지로 박제, 비용 없으니 usage 미기록.
+                        blocked_pages += 1
+                        log.warning("OCR page blocked, stored empty: textbook=%s page=%d", textbook_id, page)
+                    else:
+                        await log_llm_usage(
+                            db, user_id=user_id, model=result.model,
+                            input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+                            cost_usd=result.cost_usd, latency_ms=result.latency_ms,
+                            task_type="ocr",
+                        )
                     await db.commit()  # 매 페이지 즉시 커밋 → 손실 0 / 재개
             finally:
                 doc.close()
@@ -188,8 +207,8 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
             source.ocr_status = status
             source.ocr_updated_at = _utcnow()
             await db.commit()
-            log.info("OCR job done: textbook=%s status=%s done=%d target=%d",
-                     textbook_id, status, source.ocr_pages_done, target)
+            log.info("OCR job done: textbook=%s status=%s done=%d target=%d blocked=%d",
+                     textbook_id, status, source.ocr_pages_done, target, blocked_pages)
 
             # 충분히 OCR되면(complete/capped) 챕터 감지 — TOC/기존 챕터가 없을 때만.
             if status in ("complete", "capped"):

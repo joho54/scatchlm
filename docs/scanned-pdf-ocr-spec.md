@@ -87,14 +87,18 @@ async_session()
  ├─ for page in 1..min(total_pages, ocr_cap):
  │     if page in done_pages → skip            # 재개
  │     if check_ocr_quota(user) 초과 → status="paused"; break
- │     img  = render_page(doc, page-1)          # ~1568px JPEG
- │     res  = await ocr_page(img)               # Haiku "원문만" 프롬프트
- │     INSERT ocr_page_text(page, content)
+ │     try: img = render_page(doc, page-1)      # 렌더 실패(손상 페이지) → 빈 페이지 박제+continue
+ │     res  = await ocr_page(img)               # Haiku "원문만". 400(콘텐츠필터)=blocked
+ │     INSERT ocr_page_text(page, content)       # blocked면 빈 문자열(그 페이지만 누락, 잡은 완주)
  │     ocr_pages_done++, ocr_updated_at=now      # 하트비트
- │     log_llm_usage(task_type="ocr", cost)
+ │     if not blocked: log_llm_usage(task_type="ocr", cost)   # 차단된 요청은 비용 0 → 미기록
  │     await db.commit()                         # 매 페이지 즉시 커밋 → 손실 0
  │
- ├─ 종료 status: complete | capped(free 캡<total) | paused(예산) | error(예외)
+ │  ※ 페이지 단위 격리: 비재시도성 400(콘텐츠 필터/잘못된 이미지)·렌더 실패는 그 페이지만 빈 칸으로
+ │    건너뛰고 잡은 계속. 한 페이지가 잡 전체를 죽이거나 스위퍼 무한 재시도를 유발하지 않게 함.
+ │    일시 오류(연결/타임아웃/429/5xx)는 전파 → status="error" → 스위퍼가 재개(캐시 skip).
+ │
+ ├─ 종료 status: complete | capped(free 캡<total) | paused(예산) | error(일시 예외). blocked 페이지 수 로깅
  └─ complete/capped면 챕터 LLM 감지 (TOC/기존 챕터 없을 때만; OCR 텍스트 상단 N줄 헤더 사용)
 ```
 

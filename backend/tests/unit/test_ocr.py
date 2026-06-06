@@ -2,16 +2,49 @@
 
 scanned-pdf-ocr-spec.md: 스캔 감지(§4.4)와 OCR 헤더 추출(§4.6)이 핵심 분기다.
 """
+from unittest.mock import AsyncMock
+
+import anthropic
 import fitz  # PyMuPDF
+import httpx
 import pytest
 
 from app.core.config import settings
+from app.services import ocr_service
 from app.services.pdf_service import (
     extract_text,
     extract_text_async,
     has_no_text_layer,
     headers_from_ocr_rows,
 )
+
+
+@pytest.mark.asyncio
+async def test_ocr_page_blocked_on_400(monkeypatch):
+    """콘텐츠 필터/잘못된 이미지 400(BadRequestError)은 잡을 죽이지 않고 blocked 결과로 격리.
+    같은 이미지를 다시 보내도 같은 결과라 재시도 무의미 → 빈 페이지로 박제."""
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    resp = httpx.Response(400, request=req)
+    err = anthropic.BadRequestError(
+        "Output blocked by content filtering policy", response=resp, body=None
+    )
+    monkeypatch.setattr(ocr_service.client.messages, "create", AsyncMock(side_effect=err))
+
+    result = await ocr_service.ocr_page(b"\xff\xd8fake-jpeg")
+    assert result.blocked is True
+    assert result.text == ""
+    assert result.cost_usd == 0.0  # 차단된 요청은 비용 미기록
+
+
+@pytest.mark.asyncio
+async def test_ocr_page_transient_error_propagates(monkeypatch):
+    """일시 오류(연결 등)는 blocked로 삼키지 않고 전파 → 잡 error → 스위퍼 재개."""
+    monkeypatch.setattr(
+        ocr_service.client.messages, "create",
+        AsyncMock(side_effect=anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))),
+    )
+    with pytest.raises(anthropic.APIConnectionError):
+        await ocr_service.ocr_page(b"\xff\xd8fake-jpeg")
 
 
 class _Row:

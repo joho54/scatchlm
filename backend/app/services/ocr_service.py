@@ -45,6 +45,7 @@ class OcrResult:
     output_tokens: int
     cost_usd: float
     latency_ms: int
+    blocked: bool = False  # 비재시도성 400(콘텐츠 필터/잘못된 이미지) — 빈 페이지로 박제, 재시도 안 함
 
 
 def render_page(doc: fitz.Document, page_idx: int) -> bytes:
@@ -64,21 +65,30 @@ async def ocr_page(image_bytes: bytes) -> OcrResult:
     """단일 페이지 이미지를 Haiku Vision으로 OCR한다. 비용·토큰 포함 반환."""
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     start = time.monotonic()
-    response = await client.messages.create(
-        model=OCR_MODEL,
-        max_tokens=OCR_MAX_TOKENS,
-        system=OCR_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64},
-                },
-                {"type": "text", "text": "Extract the text from this page."},
-            ],
-        }],
-    )
+    try:
+        response = await client.messages.create(
+            model=OCR_MODEL,
+            max_tokens=OCR_MAX_TOKENS,
+            system=OCR_SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64},
+                    },
+                    {"type": "text", "text": "Extract the text from this page."},
+                ],
+            }],
+        )
+    except anthropic.BadRequestError as e:
+        # 400(콘텐츠 필터/잘못된 이미지)은 비재시도성 — 같은 이미지를 다시 보내도 같은 결과.
+        # 빈 결과(blocked)로 반환해 호출부가 그 페이지만 건너뛰고 잡을 완주하게 한다(무한 재시도 차단).
+        # 그 외 예외(연결/타임아웃/429/5xx)는 전파 → 잡 error → 스위퍼가 나중에 재개.
+        latency_ms = int((time.monotonic() - start) * 1000)
+        log.warning("OCR page blocked (400, non-retryable): %s", e)
+        return OcrResult(text="", model=OCR_MODEL, input_tokens=0, output_tokens=0,
+                         cost_usd=0.0, latency_ms=latency_ms, blocked=True)
     latency_ms = int((time.monotonic() - start) * 1000)
     usage = response.usage
     text = response.content[0].text.strip() if response.content else ""

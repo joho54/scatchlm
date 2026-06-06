@@ -346,4 +346,56 @@ final class SyncServiceTests: XCTestCase {
         try await sync.pushDirty()
         XCTAssertEqual(captured ?? nil, folder.id, "note.folder_id가 와이어로 전송")
     }
+
+    // MARK: - Trash & 재귀 폴더 삭제
+
+    func testFolderDeleteRecursivelyTrashesNotes() throws {
+        var folder = Folder(name: "삭제대상", sortOrder: 0)
+        try db.saveFolder(&folder)
+        var note = Note.new(title: "안의 노트", folderId: folder.id)
+        try db.saveNote(&note)
+
+        try db.deleteFolder(id: folder.id)
+
+        XCTAssertFalse(try db.allFolders().contains { $0.id == folder.id }, "폴더 삭제")
+        XCTAssertNil(try db.note(id: note.id), "노트는 active 목록에서 제외(휴지통으로)")
+        XCTAssertTrue(try db.trashedNotes().contains { $0.id == note.id }, "노트는 휴지통에 존재(복구 가능)")
+    }
+
+    func testRestoreNoteFromTrash() throws {
+        var note = Note.new(title: "복구할 노트")
+        try db.saveNote(&note)
+        try db.deleteNote(id: note.id)
+        XCTAssertTrue(try db.trashedNotes().contains { $0.id == note.id })
+
+        try db.restoreNote(id: note.id)
+        XCTAssertFalse(try db.trashedNotes().contains { $0.id == note.id }, "복구 후 휴지통에서 제외")
+        XCTAssertNotNil(try db.note(id: note.id), "active 목록으로 복귀")
+        XCTAssertEqual(try db.note(id: note.id)?.dirty, true, "복구는 dirty=1로 재push")
+    }
+
+    func testPermanentDeleteNoteIsHardDelete() throws {
+        var note = Note.new(title: "영구삭제 노트")
+        try db.saveNote(&note)
+        try db.deleteNote(id: note.id)
+
+        try db.permanentlyDeleteNote(id: note.id)
+        XCTAssertFalse(try db.trashedNotes().contains { $0.id == note.id }, "휴지통에서 사라짐")
+        XCTAssertNil(try db.note(id: note.id))
+        // 하드 삭제: dirtyNotes에도 안 잡혀야(행 자체가 없음)
+        XCTAssertFalse(try db.dirtyNotes().contains { $0.id == note.id }, "행 자체가 하드 삭제됨")
+    }
+
+    func testEmptyTrashPurgesAll() throws {
+        var a = Note.new(title: "A"); try db.saveNote(&a)
+        var b = Note.new(title: "B"); try db.saveNote(&b)
+        try db.deleteNote(id: a.id)
+        try db.deleteNote(id: b.id)
+        XCTAssertEqual(try db.trashedNotes().count, 2)
+
+        try db.emptyTrash()
+        XCTAssertTrue(try db.trashedNotes().isEmpty, "비우기 후 휴지통 비어있음")
+        XCTAssertNil(try db.note(id: a.id))
+        XCTAssertNil(try db.note(id: b.id))
+    }
 }

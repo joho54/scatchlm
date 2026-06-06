@@ -506,14 +506,45 @@ final class DatabaseService {
         notifyWrite()
     }
 
-    /// 폴더 soft delete + 소속 노트를 folder_id=NULL(전체)로 이동(노트 유실 방지, §4.4).
-    /// 노트 자체는 절대 삭제하지 않는다. 이동된 노트는 dirty=1로 재push된다.
+    /// 폴더 soft delete + 안의 노트를 재귀적으로 휴지통(soft delete)으로 이동.
+    /// 노트의 페이지·피드백·채팅도 함께 tombstone(deleteNote와 동일 cascade).
+    /// 노트는 휴지통에서 복구/영구삭제할 수 있다(노트 유실 방지). 빈 폴더면 폴더만 삭제.
     func deleteFolder(id: String) throws {
         let uid = try requireUserId()
         try dbQueue.write { db in
             let now = Date()
+            // cascade: chats → feedbacks → pages → notes (해당 폴더 소속), 그다음 folder
             try db.execute(
-                sql: "UPDATE notes SET folder_id = NULL, updated_at = ?, dirty = 1 WHERE folder_id = ? AND user_id = ?",
+                sql: """
+                    UPDATE feedback_chats SET deleted = 1, dirty = 1, updated_at = ?
+                    WHERE user_id = ? AND feedback_id IN (
+                        SELECT id FROM feedbacks WHERE user_id = ? AND note_id IN (
+                            SELECT id FROM notes WHERE folder_id = ? AND user_id = ?
+                        )
+                    )
+                    """,
+                arguments: [now, uid, uid, id, uid]
+            )
+            try db.execute(
+                sql: """
+                    UPDATE feedbacks SET deleted = 1, dirty = 1, updated_at = ?
+                    WHERE user_id = ? AND note_id IN (
+                        SELECT id FROM notes WHERE folder_id = ? AND user_id = ?
+                    )
+                    """,
+                arguments: [now, uid, id, uid]
+            )
+            try db.execute(
+                sql: """
+                    UPDATE note_pages SET deleted = 1, dirty = 1, updated_at = ?
+                    WHERE user_id = ? AND note_id IN (
+                        SELECT id FROM notes WHERE folder_id = ? AND user_id = ?
+                    )
+                    """,
+                arguments: [now, uid, id, uid]
+            )
+            try db.execute(
+                sql: "UPDATE notes SET deleted = 1, dirty = 1, updated_at = ? WHERE folder_id = ? AND user_id = ?",
                 arguments: [now, id, uid]
             )
             try db.execute(
@@ -534,6 +565,81 @@ final class DatabaseService {
             )
         }
         notifyWrite()
+    }
+
+    // MARK: - Trash (휴지통 — soft delete된 노트 복구/영구삭제)
+
+    /// 휴지통: soft delete(deleted=1)된 노트. 최근 삭제순.
+    func trashedNotes() throws -> [Note] {
+        guard let uid = scopedUserId else { return [] }
+        return try dbQueue.read { db in
+            try Note
+                .filter(Note.Columns.userId == uid && Note.Columns.deleted == true)
+                .order(Note.Columns.updatedAt.desc)
+                .fetchAll(db)
+        }
+    }
+
+    /// 휴지통 → 복구. 노트와 그 페이지·피드백·채팅의 tombstone을 해제(deleted=0, dirty=1).
+    /// updated_at을 now로 올려 LWW로 서버 tombstone을 덮어 un-delete가 전파되게 한다.
+    /// (폴더가 이미 사라졌다면 folder_id가 dangling → UI는 "전체"로 폴백 렌더, §7 R1.)
+    func restoreNote(id: String) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            let now = Date()
+            try db.execute(
+                sql: """
+                    UPDATE feedback_chats SET deleted = 0, dirty = 1, updated_at = ?
+                    WHERE user_id = ? AND feedback_id IN (
+                        SELECT id FROM feedbacks WHERE note_id = ? AND user_id = ?
+                    )
+                    """,
+                arguments: [now, uid, id, uid]
+            )
+            try db.execute(
+                sql: "UPDATE feedbacks SET deleted = 0, dirty = 1, updated_at = ? WHERE note_id = ? AND user_id = ?",
+                arguments: [now, id, uid]
+            )
+            try db.execute(
+                sql: "UPDATE note_pages SET deleted = 0, dirty = 1, updated_at = ? WHERE note_id = ? AND user_id = ?",
+                arguments: [now, id, uid]
+            )
+            try db.execute(
+                sql: "UPDATE notes SET deleted = 0, dirty = 1, updated_at = ? WHERE id = ? AND user_id = ?",
+                arguments: [now, id, uid]
+            )
+        }
+        notifyWrite()
+    }
+
+    /// 영구 삭제 — 로컬 하드 삭제(노트 + 페이지/피드백/채팅/PDF 필기). 복구 불가.
+    /// 서버 tombstone(deleted=1)은 이미 trash 시점에 동기화되어 타 기기엔 숨겨진 상태다.
+    /// 단, 서버는 tombstone을 영구 보관하므로 **전체 재동기화(재로그인 등)** 시 휴지통에 다시
+    /// 나타날 수 있다 — 서버측 purge 엔드포인트는 v1 범위 밖. 로컬 하드 삭제는 sync 트리거 안 함.
+    func permanentlyDeleteNote(id: String) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    DELETE FROM feedback_chats WHERE user_id = ? AND feedback_id IN (
+                        SELECT id FROM feedbacks WHERE note_id = ? AND user_id = ?
+                    )
+                    """,
+                arguments: [uid, id, uid]
+            )
+            try db.execute(sql: "DELETE FROM feedbacks WHERE note_id = ? AND user_id = ?", arguments: [id, uid])
+            try db.execute(sql: "DELETE FROM note_pages WHERE note_id = ? AND user_id = ?", arguments: [id, uid])
+            try db.execute(sql: "DELETE FROM pdf_annotations WHERE note_id = ? AND user_id = ?", arguments: [id, uid])
+            try db.execute(sql: "DELETE FROM notes WHERE id = ? AND user_id = ?", arguments: [id, uid])
+        }
+    }
+
+    /// 휴지통 비우기 — 모든 soft-deleted 노트를 영구 삭제.
+    func emptyTrash() throws {
+        let ids = try trashedNotes().map(\.id)
+        for nid in ids {
+            try permanentlyDeleteNote(id: nid)
+        }
     }
 
     // MARK: - Feedbacks

@@ -152,6 +152,10 @@ struct NoteMetaSheet: View {
                         updated.textbookId = selectedTextbookId
                         updated.textbookName = selectedTextbookName
                         updated.textbookPages = selectedTextbookId == nil ? 0 : selectedTextbookPages
+                        // intake(A): 교재가 노트에 편입 → is_scanned 1회 재평가(멱등, 평생1회).
+                        if let tid = selectedTextbookId {
+                            Task { try? await APIClient.shared.ensureTextbook(tid) }
+                        }
                         onSave(updated)
                         dismiss()
                     }

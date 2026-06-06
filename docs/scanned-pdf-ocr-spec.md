@@ -125,18 +125,20 @@ return "\n".join("--- Page p ---\n" + content for present pages)         # 미OC
 
 **문제(로그로 확인):** 노트에 PDF가 붙는 경로는 둘인데 백엔드 평가는 하나뿐이었다 — 새 파일 피커만 `/pdf/upload`를 타고, **기존 교재 선택(`NoteMetaSheet`의 `textbookId` 로컬 대입)은 백엔드 호출 0.** 게다가 평가가 `ENABLE_OCR`로 게이팅돼 있어, OCR 켜기 전 올라간 스캔본은 `is_scanned=false`로 굳었다. content_hash dedup이 재업로드까지 흡수하니 **노트북을 새로 만들어도 같은 stale 교재 레코드를 공유** → OCR이 영영 안 떴다.
 
-**근본 재구성 — 세 관심사를 분리:**
+**근본 재구성 — 세 관심사를 분리하고, "재오픈"의 정의를 명확히(A=intake vs B=open):**
 
-| 관심사 | 시점 | 비용 |
+| 관심사 | 시점 | PDF 파일 열기 |
 |---|---|---|
-| **평가** `is_scanned` (파일 속성, 텍스트레이어 유무) | upload 1회, **ENABLE_OCR 무관 무조건** | PDF 열기(upload에서 어차피 함) |
-| **표시** `ocr_status="available"` 파생 | `GET /status` 첫 읽기에서 null→available | DB write 1회, **PDF 재오픈 X** |
-| **예산** `ocr_cap`/`ocr_unlimited` (tier 의존) | `start_ocr` 시점 현재 tier로 | 0 |
+| **평가** `is_scanned` (파일 속성, 텍스트레이어 유무) | upload + **intake(A, ensure)** | ✓ — 단 **마커로 textbook당 평생 1회** |
+| **표시** `ocr_status="available"` 파생 | `GET /status` 읽기(B) / ensure | ✗ — 싼 boolean |
+| **예산** `ocr_cap`/`ocr_unlimited` (tier 의존) | `start_ocr` 시점 현재 tier로 | ✗ |
 
-- **무거운 연산(PDF 열기)은 upload + 일회성 백필에서만.** 접근/폴링 경로엔 절대 없음 → "열 때마다 검사" 우려가 구조적으로 사라짐. status는 순수 읽기(파생 boolean)로 복귀 → scan_checked 마커·버전 스탬프 불필요.
-- 재사용/노트첨부는 교재가 이미 올바른 is_scanned를 들고 있어 재평가 불필요. status 파생이 유일한 "열 때 OCR 제안" 진입점.
+- **A(기존 PDF로 새 노트 생성 = intake)** 에서 재평가한다 — `POST /{id}/ensure`. `scan_evaluated=false`면 `has_no_text_layer` 1회 → `is_scanned` 갱신 + 마커 set. **마커가 파일 재오픈을 textbook당 평생 1회로 바운드**(같은 PDF로 노트 N개 만들어도 1번, 텍스트 PDF도 1번). → 수동 백필 불필요한 **자가 치유**.
+- **B(이미 만든 노트 열기/status 폴링)** 는 재평가(파일 재오픈) 안 함 — 순수 읽기. `ocr_status` available 파생(싼 boolean)만. "열 때마다 검사" 우려가 구조적으로 0.
+- 신규 업로드는 upload에서 무조건 평가 + `scan_evaluated=true` → intake 재평가 면제(ensure는 멱등 no-op).
+- iOS: `CreateNoteSheet`(만들기)·`NoteMetaSheet`(저장)에서 교재 첨부 시 `ensureTextbook(id)` 호출(fire-and-forget). 노트 저장→열기 간극이 ensure 지연을 흡수.
 
-**레거시 백필(일회성):** 게이팅 시절 `is_scanned=false`로 굳은 기존 레코드는 `scripts/backfill_scanned.py`가 `has_no_text_layer`로 재평가해 invariant를 맞춘다(텍스트레이어 비면 scanned로, ENABLE_OCR이면 available). 유한 집합 1회 — 운영: `docker compose … exec -T app python scripts/backfill_scanned.py`.
+**레거시:** 게이팅 시절 `is_scanned=false`로 굳은 기존 레코드는 다음 intake(새 노트에 편입)에서 1회 자가 치유. 마이그레이션이 `is_scanned=true` 행만 `scan_evaluated=true`로 면제하고 `false` 행은 미평가로 남겨 재평가 대상화. **수동 백필 스크립트 없음.**
 
 ---
 
@@ -145,7 +147,8 @@ return "\n".join("--- Page p ---\n" + content for present pages)         # 미OC
 | Method | Path | 변경 |
 |---|---|---|
 | POST | `/api/pdf/upload` | 응답에 `is_scanned`/`ocr_status` 추가, 텍스트레이어 이진 감지(자동시작 X) |
-| GET | `/api/pdf/{id}/status` | **신규** |
+| GET | `/api/pdf/{id}/status` | **신규** — 순수 읽기(B). is_scanned 재평가 안 함 |
+| POST | `/api/pdf/{id}/ensure` | **신규** — intake(A) 1회 재평가(자가 치유). 멱등 |
 | POST | `/api/pdf/{id}/ocr/start` | **신규** — 명시적 OCR 시작(쿼터 동의) |
 | GET | `/api/pdf/textbooks` | 응답에 `is_scanned`/`ocr_status`/`ocr_pages_done`/`ocr_pages_total` 추가(목록 칩) |
 | GET | `/api/pdf/{id}/guide`, `/chapter-guide` | 쿼터 체크 + 스캔본 미완 시 409 |
@@ -156,6 +159,12 @@ return "\n".join("--- Page p ---\n" + content for present pages)         # 미OC
 - 예시(OCR on): `{ "id":"…", "is_scanned":true, "ocr_status":"available", "indexing":"started" }`
 - 예시(OCR off지만 스캔본): `{ "is_scanned":true, "ocr_status":null }` — 평가는 됐고, ENABLE_OCR 켜지면 status가 available 파생.
 - OCR 자동 시작 안 함. 시작은 §3.2-d.
+
+### 3.2-e POST /api/pdf/{id}/ensure (신규)
+- Request: path `id`. body 없음. iOS가 노트 생성/저장 시 교재 첨부(intake, A)에서 호출.
+- 동작: `scan_evaluated=false`면 `has_no_text_layer`로 `is_scanned` 1회 재평가 + 마커 set(파일 재오픈 평생 1회). 이후 `ocr_status` available 파생. **멱등** — 이미 평가됐으면 파일 안 엶.
+- Response 200: `PdfStatusResponse`(§3.2-b).
+- Error: 404 textbook 없음/타 유저.
 
 ### 3.2-d POST /api/pdf/{id}/ocr/start (신규)
 - Request: path `id`. body 없음. 유저가 쿼터 소진에 명시적 동의했음을 의미.
@@ -207,6 +216,9 @@ ocr_status     String  nullable   # null|available|pending|running|paused|error|
 ocr_pages_done Integer default 0
 ocr_cap        Integer nullable   # start_ocr에서 설정 (free=50, pro=600, admin=total_pages). 그 전엔 null
 ocr_unlimited  Boolean default F  # start_ocr에서 admin 판정 설정(페이지 캡·예산 우회). 마이그 e1f2a3b4c5d6
+scan_evaluated Boolean default F  # "현재 규칙으로 is_scanned 평가했나" 마커. upload=true, intake(ensure)
+                                  #   가 false면 1회 재평가 후 set → 파일 재오픈 평생 1회. 마이그 f2a3b4c5d6e7
+                                  #   (마이그: is_scanned=true 행은 true로 면제, false 행만 false 유지)
 ocr_updated_at DateTime nullable  # 하트비트 → stale면 프로세스 사망 판별
 ```
 

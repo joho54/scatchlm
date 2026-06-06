@@ -336,6 +336,13 @@ extension APIClient {
     func startOcr(_ textbookId: String) async throws -> PdfStatus {
         try await postJSON("/pdf/\(textbookId)/ocr/start", body: [:])
     }
+
+    /// 노트 생성(intake, A)에서 호출 — 기존 PDF가 새 노트에 편입될 때 is_scanned 1회 재평가(자가 치유).
+    /// 마커(scan_evaluated)로 textbook당 평생 1회만 파일을 재오픈. 멱등.
+    @discardableResult
+    func ensureTextbook(_ textbookId: String) async throws -> PdfStatus {
+        try await postJSON("/pdf/\(textbookId)/ensure", body: [:])
+    }
 }
 
 enum APIError: LocalizedError {

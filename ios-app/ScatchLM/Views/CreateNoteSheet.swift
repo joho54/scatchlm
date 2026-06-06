@@ -106,6 +106,10 @@ struct CreateNoteSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("만들기") {
                         let selected = textbooks.first { $0.id == selectedTextbookId }
+                        // intake(A): 기존 PDF가 새 노트에 편입 → is_scanned 1회 재평가(멱등, 평생1회).
+                        if let tid = selectedTextbookId {
+                            Task { try? await APIClient.shared.ensureTextbook(tid) }
+                        }
                         onCreate(
                             Note.resolveTitle(title, textbookName: selected?.fileName),
                             language,  // 빈 주제는 그대로 — 분야 중립 (백엔드 처리)

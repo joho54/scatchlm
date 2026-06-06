@@ -359,6 +359,7 @@ async def upload_pdf(
         content_hash=content_hash,
         is_scanned=is_scanned,
         ocr_status=("available" if (is_scanned and settings.ENABLE_OCR) else None),
+        scan_evaluated=True,  # upload가 무조건 평가 → 재사용/intake 재평가 면제
     )
     db.add(source)
     try:
@@ -556,6 +557,15 @@ async def _get_owned_source(textbook_id: str, user_id: str, db: AsyncSession) ->
     return source
 
 
+def _derive_ocr_status(source: TextbookSource) -> bool:
+    """is_scanned & ENABLE_OCR & ocr_status==null → "available"로 파생. 변경했으면 True 반환.
+    PDF 재오픈 없는 싼 boolean 연산 — status 읽기/ensure 어디서 불려도 무해."""
+    if source.is_scanned and settings.ENABLE_OCR and source.ocr_status is None:
+        source.ocr_status = "available"
+        return True
+    return False
+
+
 @router.get("/{textbook_id}/status", response_model=PdfStatusResponse)
 async def get_pdf_status(
     textbook_id: str,
@@ -564,17 +574,35 @@ async def get_pdf_status(
 ):
     """OCR/인덱싱 진행 상태 (docs/scanned-pdf-ocr-spec.md §3.2-b). iOS 폴링용.
 
-    파생: is_scanned는 upload 때 무조건 평가됐고, ENABLE_OCR이 나중에 켜진 경우 여기서 처음
-    읽을 때 ocr_status null→available로 채운다(싼 DB write 1회, PDF 재오픈 없음). 이게 "재사용/
-    노트첨부로 들어온 스캔본이 열릴 때 OCR 제안이 뜨는" 경로다 — status가 유일한 진입점.
+    순수 읽기(B). is_scanned 재평가(PDF 재오픈)는 절대 안 한다 — 그건 intake(ensure, A)에서만.
+    여기선 ocr_status null→available 파생(싼 boolean)만.
     """
     source = await _get_owned_source(textbook_id, payload["sub"], db)
-    tier = get_tier(payload)
-    is_admin = get_role(payload) == "admin"
-    if source.is_scanned and settings.ENABLE_OCR and source.ocr_status is None:
-        source.ocr_status = "available"
+    if _derive_ocr_status(source):
         await db.commit()
-    return await _build_status_response(source, tier, is_admin, db)
+    return await _build_status_response(source, get_tier(payload), get_role(payload) == "admin", db)
+
+
+@router.post("/{textbook_id}/ensure", response_model=PdfStatusResponse)
+async def ensure_evaluated(
+    textbook_id: str,
+    payload: dict = Depends(get_verified_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """노트 생성(intake, A)에서 호출 — 기존 PDF가 새 노트에 편입될 때 1회 재평가(자가 치유).
+
+    scan_evaluated=false(레거시/게이팅 시절 stale 가능)면 has_no_text_layer로 is_scanned를 다시
+    평가하고 마커를 set한다. **파일 재오픈은 마커로 textbook당 평생 1회**(같은 PDF로 노트 N개
+    만들어도 1번, 텍스트 PDF도 1번). 이후 ocr_status available 파생. 멱등.
+    """
+    source = await _get_owned_source(textbook_id, payload["sub"], db)
+    if not source.scan_evaluated:
+        source.is_scanned = has_no_text_layer(source.server_path, source.total_pages)
+        source.scan_evaluated = True
+        log.info("OCR intake re-evaluated: textbook=%s is_scanned=%s", textbook_id, source.is_scanned)
+    _derive_ocr_status(source)
+    await db.commit()
+    return await _build_status_response(source, get_tier(payload), get_role(payload) == "admin", db)
 
 
 @router.post("/{textbook_id}/ocr/start", response_model=PdfStatusResponse)

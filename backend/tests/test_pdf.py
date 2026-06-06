@@ -363,6 +363,34 @@ async def test_ocr_start_on_text_pdf_returns_400(client: AsyncClient, auth_heade
 
 
 @pytest.mark.asyncio
+async def test_ensure_reevaluates_legacy_once(client: AsyncClient, auth_header: dict, db_session):
+    """intake(ensure, A): 레거시 stale(scan_evaluated=false, is_scanned=false)를 1회 재평가해
+    is_scanned 복구 + available 파생. 마커로 파일 재오픈은 평생 1회(2번째 ensure는 안 엶)."""
+    from sqlalchemy import update
+    from app.models.textbook import TextbookSource
+
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock):
+        up = await _upload(client, auth_header, make_blank_pdf())
+    tid = up["id"]
+    # 게이팅 시절 stale 모사: is_scanned=false로 굳고 아직 재평가 안 됨
+    await db_session.execute(
+        update(TextbookSource).where(TextbookSource.id == tid)
+        .values(is_scanned=False, scan_evaluated=False, ocr_status=None)
+    )
+    await db_session.commit()
+
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf.has_no_text_layer", return_value=True) as detect:
+        first = await client.post(f"/api/pdf/{tid}/ensure", headers=auth_header)
+        second = await client.post(f"/api/pdf/{tid}/ensure", headers=auth_header)
+    assert first.status_code == 200
+    assert first.json()["is_scanned"] is True        # 재평가로 복구
+    assert first.json()["ocr_status"] == "available"  # 파생
+    assert detect.call_count == 1                      # 마커 → 파일 재오픈 평생 1회
+
+
+@pytest.mark.asyncio
 async def test_free_scanned_status_shows_page_cap(client: AsyncClient, auth_header: dict):
     """free(normal) tier 스캔본 status: cap_limit=50, ocr_pages_total=min(total,50) (예산 표시 파생)."""
     with patch("app.routers.pdf.settings.ENABLE_OCR", True), \

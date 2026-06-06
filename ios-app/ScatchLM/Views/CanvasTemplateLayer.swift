@@ -31,8 +31,10 @@ final class CanvasTemplateLayer: CATiledLayer {
         let m = template.metrics
         let inkColor = (isDark ? UIColor.white : UIColor.black).withAlphaComponent(m.opacity)
         ctx.setStrokeColor(inkColor.cgColor)
+        ctx.setFillColor(inkColor.cgColor)
         ctx.setLineWidth(m.lineWidth)
 
+        // 각 case는 자기 stroke/fill을 자체적으로 마감한다(점선·점 렌더가 섞여 공통 strokePath 불가).
         switch template {
         case .blank:
             break
@@ -43,8 +45,21 @@ final class CanvasTemplateLayer: CATiledLayer {
             drawHorizontals(in: ctx, tile: tile, spacing: m.rowHeight)
             drawVerticals(in: ctx, tile: tile, spacing: m.rowHeight)
             ctx.strokePath()
+        case .manuscript:
+            // 글자 한 칸씩 — 정사각 칸 격자.
+            drawHorizontals(in: ctx, tile: tile, spacing: m.rowHeight)
+            drawVerticals(in: ctx, tile: tile, spacing: m.rowHeight)
+            ctx.strokePath()
+        case .dotgrid:
+            drawDots(in: ctx, tile: tile, spacing: m.rowHeight, radius: m.dotRadius)
+        case .fourline:
+            drawFourLine(in: ctx, tile: tile, metrics: m)
         case .staff:
             drawStaves(in: ctx, tile: tile, metrics: m)
+            ctx.strokePath()
+        case .cornell:
+            drawHorizontals(in: ctx, tile: tile, spacing: m.rowHeight)
+            drawCornellCue(in: ctx, tile: tile, fraction: m.cueFraction)
             ctx.strokePath()
         }
     }
@@ -69,6 +84,67 @@ final class CanvasTemplateLayer: CATiledLayer {
             ctx.addLine(to: CGPoint(x: x, y: tile.maxY))
             x += spacing
         }
+    }
+
+    /// 도트 그리드: (j*spacing, k*spacing) 교점에 작은 점. tile에 걸치는 점만 fill.
+    private func drawDots(in ctx: CGContext, tile: CGRect, spacing: CGFloat, radius: CGFloat) {
+        guard spacing > 0, radius > 0 else { return }
+        var y = (tile.minY / spacing).rounded(.up) * spacing
+        while y <= tile.maxY {
+            var x = (tile.minX / spacing).rounded(.up) * spacing
+            while x <= tile.maxX {
+                ctx.fillEllipse(in: CGRect(x: x - radius, y: y - radius,
+                                           width: radius * 2, height: radius * 2))
+                x += spacing
+            }
+            y += spacing
+        }
+    }
+
+    /// 영어 4선: 4줄 묶음. 위→아래 L0(상단)·L1(x-height, 점선)·L2(베이스라인)·L3(하단).
+    /// 묶음 pitch = 3*staffGap(묶음 높이) + groupGap.
+    private func drawFourLine(in ctx: CGContext, tile: CGRect, metrics m: NoteTemplate.Metrics) {
+        let groupHeight = m.staffGap * 3
+        let pitch = groupHeight + m.groupGap
+        guard pitch > 0 else { return }
+        let topMargin = m.groupGap
+        let firstG = Int(((tile.minY - topMargin - groupHeight) / pitch).rounded(.down))
+        let lastG = Int(((tile.maxY - topMargin) / pitch).rounded(.up))
+        let lo = max(0, firstG)
+        let hi = max(lo, lastG)
+
+        // 실선(L0/L2/L3)
+        for g in lo...hi {
+            let top = topMargin + CGFloat(g) * pitch
+            for i in [0, 2, 3] {
+                let y = top + CGFloat(i) * m.staffGap
+                if y < tile.minY - 1 || y > tile.maxY + 1 { continue }
+                ctx.move(to: CGPoint(x: tile.minX, y: y))
+                ctx.addLine(to: CGPoint(x: tile.maxX, y: y))
+            }
+        }
+        ctx.strokePath()
+
+        // 점선(L1 = x-height 가이드)
+        ctx.setLineDash(phase: 0, lengths: [4, 4])
+        for g in lo...hi {
+            let y = topMargin + CGFloat(g) * pitch + m.staffGap
+            if y < tile.minY - 1 || y > tile.maxY + 1 { continue }
+            ctx.move(to: CGPoint(x: tile.minX, y: y))
+            ctx.addLine(to: CGPoint(x: tile.maxX, y: y))
+        }
+        ctx.strokePath()
+        ctx.setLineDash(phase: 0, lengths: [])   // 리셋
+    }
+
+    /// 코넬 단서칸 세로 구분선 — 논리폭 대비 fraction 위치에 전체 높이 1줄.
+    private func drawCornellCue(in ctx: CGContext, tile: CGRect, fraction: CGFloat) {
+        guard fraction > 0 else { return }
+        let cueX = bounds.width * fraction
+        guard cueX >= tile.minX, cueX <= tile.maxX else { return }
+        ctx.move(to: CGPoint(x: cueX, y: tile.minY))
+        ctx.addLine(to: CGPoint(x: cueX, y: tile.maxY))
+        // strokePath는 호출부(case .cornell)에서 horizontals와 함께 일괄.
     }
 
     /// 오선: 5줄 묶음이 staffGap 간격으로 붙고, 묶음 사이(및 상단)는 groupGap.

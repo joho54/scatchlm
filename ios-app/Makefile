@@ -4,6 +4,8 @@ DEVICE_ID := 00008103-000C65D43AEB001E
 # 확인: `make iphone-id` (연결+잠금해제+신뢰 후).
 IPHONE_ID ?= $(shell xcrun xctrace list devices 2>/dev/null | grep -i 'iPhone' | grep -v 'Simulator' | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}' | head -1)
 SIM_ID := E9FA98C5-3953-4CAF-9076-81000B685E2F
+# iPhone 컴패니언 UI 확인용 시뮬레이터(iPhone 17). override: make run-sim-iphone IPHONE_SIM_ID=<udid>
+IPHONE_SIM_ID := F584BD56-7FCB-4F29-B40A-1611912C9D80
 SCHEME := ScatchLM
 PROJECT := ScatchLM.xcodeproj
 # mtime 기준 가장 최근 build만 — 옛 DerivedData가 남아있어도 안전.
@@ -13,7 +15,7 @@ DEV_APP_PATH = $(shell ls -td $(HOME)/Library/Developer/Xcode/DerivedData/Scatch
 SIM_APP_PATH = $(shell ls -td $(HOME)/Library/Developer/Xcode/DerivedData/ScatchLM-*/Build/Products/Debug-iphonesimulator/ScatchLM.app 2>/dev/null | head -1)
 BUNDLE_ID := com.joho54.scatchlm
 
-.PHONY: gen build build-dev build-sim build-iphone install install-dev install-iphone reinstall reinstall-dev reinstall-iphone iphone-id clean run-sim
+.PHONY: gen build build-dev build-sim build-sim-iphone build-iphone install install-dev install-iphone reinstall reinstall-dev reinstall-iphone iphone-id clean run-sim run-sim-iphone
 
 gen:
 	xcodegen generate
@@ -35,6 +37,11 @@ build-dev: gen
 build-sim: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'id=$(SIM_ID)' build
+
+# iPhone 시뮬레이터 빌드 — 컴패니언(읽기 전용) UI 검증용.
+build-sim-iphone: gen
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	  -destination 'id=$(IPHONE_SIM_ID)' build
 
 # iPhone 실기기 Release 빌드 — `build`와 동일 설정, 기기만 IPHONE_ID.
 build-iphone: gen
@@ -77,3 +84,11 @@ run-sim: build-sim
 	open -a Simulator
 	xcrun simctl install booted $(SIM_APP_PATH)
 	xcrun simctl launch booted $(BUNDLE_ID)
+
+# iPhone 시뮬레이터 부팅 → 빌드 → 설치 → 실행 (컴패니언 UI 확인).
+# 특정 시뮬레이터로 띄우려면: make run-sim-iphone IPHONE_SIM_ID=<udid>
+run-sim-iphone: build-sim-iphone
+	@xcrun simctl boot $(IPHONE_SIM_ID) 2>/dev/null || true
+	open -a Simulator
+	xcrun simctl install $(IPHONE_SIM_ID) $(SIM_APP_PATH)
+	xcrun simctl launch $(IPHONE_SIM_ID) $(BUNDLE_ID)

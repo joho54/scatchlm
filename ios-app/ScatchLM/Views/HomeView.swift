@@ -476,20 +476,25 @@ struct NoteCardView: View {
 
     private func loadThumbnail() async {
         let noteId = note.id
-        let img: UIImage? = await Task.detached(priority: .utility) {
+        // DB I/O만 백그라운드. PKDrawing.image() 렌더는 반드시 메인 스레드에서 호출한다.
+        // PencilKit은 프로세스 전역 공유 렌더 컨텍스트를 쓰며, 이 렌더를 백그라운드(Task.detached)에서
+        // 돌리면 그 공유 상태가 손상되어 같은 프로세스의 다른 PKCanvasView(노트 캔버스) 필기가
+        // 프로세스 전역으로 먹통이 된다(통제실험으로 규명: 썸네일 grid가 있는 화면에서만 재현).
+        let data: Data? = await Task.detached(priority: .utility) {
             guard let pages = try? DatabaseService.shared.pages(noteId: noteId),
-                  let first = pages.first,
-                  let data = first.drawingData,
-                  let drawing = try? PKDrawing(data: data),
-                  !drawing.strokes.isEmpty else { return nil }
-
-            let sourceWidth: CGFloat = 800
-            let aspect: CGFloat = 160.0 / 240.0
-            let sourceHeight = sourceWidth * aspect
-            let rect = CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight)
-            let scale = 240.0 / sourceWidth
-            return drawing.image(from: rect, scale: scale)
+                  let first = pages.first else { return nil }
+            return first.drawingData
         }.value
-        await MainActor.run { self.thumbnail = img }
+        guard let data,
+              let drawing = try? PKDrawing(data: data),
+              !drawing.strokes.isEmpty else {
+            self.thumbnail = nil
+            return
+        }
+        let sourceWidth: CGFloat = 800
+        let aspect: CGFloat = 160.0 / 240.0
+        let rect = CGRect(x: 0, y: 0, width: sourceWidth, height: sourceWidth * aspect)
+        let scale = 240.0 / sourceWidth
+        self.thumbnail = drawing.image(from: rect, scale: scale)   // 메인 스레드(View 메서드)
     }
 }

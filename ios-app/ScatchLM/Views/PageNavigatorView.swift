@@ -12,6 +12,8 @@ struct PageNavigatorView: View {
     let onDelete: (NotePage) -> Void
     let onEditMeta: () -> Void
 
+    @State private var editMode: EditMode = .inactive
+
     private let thumbSize = CGSize(width: 160, height: 107)  // 가로형
 
     var body: some View {
@@ -37,11 +39,21 @@ struct PageNavigatorView: View {
 
             Divider()
 
-            HStack {
+            HStack(spacing: 10) {
                 Text("페이지")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
+                // 순서 변경(드래그 핸들) 모드 토글. 편집모드에선 빨간 − 로 삭제도 가능.
+                if pages.count > 1 {
+                    Button {
+                        withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                    } label: {
+                        Text(editMode.isEditing ? "완료" : "순서변경")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(editMode.isEditing ? Color.accentColor : .secondary)
+                    }
+                }
                 Button(action: onAdd) {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .semibold))
@@ -62,9 +74,13 @@ struct PageNavigatorView: View {
                         row(idx: idx, page: page)
                     }
                     .onMove(perform: onMove)
+                    .onDelete { offsets in
+                        if let i = offsets.first, pages.indices.contains(i) { onDelete(pages[i]) }
+                    }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .environment(\.editMode, $editMode)
                 .environment(\.defaultMinListRowHeight, 1)
                 .onAppear {
                     guard pages.indices.contains(currentIndex) else { return }
@@ -84,23 +100,28 @@ struct PageNavigatorView: View {
 
     @ViewBuilder
     private func row(idx: Int, page: NotePage) -> some View {
-        PageThumbnail(
-            page: page,
-            index: idx,
-            isCurrent: idx == currentIndex,
-            size: thumbSize
-        )
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { onSelect(idx) }
+        // 탭은 Button으로 처리 — .onTapGesture는 List의 스와이프/재정렬 제스처를 가로채 깨뜨린다.
+        Button {
+            onSelect(idx)
+        } label: {
+            PageThumbnail(
+                page: page,
+                index: idx,
+                isCurrent: idx == currentIndex,
+                size: thumbSize
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        // 길게누르기 → 삭제(사용자 직관). 스와이프·편집모드 빨간 −는 위 .onDelete가 함께 제공.
+        .contextMenu {
             Button(role: .destructive) {
                 onDelete(page)
             } label: {
-                Label("삭제", systemImage: "trash")
+                Label("페이지 삭제", systemImage: "trash")
             }
         }
     }

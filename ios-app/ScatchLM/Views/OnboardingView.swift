@@ -89,6 +89,8 @@ struct OnboardingView: View {
                         withAnimation { hint = .chat; hintVisible = true }   // 채팅 안내 재노출
                     }
                 })
+                // 진동 픽스 검증: NoteView가 온보딩 경로(HomeView path 우회)로 떴음을 표시.
+                .onAppear { appLog("boot", "noteview mount", ["via": "onboarding"]) }
             }
 
             // 상단 중앙: 크고 잘 보이는 안내 카드. '확인'을 누르면 사라져 UI를 안 가린다.

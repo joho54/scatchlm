@@ -75,6 +75,8 @@ struct HomeView: View {
         .navigationTitle(isTrash ? "휴지통" : "노트")
         .navigationDestination(for: String.self) { noteId in
             NoteView(noteId: noteId)
+                // 진동 픽스 검증: NoteView가 홈 path 푸시 경로로 떴음을 표시.
+                .onAppear { appLog("boot", "noteview mount", ["via": "home-path"]) }
         }
         .searchable(text: $search, prompt: "제목·과목·교재로 검색")
         .toolbar {

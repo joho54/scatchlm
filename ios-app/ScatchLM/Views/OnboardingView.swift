@@ -8,7 +8,7 @@ import SwiftUI
 /// 설계: 별도 가짜 캔버스/카드를 만들지 않고 **실제 `NoteView`를 데모 노트로 호스팅**한다.
 /// - 진입 시 "연습 노트"를 만들고 데모 교재(`demo-{userId}`)를 attach + PDF 열림 상태로 저장
 ///   → NoteView가 PDF+캔버스 분할로 열린다.
-/// - 필기→✨→피드백 카드(캔버스에 박힘)→카드 탭→채팅이 전부 NoteView의 실제 동작.
+/// - 필기→✨→피드백 카드(캔버스에 박힘)→카드의 '대화' 버튼→채팅이 전부 NoteView의 실제 동작.
 /// - 백엔드는 self-heal: PDF/피드백 요청의 인증 의존성(`_ensure_user_exists`)이 데모 교재
 ///   딥카피를 먼저 보장한 뒤 핸들러가 동작하므로 첫 호출부터 정상.
 /// - 온보딩은 그 위에 **하단 안내 바**(가이드 문구 + 항상 보이는 건너뛰기/마치기)만 얹는다.
@@ -110,7 +110,7 @@ struct OnboardingView: View {
             Label {
                 Text(hint == .write
                      ? String(localized: "PDF 문제의 답을 캔버스에 손글씨로 써보세요")
-                     : String(localized: "피드백 카드를 탭하면 AI와 대화를 이어갈 수 있어요"))
+                     : String(localized: "피드백 카드의 ‘대화’ 버튼으로 AI와 대화를 이어갈 수 있어요"))
                     .font(.title3.weight(.semibold))
             } icon: {
                 Image(systemName: hint == .write ? "pencil.and.outline" : "bubble.left.and.text.bubble.right.fill")
@@ -118,7 +118,7 @@ struct OnboardingView: View {
             }
             Text(hint == .write
                  ? String(localized: "다 쓰면 ✨ 버튼을 눌러 교재 기준 AI 피드백을 받으세요")
-                 : String(localized: "방금 받은 피드백 카드를 한 번 눌러보세요"))
+                 : String(localized: "피드백 카드 아래 💬 ‘대화’ 버튼을 눌러보세요"))
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)

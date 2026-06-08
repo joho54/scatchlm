@@ -265,4 +265,57 @@ final class DatabaseServiceTests: XCTestCase {
         // Cleanup
         try db.deleteNote(id: note.id)
     }
+
+    // MARK: - applyPulledPages (pull 머지 슬롯 충돌 회귀)
+
+    private func pulledPage(id: String, noteId: String, index: Int, updatedAt: Date) -> NotePage {
+        NotePage(id: id, noteId: noteId, pageIndex: index, drawingData: nil,
+                 createdAt: Date(timeIntervalSince1970: 0), userId: db.currentUserId ?? "",
+                 drawingHash: nil, updatedAt: updatedAt, deleted: false, dirty: false)
+    }
+
+    /// 두 페이지의 인덱스를 맞바꾸는 배치를 pull로 적용해도 UNIQUE(note_id,page_index)
+    /// 충돌로 throw하지 않고 정확히 swap 되어야 한다(2-pass). 회귀: 행 단위 save는 brick.
+    func testApplyPulledPagesSwapDoesNotBrick() throws {
+        var note = Note.new(title: "Swap")
+        try db.saveNote(&note)
+        let p0 = try db.createPage(noteId: note.id, pageIndex: 0)
+        let p1 = try db.createPage(noteId: note.id, pageIndex: 1)
+
+        let newer = Date().addingTimeInterval(60)
+        // 서버가 인덱스를 맞바꿔 보냄: p0→1, p1→0
+        XCTAssertNoThrow(try db.applyPulledPages([
+            pulledPage(id: p0.id, noteId: note.id, index: 1, updatedAt: newer),
+            pulledPage(id: p1.id, noteId: note.id, index: 0, updatedAt: newer),
+        ]))
+
+        let pages = try db.pages(noteId: note.id)
+        XCTAssertEqual(pages.count, 2)
+        XCTAssertEqual(try db.page(noteId: note.id, pageIndex: 0)?.id, p1.id)
+        XCTAssertEqual(try db.page(noteId: note.id, pageIndex: 1)?.id, p0.id)
+
+        try db.deleteNote(id: note.id)
+    }
+
+    /// 배치 밖 로컬 행이 점유한 슬롯을 다른 id의 incoming이 차지하는 진짜 충돌도
+    /// throw 없이: incoming이 슬롯을 갖고 점유 행은 말미로 밀려나며 유실되지 않아야 한다.
+    func testApplyPulledPagesSlotConflictDisplacesOccupant() throws {
+        var note = Note.new(title: "Conflict")
+        try db.saveNote(&note)
+        let local = try db.createPage(noteId: note.id, pageIndex: 0)
+
+        let incomingId = UUID().uuidString
+        let newer = Date().addingTimeInterval(60)
+        // 로컬에 없던 새 페이지가 이미 점유된 슬롯 0을 요구
+        XCTAssertNoThrow(try db.applyPulledPages([
+            pulledPage(id: incomingId, noteId: note.id, index: 0, updatedAt: newer),
+        ]))
+
+        let pages = try db.pages(noteId: note.id)
+        XCTAssertEqual(pages.count, 2, "두 페이지 모두 보존(유실 없음)")
+        XCTAssertEqual(try db.page(noteId: note.id, pageIndex: 0)?.id, incomingId, "incoming이 슬롯 차지")
+        XCTAssertTrue(pages.contains { $0.id == local.id }, "점유 행은 말미로 밀려나며 보존")
+
+        try db.deleteNote(id: note.id)
+    }
 }

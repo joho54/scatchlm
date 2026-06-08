@@ -13,10 +13,6 @@ struct SettingsSheet: View {
     @State private var showPaywall = false
     @State private var restoring = false
 
-    #if DEBUG
-    @State private var showDebugCanvas = false
-    #endif
-
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
         let v = (info?["CFBundleShortVersionString"] as? String) ?? "?"
@@ -142,12 +138,6 @@ struct SettingsSheet: View {
                         Text(appVersion).foregroundStyle(.secondary)
                     }
                 }
-
-                #if DEBUG
-                Section("디버그") {
-                    Button("캔버스 떨림 소거법 하니스") { showDebugCanvas = true }
-                }
-                #endif
             }
             .navigationTitle("설정")
             .navigationBarTitleDisplayMode(.inline)
@@ -179,11 +169,6 @@ struct SettingsSheet: View {
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
             }
-            #if DEBUG
-            .fullScreenCover(isPresented: $showDebugCanvas) {
-                DebugCanvasView()
-            }
-            #endif
             .task { await store.refreshFromServer() }
         }
     }

@@ -86,6 +86,16 @@ struct SettingsSheet: View {
                 }
                 }
 
+                Section("도움말") {
+                    Button {
+                        // 온보딩 게이팅 플래그를 내린다 → 설정 닫고 홈으로 가면 온보딩이 다시 뜬다.
+                        UserDefaults.standard.set(false, forKey: "onboardingCompleted")
+                        dismiss()
+                    } label: {
+                        Label("온보딩 다시 보기", systemImage: "sparkles")
+                    }
+                }
+
                 Section("약관 및 정책") {
                     Link(destination: URL(string: Config.privacyPolicyURL)!) {
                         Label("개인정보 처리방침", systemImage: "hand.raised")

@@ -36,6 +36,8 @@ final class NoteCanvasView: PKCanvasView {
 
 struct NoteView: View {
     let noteId: String
+    /// 온보딩 전용 훅 — 피드백 카드가 캔버스에 추가되면 호출(채팅 안내 타이밍용). 일반 노트는 nil.
+    var onFeedbackAppended: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var note: Note?
@@ -768,6 +770,7 @@ struct NoteView: View {
             return
         }
         feedbacks.append(record)
+        onFeedbackAppended?()
 
         // UIKit 직접 렌더 — SwiftUI updateUIView에 의존하지 않음
         if let coordinator {
@@ -1105,67 +1108,25 @@ struct NoteView: View {
                     return
                 }
 
-                // 캡처 — 항상 흰 배경 + 가시적 잉크
-                // Claude API 최대 8000px — 초과 시 리사이즈
-                let rawImage = newDrawing.image(from: bounds, scale: 1.0)
-                // 최대 2000px로 리사이즈 (API 속도 + 비용 최적화)
-                let maxDim: CGFloat = 2000
-                let imgSize = rawImage.size
-                let ratio = max(imgSize.width, imgSize.height) > maxDim
-                    ? maxDim / max(imgSize.width, imgSize.height)
-                    : 1.0
-                let targetSize = CGSize(width: imgSize.width * ratio, height: imgSize.height * ratio)
-
-                // 교정용 템플릿(오선지·영어 4선·원고지)은 배경 선을 컨텍스트로 함께 보낸다.
-                // 정리용(줄노트·격자·도트·코넬)은 OCR 노이즈라 잉크만 — includesLinesInFeedback로 분기.
+                // 캡처 — 노트·온보딩 공유 렌더(흰 배경 + 가시 잉크, 다크모드 반전, 교정용 템플릿 선 합성).
                 let feedbackTemplate = NoteTemplate(storage: note?.template ?? "blank")
-                let renderer = UIGraphicsImageRenderer(size: targetSize)
                 let isDarkMode = UITraitCollection.current.userInterfaceStyle == .dark
-                let finalImage = renderer.image { ctx in
-                    let cg = ctx.cgContext
-                    UIColor.white.setFill()
-                    ctx.fill(CGRect(origin: .zero, size: targetSize))
-
-                    // 배경 선은 잉크 아래에. 잉크와 동일 좌표계(콘텐츠 논리좌표)이므로
-                    // content→이미지 변환 (P - bounds.origin) * ratio 를 ctx에 걸고 같은 영역을 렌더.
-                    if feedbackTemplate.includesLinesInFeedback, ratio > 0 {
-                        cg.saveGState()
-                        cg.scaleBy(x: ratio, y: ratio)
-                        cg.translateBy(x: -bounds.origin.x, y: -bounds.origin.y)
-                        CanvasTemplateLayer.render(
-                            template: feedbackTemplate, isDark: false,
-                            contentWidth: Config.logicalCanvasWidth, rect: bounds,
-                            alphaOverride: 0.45,                    // 잉크(검정) 대비 회색 — 가시성 확보
-                            lineWidthOverride: max(0.75, 1.2 / ratio),  // 다운스케일돼도 ≥1.2px 유지
-                            in: cg)
-                        cg.restoreGState()
-                    }
-
-                    if isDarkMode {
-                        guard let cgImage = rawImage.cgImage,
-                              let ciImage = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: CIImage(cgImage: cgImage)])?.outputImage,
-                              let invertedCG = CIContext().createCGImage(ciImage, from: ciImage.extent) else {
-                            rawImage.draw(in: CGRect(origin: .zero, size: targetSize))
-                            return
-                        }
-                        UIImage(cgImage: invertedCG).draw(in: CGRect(origin: .zero, size: targetSize))
-                    } else {
-                        rawImage.draw(in: CGRect(origin: .zero, size: targetSize))
-                    }
-                }
-                guard let pngData = finalImage.jpegData(compressionQuality: 0.8) else {
+                guard let rendered = StrokeImageRenderer.render(
+                    strokes: newStrokes, template: feedbackTemplate, isDark: isDarkMode
+                ) else {
                     appLog("note", "feedback: pngData nil")
                     showToast(String(localized: "이미지를 만들지 못했어요. 잠시 후 다시 시도해 주세요."))
                     loading = false
                     return
                 }
+                let pngData = rendered.jpeg
 
                 appLog("note", "feedback: capture", [
                     "requestId": "\(requestId)",
                     "newStrokes": "\(newStrokes.count)",
-                    "bounds": "\(bounds)",
+                    "bounds": "\(rendered.bounds)",
                     "pngBytes": "\(pngData.count)",
-                    "imageSize": "\(finalImage.size)",
+                    "imageSize": "\(rendered.imageSize)",
                     "template": feedbackTemplate.rawValue,
                     "templateLines": "\(feedbackTemplate.includesLinesInFeedback)",
                 ])

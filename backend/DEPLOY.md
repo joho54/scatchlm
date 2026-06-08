@@ -151,6 +151,21 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d app
 ```
 Alembic 마이그레이션은 컨테이너 시작 시 `alembic upgrade head`로 자동 실행됨.
 
+### 온보딩 데모 교재 (가이드된 첫 성공 — 별도 배포 작업 없음)
+
+온보딩이 쓰는 데모 교재(2쪽 텍스트 레이어 PDF)는 **이미지에 동봉된 정적 템플릿**
+(`backend/app/assets/demo-template.pdf`)이다. 별도의 storage 사전 업로드·DB seed가 필요 없다:
+
+- 각 유저가 처음 인증할 때 프로비저닝 훅(`auth.py:_ensure_user_exists`)이
+  `ensure_demo_textbook(user_id)`을 **best-effort**로 호출 → 템플릿을 유저 소유 storage key
+  (`{user_id}_demo.pdf`)로 복사하고 `textbook_sources`(id=`demo-{user_id}`)+`chapters` 1개를 INSERT한다.
+- **idempotent**(있으면 no-op)라 매 요청 안전. DB 마이그레이션도 불필요(기존 테이블 사용).
+- 기존 유저도 다음 인증 요청 때 자동으로 데모 교재를 받는다(같은 훅).
+
+데모 PDF 내용을 바꾸려면: `cd backend && source venv/bin/activate && python scripts/gen_demo_textbook.py`
+로 재생성(백엔드 `app/assets/`와 iOS 번들 양쪽 갱신) → 이미지 재빌드/배포. 이미 복사된
+유저별 사본은 갱신되지 않는다(원하면 `{user_id}_demo.pdf` 삭제 + `demo-{user_id}` row 삭제 후 재생성).
+
 ### 설정 파일만 갱신 (compose / Caddy)
 이미지 재빌드 없이 compose/Caddy 설정만 바뀐 경우:
 ```bash

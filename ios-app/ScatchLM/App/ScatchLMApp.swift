@@ -18,6 +18,8 @@ struct ScatchLMApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var auth = AuthService.shared
     @Environment(\.scenePhase) private var scenePhase
+    /// 첫 실행 게이팅(onboarding-guided-first-success-spec §4.1). 완료/건너뛰기 시 true.
+    @AppStorage("onboardingCompleted") private var onboardingCompleted = false
 
     init() {
         // 가장 먼저 Sentry 시작 — 이후 발생하는 크래시/예외를 포착(spec §4.2·B-2).
@@ -33,9 +35,19 @@ struct ScatchLMApp: App {
                     // iPhone 컴패니언(iphone-companion-app-spec §4.1·B-2): idiom 분기.
                     // iPhone = 읽기 전용 컴패니언, iPad = 기존 편집 경로(무변경).
                     if Platform.isPhone {
+                        // iPhone 컴패니언은 읽기 전용 — 온보딩(필기→피드백)은 iPad에서만.
                         PhoneHomeView()
                     } else {
                         HomeView()
+                            .fullScreenCover(isPresented: Binding(
+                                get: { !onboardingCompleted },
+                                set: { if !$0 { onboardingCompleted = true } }
+                            )) {
+                                OnboardingView(completed: Binding(
+                                    get: { onboardingCompleted },
+                                    set: { onboardingCompleted = $0 }
+                                ))
+                            }
                     }
                 } else {
                     LoginView()

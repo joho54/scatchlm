@@ -74,13 +74,26 @@ def get_role(payload: dict) -> str | None:
 
 
 async def _ensure_user_exists(user_id: str, email: str | None, db: AsyncSession) -> None:
-    """users 테이블에 해당 유저가 없으면 자동 생성."""
+    """users 테이블에 해당 유저가 없으면 자동 생성. 데모 교재 딥카피도 best-effort 보장."""
     result = await db.execute(select(User).where(User.id == user_id))
     if result.scalar_one_or_none() is None:
         user = User(id=user_id, email=email or f"{user_id}@unknown")
         db.add(user)
         await db.commit()
         log.info("Auto-created user: %s", user_id)
+
+    # 온보딩 데모 교재(유저별 딥카피)를 보장한다(가이드된 첫 성공 spec §4.3).
+    # idempotent(있으면 no-op)라 매 요청 호출돼도 안전 — 동시에 프로비저닝 훅이자 온보딩 백스톱.
+    # **best-effort**: 실패해도 인증·유저 생성은 절대 차단하지 않는다(try/except).
+    try:
+        from app.services.demo_textbook import ensure_demo_textbook
+        await ensure_demo_textbook(user_id, db)
+    except Exception:
+        log.warning("ensure_demo_textbook failed (non-blocking) user=%s", user_id, exc_info=True)
+        try:
+            await db.rollback()  # 부분 변경 정리 — 후속 요청 처리에 영향 없게
+        except Exception:
+            pass
 
 
 def _extract_raw_token(

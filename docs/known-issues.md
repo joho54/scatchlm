@@ -5,14 +5,18 @@
 **증상**
 약 18줄 필기 후부터 펜이 닿는 순간 캔버스가 흔들림(줌인처럼 보이나 zoom=1.0 불변, 실제는 contentOffset teleport). 증상 시작 후 복구 안 됨. 펜 떼면 정상 복귀. 피드백 카드 무관.
 
-**상태**
-🔍 **원인 미규명.** 진단 계측 투입 완료(커밋 `dc9e65c`), 실기기 재현 대기. 텔레메트리 분석·가설·다음 단계는 `docs/canvas-jitter-investigation.md` 참조.
+**원인** (2026-06-08 실기기 재현으로 규명)
+NoteView 전체가 필기 도중 재생성된다. 필기 autosave → `db.onWrite` → debounced sync →
+`lastSyncedAt` 갱신 → `HomeView.onChange`가 `loadNotes()`로 `notes` @State 재할당 →
+NavigationStack 루트 재렌더 → `.navigationDestination` 재평가 → 푸시된 NoteView가 @State
+전소실로 재생성 → `canvasView`가 빈 인스턴스로 리셋 → `makeUIView` 재호출(contentH 1668·offset 0
+리셋) = 화면 점프. contentOffset teleport는 증상이었다. **OS/프레임워크 탓 아님 — 우리 코드 피드백 루프.**
 
-**핵심 단서** (2026-06-06 텔레메트리)
-- zoom 불변 → 줌 변경 가설 반증. 진동의 정체는 contentOffset.y 순간이동.
-- `setContentHeight`가 매 `canvasViewDrawingDidChange` 콜백마다 발화(geometry mutate).
-- contentH가 중간에 초기값 1668로 리셋(contentView 재생성 의심).
-- contentOffset을 UIKit 내부가 set하나 스택 미해석 → 호출자 미규명.
+**상태**
+🔧 **원인 규명·픽스 적용, 미검증.** HomeView에서 노트 열람 중(`path` 비어있지 않음) sync 발 리스트
+재로드를 보류해 루트 재렌더 사슬을 차단. 실기기(`make reinstall-dev`) 재검증 전까지 "해결" 아님 —
+18줄+ 필기로 진동 소멸 + `makeUIView`가 필기 중 안 찍힘을 app_logs로 확인해야 종결. 상세는
+`docs/canvas-jitter-investigation.md` §0 참조.
 
 ---
 

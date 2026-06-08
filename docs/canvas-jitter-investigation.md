@@ -1,9 +1,44 @@
 # 캔버스 필기 진동(jitter) 조사
 
-> **Status:** 🔍 조사 중 — **원인 미규명**, 진단 계측 투입 완료, 실기기 재현 대기
+> **Status:** ✅ **원인 규명됨**(2026-06-08 실기기 재현 텔레메트리) — 픽스 적용, **실기기 재검증 대기**
 > **Date:** 2026-06-08
-> **관련 커밋:** `dc9e65c` (진단 계측)
+> **관련 커밋:** `dc9e65c` (진단 계측) → 픽스(HomeView sync 재로드 게이팅)
 > **관련 메모리:** PencilKit off-main 렌더 손상(`3fc162a`)과는 **별개 버그**
+
+---
+
+## 0. 결론 (2026-06-08 실기기 재현으로 확정)
+
+진동의 정체는 **NoteView 전체가 필기 도중 teardown→재생성**되는 것이다. contentOffset
+teleport·contentH 1668 리셋은 모두 이 재생성의 증상이었다.
+
+**인과 사슬 (전부 우리 코드 — OS/프레임워크 탓 아님):**
+```
+필기 → autosave 2s 디바운스(NoteView.swift:2034) → saveDrawing → db.savePageDrawing
+  → db.onWrite 훅(SyncService.swift:62) → scheduleDebouncedSync 1.5s
+  → performSync → lastSyncedAt = Date()  (SyncService.swift:165)
+  → HomeView.onChange(of: sync.lastSyncedAt) → loadNotes()  (HomeView.swift:173)
+  → notes @State 재할당 → NavigationStack 루트(HomeView) 재렌더
+  → .navigationDestination 클로저 재평가 → 푸시된 NoteView 재생성 = @State 전소실
+  → canvasView = 빈 NoteCanvasView() → makeUIView(strokes=0, initialH=1668)
+  → contentH 1668·offset 0 리셋 → 화면 점프(진동) → initialDrawingData로 그림 재로드 → 복귀
+```
+
+**확정 증거 (app_logs, 11:51–11:52):**
+- `makeUIView`가 필기 도중 반복 발화, **매번 `strokes=0`**(= @State `canvasView` 기본값
+  `NoteCanvasView()`로 리셋 = NoteView 새 인스턴스). 직후 `geom`이 `boundsH=0, offsetY=0,
+  contentH=1668` 리셋을 보이고 이어 재성장.
+- **모든 `makeUIView` 직전에 `loadNotes`(tag=home)가 선행**. `loadNotes`는 `lastSyncedAt`
+  변경으로만 발화하고 그건 autosave 발 debounced sync의 결과 — 타임라인 교차검증으로 사슬 확정.
+- `zoom=1.0000` 전 구간 불변(초기 "줌인" 가설은 §2.1대로 반증된 채 유지).
+
+**픽스:** `HomeView.swift` — **노트 열람 중(`path` 비어있지 않음)엔 sync 발 리스트 재로드를
+보류**하고 리스트 복귀 시 1회 반영(`pendingHomeReload`). NavigationStack 루트 재렌더 자체를
+없애 destination 재평가→NoteView 재생성 사슬을 끊는다.
+
+> ⚠️ **실기기 재검증 전까지 "해결"로 보고하지 않는다.** 시뮬레이터 빌드 성공·코드상 사슬 차단은
+> 동작 확인이 아니다. `make reinstall-dev` 후 18줄+ 필기로 진동 재현이 사라지고 `makeUIView`가
+> 필기 도중 더는 안 찍히는지 app_logs로 확인해야 종결.
 
 ---
 

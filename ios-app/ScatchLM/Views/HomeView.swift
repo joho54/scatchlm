@@ -17,6 +17,8 @@ struct HomeView: View {
     @State private var folderPendingDelete: Folder?   // 비어있지 않은 폴더 삭제 확인
     @State private var notePendingPurge: Note?         // 영구삭제 확인
     @State private var showEmptyTrashConfirm = false
+    /// 노트 열람 중 들어온 sync 재로드를 보류했음 — 리스트 복귀 시 1회 반영.
+    @State private var pendingHomeReload = false
 
     private let db = DatabaseService.shared
     private let sync = SyncService.shared
@@ -170,7 +172,25 @@ struct HomeView: View {
         .onAppear { loadFolders(); loadNotes(); loadTrash() }
         // 로그인 직후 full pull로 복원된 노트는 .onAppear 이후 DB에 머지되므로,
         // sync 완료(lastSyncedAt 변화) 때 다시 읽어 화면에 반영한다. (재실행해야 보이던 문제)
-        .onChange(of: sync.lastSyncedAt) { loadFolders(); loadNotes(); loadTrash() }
+        //
+        // 단, **노트가 열려 있는 동안(path 비어있지 않음)엔 재로드를 보류**한다. 필기 autosave가
+        // db.onWrite→debounced sync→lastSyncedAt 갱신을 유발하는데, 여기서 notes @State를
+        // 재할당하면 NavigationStack 루트가 재렌더되고 .navigationDestination이 재평가되어
+        // 푸시된 NoteView가 @State 전소실로 재생성된다(캔버스 makeUIView 재호출=필기 진동, 2026-06-08
+        // 텔레메트리로 규명). 리스트로 돌아올 때(path 비면) 한 번 반영한다.
+        .onChange(of: sync.lastSyncedAt) {
+            if path.isEmpty {
+                loadFolders(); loadNotes(); loadTrash()
+            } else {
+                pendingHomeReload = true
+            }
+        }
+        .onChange(of: path) {
+            if path.isEmpty, pendingHomeReload {
+                pendingHomeReload = false
+                loadFolders(); loadNotes(); loadTrash()
+            }
+        }
         // 휴지통 진입 시 최신 목록 로드.
         .onChange(of: selection) { if isTrash { loadTrash() } }
         }

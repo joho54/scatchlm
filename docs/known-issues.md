@@ -1,5 +1,38 @@
 # Known Issues
 
+## 캔버스 필기 진동(jitter) — 18줄 후 펜 닿으면 좌표계 튐
+
+**증상**
+약 18줄 필기 후부터 펜이 닿는 순간 캔버스가 흔들림(줌인처럼 보이나 zoom=1.0 불변, 실제는 contentOffset teleport). 증상 시작 후 복구 안 됨. 펜 떼면 정상 복귀. 피드백 카드 무관.
+
+**상태**
+🔍 **원인 미규명.** 진단 계측 투입 완료(커밋 `dc9e65c`), 실기기 재현 대기. 텔레메트리 분석·가설·다음 단계는 `docs/canvas-jitter-investigation.md` 참조.
+
+**핵심 단서** (2026-06-06 텔레메트리)
+- zoom 불변 → 줌 변경 가설 반증. 진동의 정체는 contentOffset.y 순간이동.
+- `setContentHeight`가 매 `canvasViewDrawingDidChange` 콜백마다 발화(geometry mutate).
+- contentH가 중간에 초기값 1668로 리셋(contentView 재생성 의심).
+- contentOffset을 UIKit 내부가 set하나 스택 미해석 → 호출자 미규명.
+
+---
+
+## PDF 업로드 — 클라우드(OneDrive 등) 미다운로드 파일 ENOENT
+
+**증상**
+클라우드 File Provider의 미다운로드 placeholder PDF를 교재로 업로드하면 `NSCocoaError 260 / POSIX 2 (No such file or directory)`로 실패. 운영 신규 사용자 이탈 1건의 원인.
+
+**원인**
+`APIClient.uploadFile`의 비조정 `Data(contentsOf:)`(`APIClient.swift:203`)가 미다운로드 파일의 materialize를 트리거하지 못함. security-scope는 정상 획득됨(권한 문제 아님).
+
+**상태**
+🔧 **수정됨, 미검증.** `UIDocumentPicker(asCopy:true)` 래퍼로 전환(커밋 `8ee9561`). 실기기 OneDrive 미다운로드 재현 A/B 검증 전까지 "고쳐짐" 아님(시뮬/로컬 재현 불가). 상세·검증 레시피는 `docs/pdf-upload-cloud-materialize-spec.md` 참조.
+
+**연쇄 silent 실패 (함께 처리)**
+- 업로드 실패 silent catch → `uploadError`+`.alert` (CreateNoteSheet `b443902`, NoteMetaSheet `8ee9561`).
+- 빈 캔버스 피드백 silent return → 토스트 (커밋 `8bbc4c7`).
+
+---
+
 ## Guide cache는 response_language를 키에 포함하지 않음
 
 **증상**

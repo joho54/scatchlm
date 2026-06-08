@@ -2,21 +2,24 @@
 import SwiftUI
 import PencilKit
 
-/// 떨림 소거법 — **baseline(빈 캔버스)**.
+/// 떨림 소거법 — **스텝 1: raw 네이티브 캔버스 + contentSize-only 확장.**
 ///
-/// 아무 컴포넌트 합성도 없는 raw `PKCanvasView` 하나. 우리 host 계층·auto-grow·indicator·
-/// 피드백 카드·@State 재렌더 전부 없음. 화면을 감싸는 SwiftUI 상태도 없다(이 View엔 @State 0개 —
-/// stroke마다 재렌더되는 경로 자체가 없음). 닫기 버튼은 캔버스와 분리된 오버레이.
+/// 이 버그는 캔버스가 확장될 때만 발현된다(확장 없으면 재현 불가). 그래서 baseline은
+/// "확장하는 가장 단순한 캔버스"다:
+/// - raw `PKCanvasView`, **네이티브 스크롤**(isScrollEnabled=true).
+/// - 우리 host 계층·contentView·center 재계산·indicator·@State 재렌더 **전부 없음**.
+/// - 유일한 확장: `canvasViewDrawingDidChange`에서 **`contentSize.height`만** 키운다.
+///   (우리 실제 코드처럼 `canvas.frame`/bounds를 키우지 않는다 — bounds는 뷰포트 그대로.)
 ///
-/// 여기서 캔버스를 크게 키우며(위→아래로 그려 내려가며) 떨림이 나는지 본다.
-/// - **안 떨림** → 떨림은 우리가 얹은 레이어 중 하나. 다음 단계에서 한 겹씩 추가.
-/// - **떨림** → PencilKit 자체(혹은 큰 contentSize) 문제 → 문제 재정의.
+/// 판정:
+/// - **안 떨림** → 네이티브 contentSize 확장은 안전. 범인은 우리 frame 확장(host 계층). 다음 스텝에서 추가.
+/// - **떨림** → 확장(contentSize) 자체가 PencilKit를 흔든다 → 문제 재정의.
 struct DebugCanvasView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            RawCanvas()
+            NativeGrowCanvas()
                 .ignoresSafeArea()
             Button("닫기") { dismiss() }
                 .padding(10)
@@ -27,14 +30,15 @@ struct DebugCanvasView: View {
     }
 }
 
-/// raw PKCanvasView 하나. 네이티브 스크롤, 큰 고정 contentSize. 델리게이트·핸들러 없음.
-private struct RawCanvas: UIViewRepresentable {
+/// raw PKCanvasView. 네이티브 스크롤. 유일한 부착물 = contentSize만 키우는 delegate.
+private struct NativeGrowCanvas: UIViewRepresentable {
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
         canvas.drawingPolicy = .anyInput
         canvas.alwaysBounceVertical = true
         canvas.backgroundColor = .systemBackground
-        canvas.contentSize = CGSize(width: UIScreen.main.bounds.width, height: 6000)
+        canvas.contentSize = CGSize(width: UIScreen.main.bounds.width, height: 1500)
+        canvas.delegate = context.coordinator
 
         let tp = PKToolPicker()
         tp.setVisible(true, forFirstResponder: canvas)
@@ -47,6 +51,18 @@ private struct RawCanvas: UIViewRepresentable {
     func updateUIView(_ uiView: PKCanvasView, context: Context) {}
 
     func makeCoordinator() -> Coord { Coord() }
-    final class Coord { var toolPicker: PKToolPicker? }
+
+    final class Coord: NSObject, PKCanvasViewDelegate {
+        var toolPicker: PKToolPicker?
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            // 유일한 확장: contentSize.height만 키운다. bounds(뷰포트)·frame은 안 건드림.
+            let bottom = canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
+            let target = bottom + canvasView.bounds.height   // 1 뷰포트 버퍼
+            if canvasView.contentSize.height < target {
+                canvasView.contentSize.height = target
+            }
+        }
+    }
 }
 #endif

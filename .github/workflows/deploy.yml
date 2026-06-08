@@ -61,7 +61,8 @@ jobs:
       - name: Sync VM config from repo
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: scatchlm.duckdns.org
+          # 고정 공인 IP 직결 — 러너의 DuckDNS DNS 조회(i/o timeout)로 배포가 죽던 문제 회피.
+          host: 101.79.20.91
           username: root
           key: ${{ secrets.NCP_SSH_KEY }}
           source: "backend/docker-compose.prod.yml,backend/Caddyfile,backend/static"
@@ -72,7 +73,8 @@ jobs:
       - name: Pull & restart on VM
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: scatchlm.duckdns.org
+          # 고정 공인 IP 직결 — DuckDNS DNS 조회 의존 제거(위 scp와 동일 이유).
+          host: 101.79.20.91
           username: root
           key: ${{ secrets.NCP_SSH_KEY }}
           script_stop: true

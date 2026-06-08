@@ -1468,6 +1468,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
         /// 다음 카드가 놓일 Y — 가이드라인(점선)이 그려지는 위치이자 배치의 단일 진실(SSOT).
         /// updateNextPositionIndicator에서만 갱신되고, appendFeedbackCard는 이 값을 그대로 사용한다.
         private(set) var nextCardLineY: CGFloat = 100
+        /// 펜 접촉 중 보류된 목표 contentHeight(정석1: mid-stroke 지오메트리 mutate 금지).
+        /// 펜업(canvasViewDidEndUsingTool)에 flushPendingContentHeight로 1회 적용.
+        private var pendingContentHeight: CGFloat?
 
         init(onDrawingChanged: @escaping () -> Void) {
             self.onDrawingChanged = onDrawingChanged
@@ -1534,6 +1537,15 @@ struct PencilKitCanvasView: UIViewRepresentable {
         /// contentView 높이를 h로 설정 — 줌 transform이 걸린 상태에서도 top-left를 고정한 채 아래로 확장.
         func setContentHeight(_ h: CGFloat) {
             guard let host, let contentView else { return }
+            // 정석1: 펜이 닿아 있는 동안엔 지오메트리를 절대 mutate하지 않는다. mid-stroke에
+            // contentView.bounds/canvas.frame/host.contentSize를 바꾸면 PencilKit가 진행 중인
+            // 스트로크를 재레이아웃해 떨림이 난다. 목표 높이만 적립하고 펜업에 1회 flush한다.
+            // 진행 중 스트로크는 펜다운 시점의 2-viewport 버퍼(아래 ensureContentHeight 호출의 *2)
+            // 안에 들어오므로 보류해도 잉크가 잘리지 않는다.
+            if (host as? HostScrollView)?.isDrawingActive == true {
+                pendingContentHeight = max(pendingContentHeight ?? 0, h)
+                return
+            }
             let s = host.zoomScale
             let w = contentView.bounds.width
             let origin = contentView.frame.origin
@@ -1562,6 +1574,15 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 CATransaction.commit()
             }
             host.contentSize = CGSize(width: w * s, height: h * s)
+        }
+
+        /// 펜업 시 호출 — 펜 접촉 중 보류했던 목표 높이를 1회 적용. isDrawingActive=false인 상태에서
+        /// 불려야 setContentHeight가 실제 mutate한다(canvasViewDidEndUsingTool에서 false 후 호출).
+        func flushPendingContentHeight() {
+            guard let h = pendingContentHeight else { return }
+            pendingContentHeight = nil
+            appLogDebug("canvas", "flush pendingH", ["h": "\(Int(h))"])
+            setContentHeight(h)
         }
 
         /// contentView 높이가 h보다 작으면 확장. host/contentView 미연결(단위 테스트 등) 시엔
@@ -1981,6 +2002,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             (host as? HostScrollView)?.isDrawingActive = false
+            // 정석1: 펜 접촉 중 보류한 캔버스 확장을 여기서 1회 적용.
+            flushPendingContentHeight()
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {

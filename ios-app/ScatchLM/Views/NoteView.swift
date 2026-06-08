@@ -1090,6 +1090,7 @@ struct NoteView: View {
                 let newStrokes = Array(allStrokes.dropFirst(frozenEnd))
                 guard !newStrokes.isEmpty else {
                     appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)"])
+                    showToast(String(localized: "먼저 필기를 해주세요. 손글씨를 인식해 피드백을 드려요."))
                     loading = false
                     return
                 }
@@ -1099,6 +1100,7 @@ struct NoteView: View {
                 let bounds = newDrawing.bounds
                 guard !bounds.isEmpty else {
                     appLog("note", "feedback: empty bounds")
+                    showToast(String(localized: "필기를 인식하지 못했어요. 다시 써 보고 피드백을 눌러 주세요."))
                     loading = false
                     return
                 }
@@ -1153,6 +1155,7 @@ struct NoteView: View {
                 }
                 guard let pngData = finalImage.jpegData(compressionQuality: 0.8) else {
                     appLog("note", "feedback: pngData nil")
+                    showToast(String(localized: "이미지를 만들지 못했어요. 잠시 후 다시 시도해 주세요."))
                     loading = false
                     return
                 }

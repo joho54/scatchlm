@@ -34,7 +34,9 @@ struct DebugCanvasView: View {
 private struct NativeGrowCanvas: UIViewRepresentable {
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
-        canvas.drawingPolicy = .anyInput
+        // 펜=그리기, 손가락=스크롤로 분리(.anyInput이면 손가락도 그리기로 먹혀 스크롤 불가).
+        // 펜이 없으면 그릴 수 없으니, 펜 없는 환경에선 .anyInput으로 바꿀 것.
+        canvas.drawingPolicy = .pencilOnly
         canvas.alwaysBounceVertical = true
         canvas.backgroundColor = .systemBackground
         canvas.contentSize = CGSize(width: UIScreen.main.bounds.width, height: 1500)

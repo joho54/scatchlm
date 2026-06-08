@@ -24,8 +24,6 @@ struct OnboardingView: View {
     @State private var noteReady = false
     @State private var hint: Hint = .write
     @State private var gotFeedback = false
-    @State private var hintVisible = true
-    @State private var hintToken = 0          // 증가 시 .task(id:) 재시작 → 자동 숨김 타이머 리셋
 
     private let db = DatabaseService.shared
 
@@ -87,25 +85,15 @@ struct OnboardingView: View {
                 })
             }
 
-            // 상단 중앙: 작은 힌트 — 몇 초 뒤 자동으로 사라져 UI를 가리지 않는다.
-            if hintVisible {
-                hintPill
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .allowsHitTesting(false)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
+            // 상단 중앙: 작은 힌트(항상 표시). 충분히 작아 UI를 가리지 않으며, 피드백을 받으면
+            // 문구가 채팅 안내로 바뀐다.
+            hintPill
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .allowsHitTesting(false)
         }
         // 상단 우측: 항상 보이는 작은 건너뛰기/마치기 칩(하단 컨트롤과 안 겹침).
         .overlay(alignment: .topTrailing) { skipChip }
-        .task(id: hintToken) {
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            withAnimation { hintVisible = false }
-        }
-        .onChange(of: hint) { _, _ in
-            withAnimation { hintVisible = true }
-            hintToken += 1                 // 타이머 리셋 → 채팅 힌트도 4초 뒤 사라짐
-        }
     }
 
     private var hintPill: some View {

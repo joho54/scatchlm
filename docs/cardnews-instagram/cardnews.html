@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ScatchLM 카드뉴스 — 인스타/스레드</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- =====================================================================
+     인스타/스레드 카드뉴스 · 세로 1080x1350 · 7장
+     톤: 가치 직격(첫 장에서 핵심) → 닫힌 루프(3장) → 차별점 → grounding → CTA.
+     서사·니치(헬라어) 빌드업 제거 — 피드에서 스크롤로 걸러지지 않게.
+     문구는 이 파일 텍스트만 고치면 됨. 렌더: node render.mjs → out/
+     ===================================================================== -->
+
+<!-- 01 훅 — 가치 직격 -->
+<div class="card narrative" id="card-1">
+  <div class="big">손으로 쓰면<br>AI가 바로<br><span class="u">첨삭한다.</span></div>
+  <div class="body">타이핑 말고 — 종이에 쓰듯 직접 풀고, 그 자리에서 피드백.</div>
+  <div class="idx">01 / 07</div>
+  <div class="brandmark"><img src="assets/app-icon.png">ScatchLM</div>
+</div>
+
+<!-- 02 루프 ① 묻고 -->
+<div class="card" id="card-2">
+  <div class="tracker"><span class="on">묻고</span><span class="arrow">→</span><span>연습하고</span><span class="arrow">→</span><span>다시 피드백</span></div>
+  <div class="step-title">① 막힌 걸 묻는다</div>
+  <div class="step-sub">손글씨째로 질문하면, AI가 그대로 읽고 답한다.</div>
+  <div class="shot" data-label="loop-1.png"><img src="assets/loop-1.png" onerror="this.style.display='none'"></div>
+  <div class="idx">02 / 07</div>
+</div>
+
+<!-- 03 루프 ② 연습하고 -->
+<div class="card" id="card-3">
+  <div class="tracker"><span>묻고</span><span class="arrow">→</span><span class="on">연습하고</span><span class="arrow">→</span><span>다시 피드백</span></div>
+  <div class="step-title">② 그 위에서 손으로<br>다시 푼다</div>
+  <div class="step-sub">답을 캔버스에 스크랩하고, 바로 그 위에 직접 연습.</div>
+  <div class="shot" data-label="loop-2.png"><img src="assets/loop-2.png" onerror="this.style.display='none'"></div>
+  <div class="idx">03 / 07</div>
+</div>
+
+<!-- 04 루프 ③ 다시 피드백 -->
+<div class="card" id="card-4">
+  <div class="tracker"><span>묻고</span><span class="arrow">→</span><span>연습하고</span><span class="arrow">→</span><span class="on">다시 피드백</span></div>
+  <div class="step-title">③ 한 번 더<br>피드백받는다</div>
+  <div class="step-sub">내가 연습한 걸 근거로 다시 첨삭 — 한 캔버스에서 루프가 닫힌다.</div>
+  <div class="shot" data-label="loop-3.png"><img src="assets/loop-3.png" onerror="this.style.display='none'"></div>
+  <div class="idx">04 / 07</div>
+</div>
+
+<!-- 05 차별점 punch + 비교 -->
+<div class="card narrative" id="card-5">
+  <div class="punch">묻고 → 연습하고<br>→ <span class="u">다시 피드백.</span></div>
+  <div class="compare">
+    <div class="row"><span class="who">ChatGPT</span><span class="mark no">✗</span><span>손으로 다시 연습이 없다</span></div>
+    <div class="row"><span class="who">필기 앱</span><span class="mark no">✗</span><span>피드백이 없다</span></div>
+    <div class="row"><span class="who">ScatchLM</span><span class="mark yes">✓</span><span>그 사이를, 한 화면에서</span></div>
+  </div>
+  <div class="idx">05 / 07</div>
+</div>
+
+<!-- 06 교재 grounding -->
+<div class="card" id="card-6">
+  <div class="eyebrow">내 교재를 연결하면</div>
+  <div class="step-title">그 책, 그 페이지<br>기준으로 답한다</div>
+  <div class="step-sub">PDF 교재를 올리면 일반 지식이 아니라 “지금 보는 그 책”에 근거해, 페이지까지 인용해 설명한다.</div>
+  <div class="shot" data-label="textbook.png"><img src="assets/textbook.png" onerror="this.style.display='none'"></div>
+  <div class="idx">06 / 07</div>
+</div>
+
+<!-- 07 CTA -->
+<div class="card cta" id="card-7">
+  <img class="logo" src="assets/app-icon.png">
+  <div class="name">ScatchLM</div>
+  <div class="tag">고전어 · 전공 · 기술 심화 —<br>손으로 쓰며 깊게 파는 공부에.</div>
+  <div class="search">앱스토어 ‘ScatchLM’ 검색</div>
+  <div class="meta">무료 · iPad · Apple Pencil</div>
+  <div class="idx">07 / 07</div>
+</div>
+
+</body>
+</html>

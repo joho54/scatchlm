@@ -1,0 +1,134 @@
+/* =========================================================================
+   App Store 스크린샷 스타일 (iPhone 컴패니언) — 여기 변수만 만지면 디자인이 바뀝니다.
+   캡처 규격: iPhone 6.7" 세로(portrait) = 1284 x 2778 px
+   (App Store Connect iPhone 슬롯이 받는 사이즈: 6.5"=1242x2688 또는 6.7"=1284x2778)
+   iPad판(../appstore-screenshots)과 동일 테마. 치수만 iPhone에 맞춤.
+   ========================================================================= */
+:root {
+  /* --- 색 (iPad판과 통일 — 짙은 파랑 테마, 아이콘과 통일) --- */
+  --bg-top:    #122a63;   /* 배경 그라데이션 위 (짙은 파랑) */
+  --bg-bottom: #0b1838;   /* 배경 그라데이션 아래 (더 짙게) */
+  --ink:       #ffffff;   /* 캡션 메인 텍스트 (흰색) */
+  --accent:    #ffffff;   /* 강조·현재 단계 (흰색) */
+  --muted:     #6b7aa0;   /* 트래커 비활성 단계 (회색) */
+  --sub:       #aab6d4;   /* 보조 텍스트 (연한 회청색) */
+
+  /* --- 치수 (iPhone 6.7" 세로 = App Store 허용 1284x2778) --- */
+  --frame-w: 1284px;
+  --frame-h: 2778px;
+  --pad:     90px;        /* 프레임 안쪽 여백 (iPad 130 → iPhone 90) */
+  --radius:  40px;        /* (미사용 — 곡률은 .shot img border-radius로 직접 지정) */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 미리보기: 앱스토어 제품 페이지처럼 가로 캐러셀 =====
+   (각 프레임은 zoom으로 축소만 — 렌더 시엔 body.rendering이 zoom:1로 되돌림) */
+body {
+  background: #000;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 28px;
+  padding: 60px 48px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 100vh;
+}
+.frame {
+  width: var(--frame-w);
+  height: var(--frame-h);
+  background: linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--pad) var(--pad) 0;   /* 하단 0 — 스크린샷을 바닥에 붙여 흘려보냄 */
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  zoom: 0.34;                 /* 미리보기 축소 — 캐러셀에 여러 장 보이게 */
+  border-radius: 60px;       /* 앱스토어 카드 느낌 */
+}
+
+/* ===== 렌더 모드: render.mjs가 body에 .rendering을 붙임 → 풀사이즈 1:1 ===== */
+body.rendering {
+  display: block;
+  background: #fff;
+  padding: 0;
+  overflow: visible;
+}
+body.rendering .frame {
+  zoom: 1;
+  border-radius: 0;          /* 업로드 이미지는 모서리 직각 (스토어가 알아서 라운딩) */
+  margin: 0;
+}
+
+/* ---- 캡션 (상단) — iPad 대비 폭 0.64배라 폰트도 비례 축소 ---- */
+.caption {
+  text-align: center;
+  margin-bottom: 56px;
+  flex-shrink: 0;
+}
+.caption h2 {
+  color: var(--ink);
+  font-size: 72px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.18;
+}
+.caption .sub {
+  color: var(--sub);
+  font-size: 34px;
+  font-weight: 500;
+  margin-top: 22px;
+}
+
+/* ---- "동기화" 에디션 배지 (iPhone판 공통 eyebrow) ---- */
+.eyebrow {
+  color: var(--sub);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  margin-bottom: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ---- 단일 스크린샷 (풀블리드 — 디바이스 베젤 없음) ----
+   가짜 프레임을 빼고, 스크린샷 "전체"를 iPhone 화면 곡률로 4모서리 둥글게 띄운다.
+   하단을 자르지 않으므로 아이폰 화면 그대로 읽힌다(잘린 카드 X). */
+.shot {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;          /* 캡션 바로 아래부터 */
+  justify-content: center;
+  min-height: 0;
+  position: relative;               /* ::after 플레이스홀더 기준 */
+}
+.shot img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;              /* 전체 화면 — 잘림 없음 */
+  border-radius: 150px;             /* iPhone 16 Pro 화면 곡률(렌더 스케일 ~1104px 기준) */
+  box-shadow: 0 30px 100px -30px rgba(0,0,0,.55);
+  display: block;
+  position: relative;
+  z-index: 2;                       /* 플레이스홀더 라벨(::after, z:1) 위로 */
+}
+
+/* 이미지 없을 때 보이는 플레이스홀더 라벨 (img가 로드되면 위에 덮임) */
+.shot::after {
+  content: attr(data-label);
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #b8b2a6; font-size: 44px; font-weight: 600;
+  z-index: 1;
+}

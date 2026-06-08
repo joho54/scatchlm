@@ -1,0 +1,8 @@
+{
+  "name": "scatchlm-cardnews-instagram",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}

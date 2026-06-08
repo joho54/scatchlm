@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ScatchLM App Store Screenshots — iPhone</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- =====================================================================
+     iPhone 6.9"(16 Pro Max) 세로(portrait) 1320 x 2868 px · 5장
+     iPhone 컴패니언 = "읽기 전용 열람 + 챕터 대화(채팅)" (iphone-companion-app-spec).
+     아이폰에서 신규 필기/편집은 불가, 채팅은 가능 — 캡션이 이를 정확히 반영.
+
+     사용법:
+     1) iPhone 실기기에서 화면 캡처(세로) → shots/ 폴더에 아래 파일명대로 저장
+        (없으면 회색 플레이스홀더가 보입니다)
+        | 파일                | 캡처할 화면                                   |
+        |---------------------|-----------------------------------------------|
+        | 1-sync-notes.png    | iPhone 노트 탭(리스트) — iPad에서 만든 노트들  |
+        | 2-note-read.png     | 노트 열람(필기+피드백 카드 읽기, 페이지 스와이프)|
+        | 3-textbook.png      | 교재 PDF 열람(페이지/가이드)                   |
+        | 4-chapter-chat.png  | 챕터 대화 — 챕터별 세션 리스트                 |
+        | 5-chat.png          | 세션 대화 화면 — AI와 이어서 질문              |
+     2) 브라우저로 이 파일 열어 디자인 확인
+     3) `node render.mjs` 실행 → out/ 에 1320x2868 PNG 5장
+
+     캡처 규격: iPhone 16 Pro Max(6.9") 세로 권장. App Store는 6.9" 1세트면
+     6.5"·6.7" 슬롯을 자동 다운스케일로 채움(별도 캡처 불필요).
+     ===================================================================== -->
+
+<!-- #1 동기화 — iPad 노트를 iPhone에서 -->
+<div class="frame" id="shot-1">
+  <div class="caption">
+    <h2>iPad에서 쓴 노트,<br>iPhone에서 바로</h2>
+    <div class="sub">계정만 같으면 노트·교재가 자동으로 동기화</div>
+  </div>
+  <div class="shot" data-label="1-sync-notes.png">
+    <img src="shots/1-sync-notes.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #2 노트 열람 -->
+<div class="frame" id="shot-2">
+  <div class="caption">
+    <h2>필기도 피드백도<br>손안에서 다시</h2>
+    <div class="sub">지난 손글씨와 AI 첨삭을 어디서나 펼쳐 보기</div>
+  </div>
+  <div class="shot" data-label="2-note-read.png">
+    <img src="shots/2-note-read.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #3 교재 열람 -->
+<div class="frame" id="shot-3">
+  <div class="caption">
+    <h2>교재도<br>주머니 속에</h2>
+    <div class="sub">연결한 교재 PDF를 페이지·가이드까지 그대로</div>
+  </div>
+  <div class="shot" data-label="3-textbook.png">
+    <img src="shots/3-textbook.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #4 챕터 대화 (서랍) -->
+<div class="frame" id="shot-4">
+  <div class="eyebrow">CHAPTER CHAT · 챕터 대화</div>
+  <div class="caption">
+    <h2>챕터마다<br>대화가 쌓여요</h2>
+    <div class="sub">교재 챕터별로 정리된 AI 대화를 골라 열기</div>
+  </div>
+  <div class="shot" data-label="4-chapter-chat.png">
+    <img src="shots/4-chapter-chat.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+<!-- #5 이어서 채팅 -->
+<div class="frame" id="shot-5">
+  <div class="caption">
+    <h2>이동 중에도<br>AI와 끝까지</h2>
+    <div class="sub">막힌 부분을 이해될 때까지 이어서 질문</div>
+  </div>
+  <div class="shot" data-label="5-chat.png">
+    <img src="shots/5-chat.png" onerror="this.style.display='none'">
+  </div>
+</div>
+
+</body>
+</html>

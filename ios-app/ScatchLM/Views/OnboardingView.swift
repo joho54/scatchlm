@@ -24,6 +24,8 @@ struct OnboardingView: View {
     @State private var noteReady = false
     @State private var hint: Hint = .write
     @State private var gotFeedback = false
+    @State private var hintVisible = true
+    @State private var hintToken = 0          // 증가 시 .task(id:) 재시작 → 자동 숨김 타이머 리셋
 
     private let db = DatabaseService.shared
 
@@ -75,7 +77,7 @@ struct OnboardingView: View {
     // MARK: - Editor (real NoteView + onboarding bar)
 
     private var editorStep: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: .top) {
             if noteReady {
                 NoteView(noteId: noteId, onFeedbackAppended: {
                     if !gotFeedback {
@@ -84,42 +86,48 @@ struct OnboardingView: View {
                     }
                 })
             }
-            onboardingBar
+
+            // 상단 중앙: 작은 힌트 — 몇 초 뒤 자동으로 사라져 UI를 가리지 않는다.
+            if hintVisible {
+                hintPill
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        // 상단 우측: 항상 보이는 작은 건너뛰기/마치기 칩(하단 컨트롤과 안 겹침).
+        .overlay(alignment: .topTrailing) { skipChip }
+        .task(id: hintToken) {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            withAnimation { hintVisible = false }
+        }
+        .onChange(of: hint) { _, _ in
+            withAnimation { hintVisible = true }
+            hintToken += 1                 // 타이머 리셋 → 채팅 힌트도 4초 뒤 사라짐
         }
     }
 
-    private var onboardingBar: some View {
-        HStack(spacing: 12) {
-            Button(String(localized: "건너뛰기")) { finish() }
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.85))
+    private var hintPill: some View {
+        Text(hint == .write
+             ? String(localized: "PDF 문제의 답을 캔버스에 쓰고 ✨를 누르세요")
+             : String(localized: "피드백 카드를 탭하면 AI와 대화를 이어갈 수 있어요"))
+            .font(.footnote.weight(.medium))
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Capsule().fill(Color.black.opacity(0.8)))
+            .foregroundStyle(.white)
+            .shadow(radius: 4)
+    }
 
-            VStack(spacing: 2) {
-                Text(hint == .write
-                     ? String(localized: "PDF 문제를 보고 캔버스에 답을 써보세요")
-                     : String(localized: "피드백 카드를 탭하면 AI와 대화를 이어갈 수 있어요"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text(hint == .write
-                     ? String(localized: "다 쓰면 ✨ 버튼으로 피드백을 받으세요")
-                     : String(localized: "방금 받은 피드백 카드를 한번 눌러보세요"))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-
-            Button(String(localized: gotFeedback ? "마치기" : "건너뛰기")) { finish() }
-                .font(.subheadline.weight(.bold))
+    private var skipChip: some View {
+        Button { finish() } label: {
+            Text(gotFeedback ? String(localized: "마치기") : String(localized: "건너뛰기"))
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(Capsule().fill(Color.black.opacity(0.6)))
                 .foregroundStyle(.white)
-                .opacity(gotFeedback ? 1 : 0)        // 피드백 전엔 좌측 건너뛰기만(중복 방지), 후엔 "마치기"
-                .disabled(!gotFeedback)
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(Capsule().fill(Color.black.opacity(0.82)))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
-        .shadow(radius: 6)
+        .padding(.top, 10).padding(.trailing, 12)
     }
 
     // MARK: - Logic

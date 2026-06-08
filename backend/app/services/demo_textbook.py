@@ -77,31 +77,34 @@ async def ensure_demo_textbook(user_id: str, db: AsyncSession) -> str:
     key = f"{user_id}_demo.pdf"
     _copy_template_to_storage(key, data)
 
-    db.add(TextbookSource(
-        id=tid,
-        user_id=user_id,
-        file_name=DEMO_FILE_NAME,
-        server_path=key,
-        total_pages=DEMO_TOTAL_PAGES,
-        file_size=len(data),
-        content_hash=hashlib.sha256(data).hexdigest(),
-        is_scanned=False,
-        scan_evaluated=True,  # 텍스트 PDF — 재평가 불필요(textbook.py:34)
-    ))
-    db.add(Chapter(
-        id=f"{tid}-ch1",
-        textbook_id=tid,
-        level=1,
-        title=DEMO_CHAPTER_TITLE,
-        page_start=1,
-        page_end=DEMO_TOTAL_PAGES,
-    ))
-
     try:
+        db.add(TextbookSource(
+            id=tid,
+            user_id=user_id,
+            file_name=DEMO_FILE_NAME,
+            server_path=key,
+            total_pages=DEMO_TOTAL_PAGES,
+            file_size=len(data),
+            content_hash=hashlib.sha256(data).hexdigest(),
+            is_scanned=False,
+            scan_evaluated=True,  # 텍스트 PDF — 재평가 불필요(textbook.py:34)
+        ))
+        # 부모(textbook_sources)를 자식(chapters)보다 **먼저** flush해 FK를 보장한다.
+        # 둘 다 client-set id 문자열이고 relationship()이 없어 UOW가 부모 우선 정렬을 보장하지
+        # 않는다 — 운영에서 chapters_textbook_id_fkey 위반으로 매 INSERT가 롤백된 원인.
+        await db.flush()
+        db.add(Chapter(
+            id=f"{tid}-ch1",
+            textbook_id=tid,
+            level=1,
+            title=DEMO_CHAPTER_TITLE,
+            page_start=1,
+            page_end=DEMO_TOTAL_PAGES,
+        ))
         await db.commit()
         log.info("Demo textbook created: %s", tid)
     except IntegrityError:
-        # 다른 요청이 먼저 만들었다(경합). idempotent — 성공으로 취급.
+        # 다른 요청이 먼저 만들었다(PK 경합). idempotent — 성공으로 취급.
         await db.rollback()
         log.info("Demo textbook already created concurrently: %s", tid)
     return tid

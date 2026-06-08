@@ -1204,17 +1204,20 @@ final class HostScrollView: UIScrollView {
 
     override var contentOffset: CGPoint {
         didSet {
-            guard isDrawingActive else { return }
             let dy = contentOffset.y - oldValue.y
-            // 라운딩/미세 떨림은 무시, 의미 있는 점프만(06-06엔 수백 pt).
-            guard abs(dy) > 2 else { return }
+            // 라운딩/미세 떨림은 무시, 의미 있는 점프만. isDrawingActive 무관하게 기록 —
+            // 진동/스크롤이 펜 접촉 중인지(자동스크롤) 스트로크 사이인지(우리 코드 reframe vs 사용자 팬)
+            // 구분하려면 양쪽 다 잡아야 한다. drag/tracking 상태로 사용자 팬과 프로그램 스크롤을 가른다.
+            guard abs(dy) > 4 else { return }
             // 상위 프레임 — UIKit 내부가 set하는지(자동스크롤/clamp) 우리 코드가 set하는지 구분.
-            let frames = Thread.callStackSymbols.dropFirst().prefix(8).joined(separator: " ∥ ")
+            let frames = Thread.callStackSymbols.dropFirst().prefix(10).joined(separator: " ∥ ")
             appLogDebug("canvas", "offset set", [
                 "dy": String(format: "%.1f", dy),
                 "from": String(format: "%.1f", oldValue.y),
                 "to": String(format: "%.1f", contentOffset.y),
                 "contentH": String(format: "%.0f", contentSize.height),
+                "draw": isDrawingActive ? "1" : "0",
+                "drag": (isDragging || isTracking || isDecelerating) ? "1" : "0",
                 "stack": frames,
             ])
         }
@@ -1534,16 +1537,22 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let s = host.zoomScale
             let w = contentView.bounds.width
             let origin = contentView.frame.origin
+            let offBefore = host.contentOffset.y
+            let drawing = (host as? HostScrollView)?.isDrawingActive ?? false
+            contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+            contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
+            canvas?.frame = contentView.bounds
             // 변환 입력값 — origin/zoomScale이 스크롤 직후 흔들리면 center가 매번 미세하게 달라져 상하 진동.
+            // draw=1 = 펜 접촉 중 reframe(=진동 후보). offΔ = reframe이 host offset을 흔들었는지.
             appLogDebug("canvas", "setH", [
                 "h": "\(Int(h))",
                 "zoom": String(format: "%.4f", s),
                 "originY": String(format: "%.1f", origin.y),
-                "newCenterY": String(format: "%.1f", origin.y + (h * s) / 2),
+                "newOriginY": String(format: "%.1f", contentView.frame.origin.y),
+                "draw": drawing ? "1" : "0",
+                "offBefore": String(format: "%.1f", offBefore),
+                "offAfter": String(format: "%.1f", host.contentOffset.y),
             ])
-            contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-            contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
-            canvas?.frame = contentView.bounds
             // 템플릿 레이어도 함께 확장. implicit 애니메이션 차단(깜빡임 방지) — 새 타일은
             // CATiledLayer가 fade 없이(fadeDuration=0) 채운다.
             if let templateLayer {

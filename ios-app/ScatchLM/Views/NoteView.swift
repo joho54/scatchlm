@@ -1193,34 +1193,9 @@ struct NoteView: View {
 /// 재계산해야 하므로(updateUIView가 레이아웃 전에 올 수 있음) layoutSubviews에서 콜백한다.
 final class HostScrollView: UIScrollView {
     var onLayout: (() -> Void)?
-    /// 진동 진단(2026-06): 펜이 닿아 있는 동안(=필기 중)만 contentOffset 변경의 출처를 잡는다.
-    /// canvasViewDidBeginUsingTool/EndUsingTool이 토글. 평상시 스크롤·팬 노이즈를 배제하고
-    /// "필기 중 좌표계가 튀는" 증상 창에서만 호출자(callStackSymbols)를 기록한다.
-    var isDrawingActive: Bool = false
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?()
-    }
-
-    override var contentOffset: CGPoint {
-        didSet {
-            let dy = contentOffset.y - oldValue.y
-            // 라운딩/미세 떨림은 무시, 의미 있는 점프만. isDrawingActive 무관하게 기록 —
-            // 진동/스크롤이 펜 접촉 중인지(자동스크롤) 스트로크 사이인지(우리 코드 reframe vs 사용자 팬)
-            // 구분하려면 양쪽 다 잡아야 한다. drag/tracking 상태로 사용자 팬과 프로그램 스크롤을 가른다.
-            guard abs(dy) > 4 else { return }
-            // 상위 프레임 — UIKit 내부가 set하는지(자동스크롤/clamp) 우리 코드가 set하는지 구분.
-            let frames = Thread.callStackSymbols.dropFirst().prefix(10).joined(separator: " ∥ ")
-            appLogDebug("canvas", "offset set", [
-                "dy": String(format: "%.1f", dy),
-                "from": String(format: "%.1f", oldValue.y),
-                "to": String(format: "%.1f", contentOffset.y),
-                "contentH": String(format: "%.0f", contentSize.height),
-                "draw": isDrawingActive ? "1" : "0",
-                "drag": (isDragging || isTracking || isDecelerating) ? "1" : "0",
-                "stack": frames,
-            ])
-        }
     }
 }
 
@@ -1258,13 +1233,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
         let coordinator = context.coordinator
         let isDark = colorScheme == .dark
         let logical = Config.logicalCanvasWidth
-
-        // 진동 진단(2026-06): 필기 도중 makeUIView가 재호출되면 contentView가 초기높이(logical*2)로
-        // 새로 생성돼 contentH가 1668로 리셋되는 thrashing이 발생(06-06 로그). 재생성 자체를 기록.
-        appLogDebug("canvas", "makeUIView", [
-            "strokes": "\(canvasView.drawing.strokes.count)",
-            "initialH": "\(Int(logical * 2))",
-        ])
 
         // Host scroll view — 줌/팬/세로스크롤 주체
         let host = HostScrollView()
@@ -1541,9 +1509,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let s = host.zoomScale
             let w = contentView.bounds.width
             let origin = contentView.frame.origin
-            let offBefore = host.contentOffset.y
-            let drawing = (host as? HostScrollView)?.isDrawingActive ?? false
-            _ = (offBefore, drawing)   // (구 진동 진단용 — windowed 전환으로 무의미해짐)
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
             // windowed 캔버스: PKCanvasView.frame(bounds)은 절대 키우지 않는다 — 큰 bounds가 펜 입력 시
@@ -1990,20 +1955,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
             return y
         }
 
-        // 진동 진단(2026-06): 펜 다운/업 경계 — HostScrollView가 이 창에서만 offset 호출자를 기록.
-        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
-            (host as? HostScrollView)?.isDrawingActive = true
-            appLogDebug("canvas", "tool begin", [
-                "offsetY": "\(Int(host?.contentOffset.y ?? 0))",
-                "contentH": "\(Int(host?.contentSize.height ?? 0))",
-                "strokes": "\(canvasView.drawing.strokes.count)",
-            ])
-        }
-
-        func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            (host as? HostScrollView)?.isDrawingActive = false
-        }
-
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             // Frozen 영역 입력 차단 — 새로 추가된 stroke만 검사
             let strokes = canvasView.drawing.strokes
@@ -2013,13 +1964,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 let invalidIdx = added.enumerated().compactMap { (i, s) -> Int? in
                     s.renderBounds.minY < frozenBottom ? (previousStrokeCount + i) : nil
                 }
-                // 거부 판정의 입력값을 그대로 남긴다 — minY가 frozenBottom 바로 위(오판 의심)인지,
-                // 좌표계가 어긋나 정상 영역 입력이 거부되는지(이동/스크롤 후 깜빡임 원인 후보) 구분용.
-                appLogDebug("canvas", "stroke check", [
-                    "addedMinYs": "\(added.map { Int($0.renderBounds.minY) })",
-                    "frozenBottom": "\(Int(frozenBottom))",
-                    "rejected": "\(invalidIdx.count)",
-                ])
                 if !invalidIdx.isEmpty {
                     let invalidSet = Set(invalidIdx)
                     let kept = strokes.enumerated().filter { !invalidSet.contains($0.offset) }.map { $0.element }
@@ -2040,20 +1984,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let drawingBottom = canvasView.drawing.strokes.isEmpty
                 ? 0
                 : canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            // 스트로크마다의 기하 스냅샷 — 진동은 이 값들(특히 zoom/offset/contentSize)이 한 입력 안에서
-            // 흔들릴 때 발생한다고 의심. host.bounds/zoomScale이 스크롤 직후 transient면 여기서 드러난다.
-            if let h = host {
-                appLogDebug("canvas", "geom", [
-                    "zoom": String(format: "%.4f", h.zoomScale),
-                    "offsetY": "\(Int(h.contentOffset.y))",
-                    "insetTop": "\(Int(h.contentInset.top))",
-                    "contentH": "\(Int(h.contentSize.height))",
-                    "boundsH": "\(Int(h.bounds.height))",
-                    "cvBoundsH": "\(Int(contentView?.bounds.height ?? 0))",
-                    "drawBottom": "\(Int(drawingBottom))",
-                    "targetH": "\(Int(drawingBottom + viewportInContent * 2))",
-                ])
-            }
             ensureContentHeight(drawingBottom + viewportInContent * 2, fallbackCanvas: canvasView)
 
             updateNextPositionIndicator(on: canvasView)

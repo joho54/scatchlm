@@ -373,21 +373,29 @@ final class PencilKitCanvasViewTests: XCTestCase {
     }
 
     @MainActor
-    func testSetContentHeightExpandsAndPreservesTopLeft() {
+    func testSetContentHeightExpandsViaContentSizeKeepsCanvasWindowed() {
+        // windowed 캔버스(떨림 픽스): setContentHeight는 contentView/host/canvas.contentSize만 키우고
+        // canvas.frame(bounds)은 절대 키우지 않는다. 큰 canvas bounds가 펜 입력 떨림을 유발하므로
+        // (소거법 스텝4/5로 확정), 캔버스는 항상 뷰포트 크기 윈도우로 유지돼야 한다. = 떨림 회귀 가드.
         let logical = Config.logicalCanvasWidth
-        let (coordinator, host, contentView, canvas) = makeWiredCoordinator(panelWidth: logical)
+        let panelHeight: CGFloat = 1000
+        let (coordinator, host, contentView, canvas) =
+            makeWiredCoordinator(panelWidth: logical, panelHeight: panelHeight)
         // zoom=1 (기본)
 
         coordinator.setContentHeight(3000)
 
         XCTAssertEqual(contentView.bounds.height, 3000, accuracy: 0.5,
             "contentView 높이 확장")
-        XCTAssertEqual(canvas.frame.height, 3000, accuracy: 0.5,
-            "canvas는 contentView.bounds를 추종")
+        XCTAssertEqual(canvas.contentSize.height, 3000, accuracy: 0.5,
+            "canvas는 contentSize로 확장 — 슬라이스 렌더 범위")
         XCTAssertEqual(host.contentSize.height, 3000, accuracy: 0.5,
             "host.contentSize = 높이 × zoom(1)")
         XCTAssertEqual(contentView.frame.origin.y, 0, accuracy: 0.5,
             "아래로만 확장 — top-left 고정")
+        // 핵심 회귀 가드: 캔버스 frame(bounds)은 전체 높이(3000)가 아니라 뷰포트(=host.bounds.height/zoom)
+        XCTAssertEqual(canvas.frame.height, panelHeight, accuracy: 0.5,
+            "windowed: canvas.frame은 뷰포트 크기 유지(큰 bounds=떨림 회피), 3000으로 안 커짐")
     }
 
     @MainActor

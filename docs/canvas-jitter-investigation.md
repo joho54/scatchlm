@@ -1,9 +1,36 @@
 # 캔버스 필기 진동(jitter) 조사
 
-> **Status:** ✅ **원인 규명됨**(2026-06-08 실기기 재현 텔레메트리) — 픽스 적용, **실기기 재검증 대기**
+> **Status:** ✅ **해결**(2026-06-08). 진짜 원인은 **큰 PKCanvasView bounds** — windowed 캔버스로 픽스(`c5b2981`), 실기기 확인.
 > **Date:** 2026-06-08
-> **관련 커밋:** `dc9e65c` (진단 계측) → 픽스(HomeView sync 재로드 게이팅)
 > **관련 메모리:** PencilKit off-main 렌더 손상(`3fc162a`)과는 **별개 버그**
+
+---
+
+## 결론 (최종, 소거법으로 확정 — §0의 텔레메트리 가설을 정정)
+
+**진동의 진짜 원인: `PKCanvasView`가 큰 frame(bounds)을 가지면 펜 입력 시 떨린다.** 기존 코드가
+`setContentHeight`에서 `canvas.frame = contentView.bounds`로 캔버스를 전체 높이(수천 pt)까지 키워,
+그만큼 커진 시점("18줄 후")부터 떨렸다.
+
+소거법(`DebugCanvasView`, 설정>디버그)으로 변수 하나씩 격리해 확정:
+- 스텝1 raw 네이티브(canvas bounds=뷰포트, contentSize만 확장) → **안 떪**
+- 스텝2 host>content>canvas + frame 확장 → **떪**
+- 스텝3 스텝2 + defer(펜 접촉 중 확장 보류) → **여전히 떪** (확장 타이밍 무죄)
+- 스텝4 host 구조 + 확장 0회, canvas bounds=6000 고정 → **떪** (확장 행위 무죄, 시작부터)
+- 스텝5 스텝4와 동일하되 canvas bounds=뷰포트 → **안 떪** ← **단일 변수 = canvas bounds 크기 확정**
+- 스텝6 windowed 캔버스(뷰포트 고정 + 스크롤 추적) → **안 떪**
+- 스텝7 windowed + 줌 → **안 떪, ink 정확** → 포팅
+
+**해법(`c5b2981`):** windowed 캔버스. `canvas.frame`은 뷰포트 크기로 고정하고 `updateCanvasWindow`가
+보이는 슬라이스로만 배치(줌 s 반영). `setContentHeight`는 `contentView`/`host.contentSize`/
+`canvas.contentSize`만 확장. 카드·종이는 contentView라 무영향, 좌표계 불변.
+
+> ⚠️ 아래 §0~§6은 **초기(틀린) 가설 "NoteView 재생성 루프"의 조사 기록**이다. 그 루프(autosave→sync→
+> HomeView reload→navigationDestination 재평가→NoteView @State 소실)는 실재했고 `6ce20ef`로 차단했으나,
+> **진동의 주원인은 아니었다**(루프 차단 후에도 떨림 잔존 → 소거법으로 큰 bounds가 진짜 원인임을 확정).
+> 기록 보존용으로 남긴다.
+
+---
 
 ---
 

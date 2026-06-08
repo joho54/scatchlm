@@ -24,6 +24,7 @@ struct OnboardingView: View {
     @State private var noteReady = false
     @State private var hint: Hint = .write
     @State private var gotFeedback = false
+    @State private var hintVisible = true     // 안내 카드 노출. '확인'으로 닫고, 피드백 시 다시 표시.
 
     private let db = DatabaseService.shared
 
@@ -85,31 +86,54 @@ struct OnboardingView: View {
                 NoteView(noteId: noteId, onFeedbackAppended: {
                     if !gotFeedback {
                         gotFeedback = true
-                        withAnimation { hint = .chat }
+                        withAnimation { hint = .chat; hintVisible = true }   // 채팅 안내 재노출
                     }
                 })
             }
 
-            // 상단 중앙: 작은 힌트(항상 표시). 충분히 작아 UI를 가리지 않으며, 피드백을 받으면
-            // 문구가 채팅 안내로 바뀐다.
-            hintPill
-                .padding(.top, 8)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .allowsHitTesting(false)
+            // 상단 중앙: 크고 잘 보이는 안내 카드. '확인'을 누르면 사라져 UI를 안 가린다.
+            if hintVisible {
+                hintCard
+                    .padding(.top, 14)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         // 상단 우측: 항상 보이는 작은 건너뛰기/마치기 칩(하단 컨트롤과 안 겹침).
         .overlay(alignment: .topTrailing) { skipChip }
     }
 
-    private var hintPill: some View {
-        Text(hint == .write
-             ? String(localized: "PDF 문제의 답을 캔버스에 쓰고 ✨를 누르세요")
-             : String(localized: "피드백 카드를 탭하면 AI와 대화를 이어갈 수 있어요"))
-            .font(.footnote.weight(.medium))
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Capsule().fill(Color.black.opacity(0.8)))
-            .foregroundStyle(.white)
-            .shadow(radius: 4)
+    private var hintCard: some View {
+        VStack(spacing: 12) {
+            Label {
+                Text(hint == .write
+                     ? String(localized: "PDF 문제의 답을 캔버스에 손글씨로 써보세요")
+                     : String(localized: "피드백 카드를 탭하면 AI와 대화를 이어갈 수 있어요"))
+                    .font(.title3.weight(.semibold))
+            } icon: {
+                Image(systemName: hint == .write ? "pencil.and.outline" : "bubble.left.and.text.bubble.right.fill")
+                    .font(.title3)
+            }
+            Text(hint == .write
+                 ? String(localized: "다 쓰면 ✨ 버튼을 눌러 교재 기준 AI 피드백을 받으세요")
+                 : String(localized: "방금 받은 피드백 카드를 한 번 눌러보세요"))
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+            Button { withAnimation { hintVisible = false } } label: {
+                Text(String(localized: "확인"))
+                    .font(.headline).frame(maxWidth: 200).padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white)
+            .foregroundStyle(.black)
+        }
+        .padding(20)
+        .frame(maxWidth: 480)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color.black.opacity(0.85)))
+        .foregroundStyle(.white)
+        .shadow(radius: 10)
+        .padding(.horizontal, 16)
     }
 
     private var skipChip: some View {

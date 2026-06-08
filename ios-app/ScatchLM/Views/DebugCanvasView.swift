@@ -2,24 +2,26 @@
 import SwiftUI
 import PencilKit
 
-/// 떨림 소거법 — **스텝 3: 스텝2 구조 + defer 픽스 검증.**
+/// 떨림 소거법 — **스텝 4: host 구조 + 확장 0회(완전 정적).**
 ///
-/// 스텝1(raw + contentSize-only 확장) = 떨림 없음. 스텝2(host>content>canvas + frame 확장) = **떨림 재현.**
-/// → 범인 확정: 펜 접촉 중 `setContentHeight`로 PKCanvasView bounds를 리사이즈하는 것.
+/// 스텝1(raw 네이티브 + contentSize 확장) = 떨림 없음.
+/// 스텝2(host>content>canvas + frame 확장) = 떨림.
+/// 스텝3(스텝2 + defer, 펜 접촉 중 확장 보류) = **여전히 떨림(똑같음).**
+/// → 펜 접촉 중 지오메트리 변경이 없는데도 떨린다 = 범인은 확장 타이밍이 아니라 **구조 자체.**
 ///
-/// 스텝3은 같은 구조에 **defer만 추가**: 펜 접촉 중(isDrawingActive)엔 확장을 보류하고 펜업
-/// (canvasViewDidEndUsingTool)에 1회 flush. 진행 중 스트로크는 펜다운 시점 2-viewport 버퍼 안이라
-/// 보류해도 안 잘린다. 떨림이 사라지면 실제 앱(NoteView)에 이 픽스를 되살린다.
+/// 스텝4: 확장을 통째로 제거. host>contentView>canvas를 처음부터 6000으로 고정, setContentHeight 0회.
+/// 깊이 내려가 그려도 떨리는지 본다. 가설: PencilKit가 강등(isScrollEnabled=false)된 큰 캔버스에서
+/// 그릴 때 host를 자동 스크롤 → 깊은 위치에서 떨림(확장 무관).
 ///
 /// 판정:
-/// - **안 떨림** → defer 픽스 검증 완료 → ba60936 재적용.
-/// - **여전히 떨림** → defer로 부족 → mid-stroke 외 다른 mutate 경로 잔존.
+/// - **떨림** → demote+host 구조 자체가 범인 확정. 해법은 스텝1식 네이티브 스크롤 복귀(아키텍처).
+/// - **안 떨림** → 구조는 무죄, 확장(펜업 flush 포함)이 트리거 → 다시 좁힌다.
 struct DebugCanvasView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            HostFrameGrowCanvas()
+            HostStaticCanvas()
                 .ignoresSafeArea()
             Button("닫기") { dismiss() }
                 .padding(10)
@@ -30,19 +32,18 @@ struct DebugCanvasView: View {
     }
 }
 
-private struct HostFrameGrowCanvas: UIViewRepresentable {
+private struct HostStaticCanvas: UIViewRepresentable {
     func makeUIView(context: Context) -> UIScrollView {
         let coord = context.coordinator
         let w = UIScreen.main.bounds.width
-        let initialH: CGFloat = 1500
+        let fixedH: CGFloat = 6000   // 처음부터 크게 고정. 확장(setContentHeight) 전혀 없음.
 
         let host = UIScrollView()
-        host.delegate = coord
         host.alwaysBounceVertical = true
         host.contentInsetAdjustmentBehavior = .never
         host.backgroundColor = .systemGray5
 
-        let contentView = UIView(frame: CGRect(x: 0, y: 0, width: w, height: initialH))
+        let contentView = UIView(frame: CGRect(x: 0, y: 0, width: w, height: fixedH))
         contentView.backgroundColor = .systemBackground
         host.addSubview(contentView)
         host.contentSize = contentView.bounds.size
@@ -52,18 +53,15 @@ private struct HostFrameGrowCanvas: UIViewRepresentable {
         canvas.isScrollEnabled = false        // 강등: 스크롤은 host 담당
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        canvas.delegate = coord
         contentView.addSubview(canvas)
 
-        coord.host = host
-        coord.contentView = contentView
-        coord.canvas = canvas
-
-        let tp = PKToolPicker()
-        tp.setVisible(true, forFirstResponder: canvas)
-        tp.addObserver(canvas)
-        canvas.becomeFirstResponder()
-        coord.toolPicker = tp
+        coord.toolPicker = {
+            let tp = PKToolPicker()
+            tp.setVisible(true, forFirstResponder: canvas)
+            tp.addObserver(canvas)
+            canvas.becomeFirstResponder()
+            return tp
+        }()
         return host
     }
 
@@ -71,51 +69,9 @@ private struct HostFrameGrowCanvas: UIViewRepresentable {
 
     func makeCoordinator() -> Coord { Coord() }
 
-    final class Coord: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
+    // 델리게이트·핸들러 0개. 순수 구조만(host>contentView>canvas, 전부 정적).
+    final class Coord: NSObject {
         var toolPicker: PKToolPicker?
-        weak var host: UIScrollView?
-        weak var contentView: UIView?
-        weak var canvas: PKCanvasView?
-
-        // defer 픽스: 펜 접촉 중엔 확장 보류, 펜업에 flush.
-        private var isDrawingActive = false
-        private var pendingHeight: CGFloat?
-
-        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
-            isDrawingActive = true
-        }
-
-        func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            isDrawingActive = false
-            if let h = pendingHeight { pendingHeight = nil; setContentHeight(h) }
-        }
-
-        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            let viewport = host?.bounds.height ?? 0
-            let bottom = canvasView.drawing.strokes.reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
-            ensureContentHeight(bottom + viewport * 2)
-        }
-
-        // 실제 NoteView.setContentHeight 포팅 (zoom=1 가정, center 재계산 포함, canvas.frame 확장).
-        func ensureContentHeight(_ h: CGFloat) {
-            guard let contentView else { return }
-            if contentView.bounds.height < h { setContentHeight(h) }
-        }
-
-        func setContentHeight(_ h: CGFloat) {
-            guard let host, let contentView else { return }
-            // defer: 펜 접촉 중엔 목표 높이만 적립하고 mutate 안 함 → 펜업에 flush.
-            if isDrawingActive {
-                pendingHeight = max(pendingHeight ?? 0, h)
-                return
-            }
-            let w = contentView.bounds.width
-            let origin = contentView.frame.origin
-            contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-            contentView.center = CGPoint(x: origin.x + w / 2, y: origin.y + h / 2)
-            canvas?.frame = contentView.bounds          // ← 펜 접촉 중 PKCanvasView bounds 리사이즈
-            host.contentSize = CGSize(width: w, height: h)
-        }
     }
 }
 #endif

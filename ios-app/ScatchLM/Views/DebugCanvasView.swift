@@ -2,20 +2,18 @@
 import SwiftUI
 import PencilKit
 
-/// 떨림 소거법 — **스텝 4: host 구조 + 확장 0회(완전 정적).**
+/// 떨림 소거법 — **스텝 5: 큰 contentView + 작은(뷰포트) 캔버스 bounds.**
 ///
-/// 스텝1(raw 네이티브 + contentSize 확장) = 떨림 없음.
-/// 스텝2(host>content>canvas + frame 확장) = 떨림.
-/// 스텝3(스텝2 + defer, 펜 접촉 중 확장 보류) = **여전히 떨림(똑같음).**
-/// → 펜 접촉 중 지오메트리 변경이 없는데도 떨린다 = 범인은 확장 타이밍이 아니라 **구조 자체.**
+/// 스텝1(네이티브, canvas bounds=뷰포트, contentSize만 큼) = 떨림 없음.
+/// 스텝4(demote, canvas bounds=6000 고정) = **확장 0회인데도 떨림(시작부터).**
+/// → 트리거는 확장 행위가 아니라 **PKCanvasView가 큰 bounds를 가진 것** 자체로 좁혀짐.
 ///
-/// 스텝4: 확장을 통째로 제거. host>contentView>canvas를 처음부터 6000으로 고정, setContentHeight 0회.
-/// 깊이 내려가 그려도 떨리는지 본다. 가설: PencilKit가 강등(isScrollEnabled=false)된 큰 캔버스에서
-/// 그릴 때 host를 자동 스크롤 → 깊은 위치에서 떨림(확장 무관).
+/// 스텝5: 스텝4와 전부 동일(host>contentView(6000)>canvas, demote)인데 **canvas.frame만 뷰포트 크기**.
+/// 위쪽(캔버스가 덮는 영역)에서 그려본다. canvas bounds 크기 하나만 변수.
 ///
 /// 판정:
-/// - **떨림** → demote+host 구조 자체가 범인 확정. 해법은 스텝1식 네이티브 스크롤 복귀(아키텍처).
-/// - **안 떨림** → 구조는 무죄, 확장(펜업 flush 포함)이 트리거 → 다시 좁힌다.
+/// - **안 떨림** → 큰 canvas bounds가 범인 확정. 해법: 캔버스 bounds를 뷰포트로 유지(타일/윈도잉) 또는 네이티브.
+/// - **떨림** → bounds 크기 무관, demote/nesting 자체가 범인 → 네이티브 복귀.
 struct DebugCanvasView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -48,7 +46,9 @@ private struct HostStaticCanvas: UIViewRepresentable {
         host.addSubview(contentView)
         host.contentSize = contentView.bounds.size
 
-        let canvas = PKCanvasView(frame: contentView.bounds)
+        // 스텝5: 캔버스 frame을 contentView(6000)가 아니라 뷰포트 크기로 작게. 위쪽만 덮는다.
+        let viewportH = UIScreen.main.bounds.height
+        let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: w, height: viewportH))
         canvas.drawingPolicy = .pencilOnly   // 펜=그리기, 손가락=host 스크롤
         canvas.isScrollEnabled = false        // 강등: 스크롤은 host 담당
         canvas.backgroundColor = .clear

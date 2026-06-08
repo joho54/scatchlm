@@ -1229,9 +1229,31 @@ struct NoteView: View {
 /// 재계산해야 하므로(updateUIView가 레이아웃 전에 올 수 있음) layoutSubviews에서 콜백한다.
 final class HostScrollView: UIScrollView {
     var onLayout: (() -> Void)?
+    /// 진동 진단(2026-06): 펜이 닿아 있는 동안(=필기 중)만 contentOffset 변경의 출처를 잡는다.
+    /// canvasViewDidBeginUsingTool/EndUsingTool이 토글. 평상시 스크롤·팬 노이즈를 배제하고
+    /// "필기 중 좌표계가 튀는" 증상 창에서만 호출자(callStackSymbols)를 기록한다.
+    var isDrawingActive: Bool = false
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?()
+    }
+
+    override var contentOffset: CGPoint {
+        didSet {
+            guard isDrawingActive else { return }
+            let dy = contentOffset.y - oldValue.y
+            // 라운딩/미세 떨림은 무시, 의미 있는 점프만(06-06엔 수백 pt).
+            guard abs(dy) > 2 else { return }
+            // 상위 프레임 — UIKit 내부가 set하는지(자동스크롤/clamp) 우리 코드가 set하는지 구분.
+            let frames = Thread.callStackSymbols.dropFirst().prefix(8).joined(separator: " ∥ ")
+            appLogDebug("canvas", "offset set", [
+                "dy": String(format: "%.1f", dy),
+                "from": String(format: "%.1f", oldValue.y),
+                "to": String(format: "%.1f", contentOffset.y),
+                "contentH": String(format: "%.0f", contentSize.height),
+                "stack": frames,
+            ])
+        }
     }
 }
 
@@ -1269,6 +1291,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
         let coordinator = context.coordinator
         let isDark = colorScheme == .dark
         let logical = Config.logicalCanvasWidth
+
+        // 진동 진단(2026-06): 필기 도중 makeUIView가 재호출되면 contentView가 초기높이(logical*2)로
+        // 새로 생성돼 contentH가 1668로 리셋되는 thrashing이 발생(06-06 로그). 재생성 자체를 기록.
+        appLogDebug("canvas", "makeUIView", [
+            "strokes": "\(canvasView.drawing.strokes.count)",
+            "initialH": "\(Int(logical * 2))",
+        ])
 
         // Host scroll view — 줌/팬/세로스크롤 주체
         let host = HostScrollView()
@@ -1965,6 +1994,20 @@ struct PencilKitCanvasView: UIViewRepresentable {
             }
 
             return y
+        }
+
+        // 진동 진단(2026-06): 펜 다운/업 경계 — HostScrollView가 이 창에서만 offset 호출자를 기록.
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            (host as? HostScrollView)?.isDrawingActive = true
+            appLogDebug("canvas", "tool begin", [
+                "offsetY": "\(Int(host?.contentOffset.y ?? 0))",
+                "contentH": "\(Int(host?.contentSize.height ?? 0))",
+                "strokes": "\(canvasView.drawing.strokes.count)",
+            ])
+        }
+
+        func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+            (host as? HostScrollView)?.isDrawingActive = false
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {

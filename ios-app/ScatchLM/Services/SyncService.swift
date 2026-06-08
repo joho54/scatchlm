@@ -263,10 +263,14 @@ final class SyncService: @unchecked Sendable {
             let blob = try await resolveBlob(hash: dto.drawing_hash)
             try db.applyPulledNote(Self.note(from: dto, drawingData: blob, userId: uid))
         }
+        // 페이지는 배치로 모아 한 트랜잭션에서 2-pass 적용한다(UNIQUE(note_id,page_index)
+        // 슬롯 재배치 충돌로 인한 sync brick 방지 — applyPulledPages 참고).
+        var pulledPages: [NotePage] = []
         for dto in changes.note_pages {
             let blob = try await resolveBlob(hash: dto.drawing_hash)
-            try db.applyPulledPage(Self.page(from: dto, drawingData: blob, userId: uid))
+            pulledPages.append(Self.page(from: dto, drawingData: blob, userId: uid))
         }
+        try db.applyPulledPages(pulledPages)
         for dto in changes.pdf_annotations {
             let blob = try await resolveBlob(hash: dto.drawing_hash)
             try db.applyPulledPdfAnnotation(Self.pdfAnnotation(from: dto, drawingData: blob, userId: uid))

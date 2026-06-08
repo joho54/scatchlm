@@ -117,22 +117,98 @@ extension DatabaseService {
         }
     }
 
+    /// 페이지 pull 머지. **배치 단위 2-pass**로 적용한다.
+    /// note_pages에는 `UNIQUE(note_id, page_index)`가 걸려 있는데, sync는 id 기준 LWW라
+    /// 인덱스가 행들 사이에서 재배치되는 배치(reorder/삽입/삭제압축 전파)를 한 행씩 save하면
+    /// 중간 상태가 유니크를 위반해 `SQLite error 19`로 merge 전체가 throw → 커서 미전진 →
+    /// 같은 배치 재pull → **sync brick**이 된다. 로컬 reorder가 임시 슬롯 2-pass로 충돌을
+    /// 피하는 것과 대칭으로, pull 적용에도 같은 보호를 적용한다.
+    /// 1) 적용 대상을 임시 슬롯(>= 2,000,000)에 적재해 실제 슬롯을 모두 비우고,
+    /// 2) 서버 인덱스(최종값)로 이동한다. 배치 밖 로컬 행이 슬롯을 점유한 진짜 충돌이면
+    ///    점유 행을 말미로 밀어내(reposition을 dirty로 전파) 데이터·brick 없이 수렴시킨다.
+    /// 반환값: 실제 적용된(또는 갱신된) 페이지 수.
     @discardableResult
-    func applyPulledPage(_ incoming: NotePage) throws -> Bool {
-        guard let uid = syncUserId else { return false }
+    func applyPulledPages(_ incoming: [NotePage]) throws -> Int {
+        guard let uid = syncUserId, !incoming.isEmpty else { return 0 }
         return try dbQueue.write { db in
-            guard try rowExists(db, table: "notes", id: incoming.noteId) else {
-                appLogWarn("sync", "skip orphan page (parent note absent)",
-                           ["pageId": incoming.id, "noteId": incoming.noteId])
-                return false
+            // 1) 적용 대상 선별: 부모 note 존재 + LWW 통과
+            var toApply: [NotePage] = []
+            for var p in incoming {
+                guard try rowExists(db, table: "notes", id: p.noteId) else {
+                    appLogWarn("sync", "skip orphan page (parent note absent)",
+                               ["pageId": p.id, "noteId": p.noteId])
+                    continue
+                }
+                guard try shouldApply(db, table: "note_pages", id: p.id, incoming: p.updatedAt, uid: uid) else { continue }
+                p.userId = uid
+                p.dirty = false
+                toApply.append(p)
             }
-            guard try shouldApply(db, table: "note_pages", id: incoming.id, incoming: incoming.updatedAt, uid: uid) else { return false }
-            var p = incoming
-            p.userId = uid
-            p.dirty = false
-            try p.save(db)
-            return true
+            guard !toApply.isEmpty else { return 0 }
+
+            // 2) 1-pass: 임시 슬롯으로 적재(로컬 reorder의 1,000,000 범위와도 겹치지 않게 2,000,000부터).
+            //    INSERT/UPDATE(upsert)로 실제 슬롯을 모두 비워 swap/cycle 충돌을 제거한다.
+            for (i, p) in toApply.enumerated() {
+                var tmp = p
+                tmp.pageIndex = 2_000_000 + i
+                try tmp.save(db)
+            }
+
+            // 3) 2-pass: 서버 인덱스로 이동. 진짜 슬롯 충돌은 점유 행을 말미로 밀어내고 재시도.
+            let now = Date()
+            for p in toApply {
+                do {
+                    try db.execute(
+                        sql: "UPDATE note_pages SET page_index = ? WHERE id = ? AND user_id = ?",
+                        arguments: [p.pageIndex, p.id, uid]
+                    )
+                } catch let dbErr as DatabaseError where dbErr.resultCode == .SQLITE_CONSTRAINT {
+                    try displaceOccupant(db, noteId: p.noteId, slot: p.pageIndex, keepId: p.id, uid: uid, now: now)
+                    do {
+                        try db.execute(
+                            sql: "UPDATE note_pages SET page_index = ? WHERE id = ? AND user_id = ?",
+                            arguments: [p.pageIndex, p.id, uid]
+                        )
+                    } catch {
+                        // 최후 안전망: 충돌이 끝내 안 풀리면 말미에 붙여 brick·유실을 막는다.
+                        let tail = try nextTailIndex(db, noteId: p.noteId, uid: uid)
+                        appLogError("sync", "page slot conflict unresolved; appended to tail",
+                                    ["pageId": p.id, "noteId": p.noteId, "wantedIndex": p.pageIndex, "tail": tail])
+                        try db.execute(
+                            sql: "UPDATE note_pages SET page_index = ?, dirty = 1, updated_at = ? WHERE id = ? AND user_id = ?",
+                            arguments: [tail, now, p.id, uid]
+                        )
+                    }
+                }
+            }
+            return toApply.count
         }
+    }
+
+    /// 슬롯을 점유한 다른 id의 로컬 행을 말미로 밀어내고 reposition을 dirty로 전파한다.
+    private func displaceOccupant(_ db: Database, noteId: String, slot: Int, keepId: String, uid: String, now: Date) throws {
+        guard let occId = try String.fetchOne(
+            db,
+            sql: "SELECT id FROM note_pages WHERE note_id = ? AND user_id = ? AND page_index = ? AND id <> ? LIMIT 1",
+            arguments: [noteId, uid, slot, keepId]
+        ) else { return }
+        let tail = try nextTailIndex(db, noteId: noteId, uid: uid)
+        try db.execute(
+            sql: "UPDATE note_pages SET page_index = ?, dirty = 1, updated_at = ? WHERE id = ? AND user_id = ?",
+            arguments: [tail, now, occId, uid]
+        )
+        appLogWarn("sync", "page slot conflict: displaced local occupant to tail",
+                   ["slot": slot, "keptId": keepId, "displacedId": occId, "tail": tail])
+    }
+
+    /// 정상 인덱스 범위(0.., 임시/음수 제외)의 다음 말미 인덱스.
+    private func nextTailIndex(_ db: Database, noteId: String, uid: String) throws -> Int {
+        let maxIdx = try Int.fetchOne(
+            db,
+            sql: "SELECT MAX(page_index) FROM note_pages WHERE note_id = ? AND user_id = ? AND page_index >= 0 AND page_index < 1000000",
+            arguments: [noteId, uid]
+        )
+        return (maxIdx ?? -1) + 1
     }
 
     @discardableResult

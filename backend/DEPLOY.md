@@ -254,6 +254,84 @@ xcrun devicectl device install app --device 00008103-000C65D43AEB001E \
   ~/Library/Developer/Xcode/DerivedData/ScatchLM-*/Build/Products/Release-iphoneos/ScatchLM.app
 ```
 
+## iOS App Store 릴리스 (정식 심사 제출)
+
+> 백엔드와 분리된 별도 트랙이다. 백엔드는 `main` 푸시 시 CI가 자동 배포(§배포 흐름)하지만,
+> iOS는 **수동**으로 버전 올리고 archive해서 App Store Connect에 올린 뒤 심사 제출한다.
+> 버전 소스: `ios-app/project.yml`의 `MARKETING_VERSION`(표시 버전) / `CURRENT_PROJECT_VERSION`(빌드 번호).
+
+### 0. 사전 확인
+- 백엔드가 먼저 배포돼 있어야 한다(앱이 의존하는 새 API/sync 엔티티 라이브 상태). `Deploy backend` 워크플로 success 확인.
+- Release 빌드 API 호스트는 항상 운영(`https://scatchlm.duckdns.org/api`, `Config.swift`).
+
+### 1. 버전 올리기
+`ios-app/project.yml` (`settings.base`):
+```yaml
+MARKETING_VERSION: "2.0.0"        # 표시 버전 — App Store에 노출. 메이저면 x.0.0
+CURRENT_PROJECT_VERSION: "6"      # 빌드 번호 — 같은 버전이라도 업로드마다 +1 해야 ASC가 수락
+```
+> 빌드 번호는 App Store Connect에서 **단조 증가**여야 한다. 직전 업로드보다 크지 않으면 거부된다(직전: 1.0.1 / build 5).
+```bash
+cd ios-app && xcodegen generate     # project.yml → .xcodeproj 반영
+```
+
+### 2. Archive (Release)
+```bash
+cd ios-app
+xcodebuild -project ScatchLM.xcodeproj -scheme ScatchLM -configuration Release \
+  -destination 'generic/platform=iOS' \
+  -archivePath ~/Library/Developer/Xcode/Archives/ScatchLM-2.0.0.xcarchive \
+  -allowProvisioningUpdates archive
+```
+> `generic/platform=iOS` = 기기 슬라이스(arm64) archive. 시뮬레이터 destination으론 App Store 업로드 불가.
+> Sentry는 로컬 벤더 XCFramework(`Vendor/Sentry.xcframework`, iOS 슬라이스만)라 SPM 다운로드 데드락 없이 archive된다(project.yml 주석 참고).
+
+또는 Xcode GUI: **Product ▸ Archive** (가장 단순, 업로드까지 한 흐름).
+
+### 3. App Store Connect 업로드
+GUI 경로(권장): Organizer ▸ 해당 archive ▸ **Distribute App ▸ App Store Connect ▸ Upload**.
+
+CLI 경로: `ExportOptions.plist`(레포에 아직 없음, 1회 작성) 필요:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>teamID</key><string>Z5U7D89KP7</string>
+  <key>destination</key><string>upload</string>
+  <key>uploadSymbols</key><true/>
+</dict></plist>
+```
+```bash
+xcodebuild -exportArchive \
+  -archivePath ~/Library/Developer/Xcode/Archives/ScatchLM-2.0.0.xcarchive \
+  -exportOptionsPlist ios-app/ExportOptions.plist \
+  -exportPath ~/Library/Developer/Xcode/Archives/ScatchLM-2.0.0-export \
+  -allowProvisioningUpdates
+```
+
+### 4. dSYM을 Sentry에 업로드 (크래시 심볼리케이션)
+업로드 후, archive의 dSYM을 Sentry에 올려야 크래시가 함수명·라인으로 보인다(§Sentry C-3, CI 자동화 없음):
+```bash
+sentry-cli --auth-token <token> debug-files upload \
+  --org <org> --project scatchlm-ios \
+  ~/Library/Developer/Xcode/Archives/ScatchLM-2.0.0.xcarchive/dSYMs
+```
+
+### 5. App Store Connect에서 심사 제출
+1. App Store Connect ▸ ScatchLM ▸ **+ 버전 추가** → `2.0.0`
+2. 업로드한 빌드가 처리(보통 수~수십 분) 완료되면 **빌드 선택**
+3. **"이번 버전의 새로운 기능"** 작성 (2.0.0 메이저: iPhone 지원, 폴더 정리, 노트 배경 템플릿, 스캔본 OCR 등)
+4. **스크린샷 — 메이저 전환의 핵심 리젝 포인트**: 2.0.0은 universal(`TARGETED_DEVICE_FAMILY "1,2"`)로 iPhone을 새로 지원한다. **iPhone 스크린샷이 없으면 심사 거부**된다. iPhone 6.7"/6.9" 세트 추가, iPad 세트도 갱신 권장.
+5. 수출 규정·콘텐츠 권리·광고 식별자 설문 확인 → **심사 제출**
+
+> IAP(구독)는 v1과 동일하게 `Config.subscriptionEnabled=false`로 숨김 상태면 심사 노출 없음(켜는 절차는 v1 메모 참고).
+
+### 6. 태깅 (선택)
+```bash
+git tag v2.0.0 && git push origin v2.0.0
+```
+
 ## 로그 / 모니터링
 
 `/check-prod-logs` 슬래시 명령으로 SSH 경유 docker compose logs 조회. 상세는 `.claude/commands/check-prod-logs.md`.

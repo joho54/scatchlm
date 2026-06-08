@@ -42,3 +42,9 @@ ios-app/.build/
 # Xcode 사용자별 상태 (per-user, 공유 불필요)
 xcuserdata/
 *.xcuserstate
+
+# 기기 앱 컨테이너 덤프 (devicectl/Xcode로 추출 — 로컬 DB·스냅샷 포함, 대용량/PII)
+*.xcappdata/
+
+# 심볼릭 링크된 node_modules (cardnews는 screenshots의 node_modules를 symlink) — 디렉토리 패턴이 symlink를 못 잡음
+docs/cardnews-instagram/node_modules

@@ -11,6 +11,7 @@ struct CreateNoteSheet: View {
     @State private var loadingTextbooks = false
     @State private var showFilePicker = false
     @State private var uploading = false
+    @State private var uploadError: String?   // 업로드 실패(스캔 페이지 천장 초과 등) 사용자 안내
 
     let onCreate: (String, String, TextbookListItem?) -> Void
 
@@ -130,6 +131,11 @@ struct CreateNoteSheet: View {
             ) { result in
                 handleFileImport(result)
             }
+            .alert("교재를 올릴 수 없어요", isPresented: Binding(get: { uploadError != nil }, set: { if !$0 { uploadError = nil } })) {
+                Button("확인", role: .cancel) { uploadError = nil }
+            } message: {
+                Text(uploadError ?? "")
+            }
         }
     }
 
@@ -220,7 +226,13 @@ struct CreateNoteSheet: View {
                     }
                 } catch {
                     appLogError("pdf-upload", "upload failed", ["error": "\(error)"])
-                    await MainActor.run { uploading = false }
+                    // 침묵 금지 — 스캔 페이지 천장 초과(422) 등 실패를 사용자에게 알린다.
+                    let msg = (error as? LocalizedError)?.errorDescription
+                        ?? "교재를 올리지 못했어요. 잠시 후 다시 시도해 주세요."
+                    await MainActor.run {
+                        uploading = false
+                        uploadError = msg
+                    }
                 }
             }
         }

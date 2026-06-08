@@ -31,7 +31,15 @@ final class APIClient {
         appLog("api", "← \(statusCode) \(method) \(path)", logData)
 
         guard 200..<300 ~= statusCode else {
-            // 429 quota 초과 — 친화 처리(§3.2-b). 정상 흐름이라 Sentry 미캡처.
+            // 429 월 OCR 건수 초과 — 일일 비용 quota와 코드가 달라 먼저 분기. 정상 흐름이라 Sentry 미캡처.
+            if statusCode == 429, let info = OcrQuotaInfo.decode(from: data) {
+                throw APIError.ocrQuotaExceeded(info)
+            }
+            // 422 스캔본 페이지 천장 초과 — 업로드 거부. 정상 흐름이라 Sentry 미캡처.
+            if statusCode == 422, let info = ScannedLimitInfo.decode(from: data) {
+                throw APIError.scannedPageLimit(info)
+            }
+            // 429 일일 사용량 한도 초과 — 친화 처리(§3.2-b). 정상 흐름이라 Sentry 미캡처.
             if statusCode == 429, let info = QuotaInfo.decode(from: data) {
                 throw APIError.quotaExceeded(info)
             }
@@ -326,6 +334,44 @@ struct QuotaInfo: Decodable {
     }
 }
 
+/// 월 OCR 건수 한도 초과(429, code=ocr_quota_exceeded) 응답 본문. 일일 비용 quota와 별개.
+struct OcrQuotaInfo: Decodable {
+    let code: String
+    let tier: String?
+    let limit_files: Int?
+    let used_files: Int?
+    let reset_at: String?
+
+    static func decode(from data: Data) -> OcrQuotaInfo? {
+        if let info = try? JSONDecoder().decode(OcrQuotaInfo.self, from: data), info.code == "ocr_quota_exceeded" {
+            return info
+        }
+        struct Wrapper: Decodable { let detail: OcrQuotaInfo }
+        if let w = try? JSONDecoder().decode(Wrapper.self, from: data), w.detail.code == "ocr_quota_exceeded" {
+            return w.detail
+        }
+        return nil
+    }
+}
+
+/// 스캔본 페이지 천장 초과로 업로드가 거부됨(422, code=scanned_page_limit_exceeded).
+struct ScannedLimitInfo: Decodable {
+    let code: String
+    let pages: Int?
+    let limit: Int?
+
+    static func decode(from data: Data) -> ScannedLimitInfo? {
+        if let info = try? JSONDecoder().decode(ScannedLimitInfo.self, from: data), info.code == "scanned_page_limit_exceeded" {
+            return info
+        }
+        struct Wrapper: Decodable { let detail: ScannedLimitInfo }
+        if let w = try? JSONDecoder().decode(Wrapper.self, from: data), w.detail.code == "scanned_page_limit_exceeded" {
+            return w.detail
+        }
+        return nil
+    }
+}
+
 extension APIClient {
     /// 스캔본 OCR/인덱싱 진행 상태 조회 (§3.2-b). iOS 폴링용.
     func getPdfStatus(_ textbookId: String) async throws -> PdfStatus {
@@ -348,14 +394,22 @@ extension APIClient {
 enum APIError: LocalizedError {
     case serverError(Int, String)
     case quotaExceeded(QuotaInfo)
+    case ocrQuotaExceeded(OcrQuotaInfo)
+    case scannedPageLimit(ScannedLimitInfo)
     case ocrIncomplete(OcrIncompleteInfo)
 
     var errorDescription: String? {
         switch self {
-        case .ocrIncomplete(let info):
-            if info.capped {
-                return String(localized: "무료 플랜은 책당 일부 페이지까지만 인식해요. 전체 인식은 Pro에서 가능해요.")
+        case .scannedPageLimit(let info):
+            let limit = info.limit ?? 200
+            return String(localized: "이미지(스캔) 교재는 \(limit)페이지까지 올릴 수 있어요. 더 작은 파일로 나눠서 올려 주세요.")
+        case .ocrQuotaExceeded(let info):
+            let limit = info.limit_files ?? 0
+            if limit <= 0 {
+                return String(localized: "이미지(스캔) 교재 인식은 Pro 플랜에서 쓸 수 있어요.")
             }
+            return String(localized: "이번 달 이미지 인식 \(limit)건을 모두 사용했어요. 다음 달에 다시 시도해 주세요.")
+        case .ocrIncomplete:
             return String(localized: "이 페이지는 아직 인식 중이에요. 잠시 후 다시 시도해 주세요.")
         case .quotaExceeded:
             return String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")

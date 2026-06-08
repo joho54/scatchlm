@@ -67,8 +67,6 @@ struct TextbookListItem: Codable, Identifiable, Hashable {
         switch ocrStatus {
         case "complete", .none:
             return nil
-        case "capped":
-            return String(localized: "무료 \(ocrPagesTotal)p 인식됨")
         case "paused", "error":
             return String(localized: "인식 대기 중")
         default:  // pending / running

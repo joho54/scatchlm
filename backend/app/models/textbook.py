@@ -20,9 +20,12 @@ class TextbookSource(Base):
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     # 스캔본(이미지) PDF OCR 상태 — docs/scanned-pdf-ocr-spec.md §4.1-b.
     is_scanned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    ocr_status: Mapped[str | None] = mapped_column(String, nullable=True)  # pending|running|paused|error|capped|complete
+    ocr_status: Mapped[str | None] = mapped_column(String, nullable=True)  # pending|running|paused|error|complete
     ocr_pages_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    ocr_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 이 책에 적용된 캡 (free=50, pro=600)
+    ocr_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 이 책에 적용된 페이지 천장 (=min(total, OCR_MAX_PAGES_PER_FILE))
+    # OCR을 *처음* 시작한 시각(최초 1회만 set). 월 건수 쿼터 산정의 기준 — 재개/재시도는 갱신 안 함.
+    # 이 컬럼이 non-null이면 그 달의 쿼터 슬롯을 이미 1건 소비했다는 뜻(중복 카운트 방지).
+    ocr_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # admin(JWT role=admin) 업로드 → 페이지 캡·OCR 예산 모두 무제한. role은 DB에 없어 업로드 시점에 영속화.
     ocr_unlimited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # "현재 규칙으로 is_scanned 평가를 끝냈나" 마커(scanned-pdf-ocr-spec §2.5). upload에서 무조건

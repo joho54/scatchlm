@@ -22,12 +22,22 @@
 - **OCR 엔진 = Claude Vision (Haiku)**. 이미 anthropic SDK가 통합돼 있어 신규 벤더·인증·SDK가 0. 고전어·수식 복원이 Naver CLOVA보다 강함. 페이지 렌더(PyMuPDF `get_pixmap`, 장변 ~1568px JPEG) → Haiku에 "원문만 추출" 프롬프트. **Naver CLOVA는 탈락**.
 - **처리 시점 = eager 백그라운드 + 점진적 노출**. 업로드 시 스캔 감지 → 백그라운드 잡으로 페이지 순차 OCR → 매 페이지 즉시 DB 캐시(중단돼도 손실 0, 재개 가능) → 충분히 OCR되면 챕터 감지. 제품 요구는 **"전체가 결국 뜬다 / 빠를 필요 없다"**. (lazy는 탈락 — CoT는 챕터 전체 텍스트 필요.)
 - **캐싱**: 페이지 텍스트를 전용 테이블 `ocr_page_text`에 저장. `extract_text_async`가 캐시 조회 → 재OCR 비용 0.
-- **tier 정책** (`get_tier` → normal/pro):
-  - **free(normal)**: 권당(per-textbook) OCR 페이지 **하드 캡 50p**(`OCR_FREE_CAP_PAGES`). 캡 경계는 **명시적 안내 + 업셀**("전체 인식은 Pro") — 조용히 자르지 않는다. 권당 비용 ~$0.3 상한.
-  - **pro**: 풀 OCR 백그라운드. `task_type="ocr"` **별도 예산 버킷**으로 interactive(피드백/챗) 쿼터를 굶기지 않음. 백스톱 600p(`OCR_MAX_PAGES_PER_BOOK`).
-  - **admin**(JWT `role=admin`): **무제한** — 페이지 캡(풀북=`total_pages`)·OCR 예산 모두 우회. role은 DB에 없어 업로드 시점에 `ocr_unlimited=true`로 영속화(백그라운드 잡·스위퍼가 JWT 없이 판별). 예산 우회로 `paused`되지 않으므로 스위퍼 변경 불필요.
-- **비용/쿼터**: OCR도 Claude 호출 → `LLMUsage(task_type="ocr")`로 비용 기록 → 기존 USD 기반 쿼터(`quota.py`)에 흡수.
-- **자동 재개**: 잡이 멈추는 3원인(예산/예외/프로세스 사망)을 구분하고, 인프로세스 주기 스위퍼가 예산 회복 시 자동 재개(§2.3). cron 등 외부 인프라 불필요.
+- **tier 정책** (`get_tier` → normal/pro) — **2026-06 개정**: "한 PDF는 원자적으로 처리"가 원칙. 비용을
+  *시간축*으로 평탄화(일일 예산 → 며칠에 걸쳐 처리)하던 옛 모델은 UX가 나빠 폐기했다. 게이트는 두 지점:
+  - **per-file 페이지 천장**(`OCR_MAX_PAGES_PER_FILE`, 기본 200p): 스캔본이 이 페이지 수를 넘으면
+    **업로드 자체를 거부(422 `scanned_page_limit_exceeded`)** — free·pro 공통. 텍스트 레이어 PDF는
+    OCR이 불필요하므로 페이지 제한·쿼터 모두 없음(무제한).
+  - **월 건수 쿼터**: OCR을 *시작한* 스캔본 파일 수를 **KST 달력 월** 단위로 제한.
+    free `OCR_MONTHLY_FILES_FREE`(기본 2), pro `OCR_MONTHLY_FILES_PRO`(기본 5).
+    `start_ocr` 진입 시 검사(초과 → 429 `ocr_quota_exceeded`). `ocr_started_at`(최초 1회 set)으로
+    그 달의 건수를 세며, 재개/재시도는 이미 슬롯을 차지했으므로 재카운트하지 않는다.
+  - **per-tier 페이지 캡·`capped` 상태는 폐지**. 모든 스캔본은 ≤천장이므로 시작했으면 끝까지 처리
+    (`complete`). `ocr_cap`은 `min(total, 천장)` 클램프(레거시 >천장 행 방어)로만 남는다.
+  - **admin**(JWT `role=admin`): **무제한** — 월 건수·페이지 천장 우회. `ocr_unlimited=true` 영속화.
+- **비용 상한**: 월 건수 × per-file 천장이 곧 유저당 월 비용 상한이라 일일 예산 버킷은 불필요.
+  `DAILY_COST_LIMIT_OCR_PRO_USD`는 무한재시도 등 폭주 버그 대비 *높은 백스톱*으로만 남는다(정상 경로 미도달).
+- **비용/쿼터**: OCR도 Claude 호출 → `LLMUsage(task_type="ocr")`로 비용 기록.
+- **자동 재개**: 잡이 멈추는 원인(비용 백스톱/예외/프로세스 사망)을 구분하고, 인프로세스 주기 스위퍼가 자동 재개(§2.3). cron 등 외부 인프라 불필요.
 
 ### 1.3 Out of Scope
 

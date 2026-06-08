@@ -15,7 +15,7 @@ from sqlalchemy import select, func, update
 from app.core.auth import get_current_user_id, get_verified_payload, get_tier, get_role
 from app.core.config import settings
 from app.core.database import get_db, async_session
-from app.core.quota import check_daily_quota, check_ocr_quota
+from app.core.quota import check_daily_quota, check_ocr_quota, check_ocr_monthly_quota
 from app.models.textbook import TextbookSource
 from app.models.guide import PageGuide
 from app.models.chapter import Chapter
@@ -109,20 +109,16 @@ def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _tier_from_cap(cap: int | None) -> str:
-    """저장된 ocr_cap으로 tier를 역추론(스위퍼는 JWT가 없음)."""
-    return "normal" if cap == settings.OCR_FREE_CAP_PAGES else "pro"
-
-
-async def _background_ocr(textbook_id: str, user_id: str, tier: str):
+async def _background_ocr(textbook_id: str, user_id: str):
     """스캔본 PDF를 페이지 순차 OCR한다. 매 페이지 즉시 커밋 → 중단돼도 손실 0, 재개 가능.
 
     시작 시 ocr_status를 원자적으로 claim('running')해서 워커 2개 환경의 중복 실행을 막는다.
-    종료 상태: complete / capped(free 캡) / paused(예산 초과) / error(예외).
-    paused·error·stale-running은 _ocr_sweeper_loop가 자동 재개한다.
+    종료 상태: complete / paused(비용 백스톱 초과) / error(예외).
+    paused·error·stale-running은 _ocr_sweeper_loop가 자동 재개한다. 페이지 천장(≤200p)은
+    업로드 시점에 보장되므로 tier별 캡 분기는 없다 — 시작했으면 끝까지 처리(원자 처리).
     """
     async with async_session() as db:
-        # 원자적 claim — pending/paused/error만 running으로 전이. 이미 running/complete/capped면 0행 → 타 워커가 처리 중.
+        # 원자적 claim — pending/paused/error만 running으로 전이. 이미 running/complete면 0행 → 타 워커가 처리 중.
         claimed = (await db.execute(
             update(TextbookSource)
             .where(
@@ -144,9 +140,8 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
             log.warning("OCR job: textbook not found id=%s", textbook_id)
             return
 
-        cap = source.ocr_cap or settings.OCR_MAX_PAGES_PER_BOOK
+        cap = source.ocr_cap or settings.OCR_MAX_PAGES_PER_FILE
         target = min(source.total_pages, cap)
-        is_capped_tier = tier != "pro" and target < source.total_pages
 
         try:
             done_pages = set((await db.execute(
@@ -202,16 +197,14 @@ async def _background_ocr(textbook_id: str, user_id: str, tier: str):
             finally:
                 doc.close()
 
-            if status == "complete" and is_capped_tier:
-                status = "capped"
             source.ocr_status = status
             source.ocr_updated_at = _utcnow()
             await db.commit()
             log.info("OCR job done: textbook=%s status=%s done=%d target=%d blocked=%d",
                      textbook_id, status, source.ocr_pages_done, target, blocked_pages)
 
-            # 충분히 OCR되면(complete/capped) 챕터 감지 — TOC/기존 챕터가 없을 때만.
-            if status in ("complete", "capped"):
+            # OCR 완료되면 챕터 감지 — TOC/기존 챕터가 없을 때만.
+            if status == "complete":
                 existing = await db.scalar(
                     select(func.count()).select_from(Chapter).where(Chapter.textbook_id == textbook_id)
                 )
@@ -247,7 +240,7 @@ async def _ocr_sweep_once():
         rows = (await db.execute(
             select(
                 TextbookSource.id, TextbookSource.user_id,
-                TextbookSource.ocr_status, TextbookSource.ocr_cap,
+                TextbookSource.ocr_status,
             ).where(
                 TextbookSource.is_scanned.is_(True),
                 TextbookSource.ocr_status.in_(["paused", "error"]),
@@ -255,16 +248,16 @@ async def _ocr_sweep_once():
         )).all()
 
     resumed = 0
-    for tid, uid, status, cap in rows:
+    for tid, uid, status in rows:
         if resumed >= OCR_SWEEP_MAX_PER_CYCLE:
             log.info("OCR sweep: per-cycle cap hit, deferring %d candidates", len(rows) - resumed)
             break
-        # paused(예산)는 예산이 회복됐을 때만 재개. error는 항상 재시도.
+        # paused(비용 백스톱)는 예산이 회복됐을 때만 재개. error는 항상 재시도.
         if status == "paused":
             async with async_session() as db2:
                 if await check_ocr_quota(uid, db2):
-                    continue  # 아직 예산 초과 → 다음 사이클
-        asyncio.create_task(_background_ocr(tid, uid, _tier_from_cap(cap)))
+                    continue  # 아직 백스톱 초과 → 다음 사이클
+        asyncio.create_task(_background_ocr(tid, uid))
         resumed += 1
     if resumed:
         log.info("OCR sweep: resumed=%d", resumed)
@@ -346,7 +339,7 @@ async def upload_pdf(
             log.info("PDF duplicate scanned, resuming OCR: textbook=%s status=%s",
                      existing_source.id, existing_source.ocr_status)
             background_tasks.add_task(
-                _background_ocr, existing_source.id, existing_source.user_id, tier
+                _background_ocr, existing_source.id, existing_source.user_id
             )
 
         return {
@@ -367,6 +360,23 @@ async def upload_pdf(
     # status 엔드포인트가 처음 읽을 때 null→available로 파생한다(§ get_pdf_status). 페이지 캡/무제한
     # 같은 tier 의존 예산은 평가가 아니라 시작 시점(start_ocr)에 결정한다.
     is_scanned = has_no_text_layer(server_path, total_pages)
+
+    # 스캔본 per-file 천장: OCR로만 텍스트화 가능한데 너무 크면 비용·시간이 커진다. "한 PDF는
+    # 원자적으로 처리" 원칙상 분할 대신 업로드 자체를 거부한다(텍스트 레이어 PDF는 OCR 불요 →
+    # 무제한). DB 레코드 만들기 전에 끊고 방금 저장한 파일을 정리한다.
+    if is_scanned and total_pages > settings.OCR_MAX_PAGES_PER_FILE:
+        storage.delete(server_path)
+        log.warning("PDF upload rejected: scanned over page limit file=%s pages=%d limit=%d",
+                    file_name, total_pages, settings.OCR_MAX_PAGES_PER_FILE)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "detail": "Scanned PDF exceeds page limit",
+                "code": "scanned_page_limit_exceeded",
+                "pages": total_pages,
+                "limit": settings.OCR_MAX_PAGES_PER_FILE,
+            },
+        )
 
     source = TextbookSource(
         user_id=user_id,
@@ -522,26 +532,12 @@ class PdfStatusResponse(BaseModel):
     ocr_pages_done: int = 0
     ocr_pages_total: int = 0
     total_pages: int
-    capped: bool = False
-    cap_limit: int | None = None  # 적용된 캡 (free=50, pro=null)
+    capped: bool = False  # deprecated — per-tier 페이지 캡 폐지(항상 False). API 호환 위해 유지.
+    cap_limit: int | None = None  # deprecated(항상 null)
     chapters_ready: bool = False
 
 
-def _ocr_unlimited(tier: str, is_admin: bool) -> bool:
-    """admin은 무제한, pro는 cap_limit 미표시(백스톱 600은 내부 한정)."""
-    return is_admin or tier == "pro"
-
-
-def _effective_cap(total_pages: int, tier: str, is_admin: bool) -> int:
-    """tier별 이번 OCR 대상 페이지 수. 평가가 아니라 예산이므로 시작/표시 시점에 결정한다."""
-    if is_admin:
-        return total_pages  # 무제한 = 풀북
-    if tier == "pro":
-        return min(total_pages, settings.OCR_MAX_PAGES_PER_BOOK)
-    return min(total_pages, settings.OCR_FREE_CAP_PAGES)
-
-
-async def _build_status_response(source: TextbookSource, tier: str, is_admin: bool, db: AsyncSession) -> PdfStatusResponse:
+async def _build_status_response(source: TextbookSource, db: AsyncSession) -> PdfStatusResponse:
     chapters_ready = bool(await db.scalar(
         select(func.count()).select_from(Chapter).where(Chapter.textbook_id == source.id)
     ))
@@ -552,14 +548,13 @@ async def _build_status_response(source: TextbookSource, tier: str, is_admin: bo
             total_pages=source.total_pages,
             chapters_ready=chapters_ready,
         )
+    # 업로드에서 ≤OCR_MAX_PAGES_PER_FILE로 보장되므로 대상 페이지 = total(레거시 >천장은 천장으로 클램프).
     return PdfStatusResponse(
         is_scanned=True,
         ocr_status=source.ocr_status,
         ocr_pages_done=source.ocr_pages_done or 0,
-        ocr_pages_total=_effective_cap(source.total_pages, tier, is_admin),
+        ocr_pages_total=min(source.total_pages, settings.OCR_MAX_PAGES_PER_FILE),
         total_pages=source.total_pages,
-        capped=source.ocr_status == "capped",
-        cap_limit=None if _ocr_unlimited(tier, is_admin) else settings.OCR_FREE_CAP_PAGES,
         chapters_ready=chapters_ready,
     )
 
@@ -599,7 +594,7 @@ async def get_pdf_status(
     source = await _get_owned_source(textbook_id, payload["sub"], db)
     if _derive_ocr_status(source):
         await db.commit()
-    return await _build_status_response(source, get_tier(payload), get_role(payload) == "admin", db)
+    return await _build_status_response(source, db)
 
 
 @router.post("/{textbook_id}/ensure", response_model=PdfStatusResponse)
@@ -621,7 +616,7 @@ async def ensure_evaluated(
         log.info("OCR intake re-evaluated: textbook=%s is_scanned=%s", textbook_id, source.is_scanned)
     _derive_ocr_status(source)
     await db.commit()
-    return await _build_status_response(source, get_tier(payload), get_role(payload) == "admin", db)
+    return await _build_status_response(source, db)
 
 
 @router.post("/{textbook_id}/ocr/start", response_model=PdfStatusResponse)
@@ -633,7 +628,7 @@ async def start_ocr(
 ):
     """스캔본 OCR을 명시적으로 시작한다 — 유저가 쿼터 소진에 동의했음을 의미.
 
-    available/paused/error → pending으로 전이 후 백그라운드 잡 등록. running/pending/complete/capped는
+    available/paused/error → pending으로 전이 후 백그라운드 잡 등록. running/pending/complete는
     멱등 무동작(현재 상태 반환). 자동 시작을 없앤 대신의 명시적 트리거(docs/scanned-pdf-ocr-spec.md).
     """
     user_id = payload["sub"]
@@ -643,18 +638,23 @@ async def start_ocr(
     if not source.is_scanned:
         raise HTTPException(status_code=400, detail="Not a scanned PDF (has text layer)")
 
-    # 페이지 캡/무제한 같은 tier 의존 예산은 평가가 아니라 "시작 시점"에 현재 tier로 결정한다.
     if source.ocr_status in (None, "available", "paused", "error"):
-        source.ocr_cap = _effective_cap(source.total_pages, tier, is_admin)
+        # 월 건수 쿼터: 이 파일이 *처음* 시작되는 경우(슬롯 미소비)에만 게이트한다. 재개/재시도
+        # (ocr_started_at 존재)는 이미 슬롯을 차지했으므로 재카운트·재검사하지 않는다.
+        if source.ocr_started_at is None:
+            await check_ocr_monthly_quota(user_id, tier, db, is_admin=is_admin)  # 초과 시 429
+            source.ocr_started_at = _utcnow()
+        # 페이지 천장은 업로드에서 보장되나 레거시 >천장 행 대비 클램프(원자 처리 — 캡은 없음).
+        source.ocr_cap = min(source.total_pages, settings.OCR_MAX_PAGES_PER_FILE)
         source.ocr_unlimited = is_admin
         source.ocr_status = "pending"
         source.ocr_updated_at = _utcnow()
         await db.commit()
-        background_tasks.add_task(_background_ocr, source.id, user_id, tier)
-        log.info("OCR start (explicit): textbook=%s user=%s cap=%d unlimited=%s status→pending",
-                 textbook_id, user_id, source.ocr_cap, is_admin)
+        background_tasks.add_task(_background_ocr, source.id, user_id)
+        log.info("OCR start (explicit): textbook=%s user=%s tier=%s cap=%d unlimited=%s status→pending",
+                 textbook_id, user_id, tier, source.ocr_cap, is_admin)
 
-    return await _build_status_response(source, tier, is_admin, db)
+    return await _build_status_response(source, db)
 
 
 @router.get("/extract")
@@ -688,15 +688,14 @@ async def extract_text(
 
 
 def _raise_ocr_incomplete(source: TextbookSource, page: int | None):
-    """스캔본 OCR 미완 시 409 ocr_incomplete (capped면 Pro 업셀 트리거)."""
-    capped = source.ocr_status == "capped"
+    """스캔본 OCR 미완 시 409 ocr_incomplete."""
     raise HTTPException(
         status_code=409,
         detail={
             "detail": "OCR not complete for this page/chapter",
             "code": "ocr_incomplete",
             "ocr_status": source.ocr_status,
-            "capped": capped,
+            "capped": False,  # deprecated — per-tier 캡 폐지
             "page": page,
         },
     )

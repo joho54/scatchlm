@@ -391,17 +391,87 @@ async def test_ensure_reevaluates_legacy_once(client: AsyncClient, auth_header: 
 
 
 @pytest.mark.asyncio
-async def test_free_scanned_status_shows_page_cap(client: AsyncClient, auth_header: dict):
-    """free(normal) tier 스캔본 status: cap_limit=50, ocr_pages_total=min(total,50) (예산 표시 파생)."""
+async def test_scanned_status_no_per_tier_cap(client: AsyncClient, auth_header: dict):
+    """per-tier 페이지 캡 폐지: status는 cap_limit=null, capped=false, ocr_pages_total=min(total,천장)."""
     with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
          patch("app.routers.pdf._background_index", new_callable=AsyncMock):
         up = await _upload(client, auth_header, make_blank_pdf(pages=60))
         st = await client.get(f"/api/pdf/{up['id']}/status", headers=auth_header)
     assert st.status_code == 200
     body = st.json()
-    assert body["cap_limit"] == 50
-    assert body["ocr_pages_total"] == 50   # min(60, 50)
-    assert body["capped"] is False         # 아직 시작 전
+    assert body["cap_limit"] is None       # deprecated — 항상 null
+    assert body["capped"] is False         # deprecated — 항상 false
+    assert body["ocr_pages_total"] == 60   # min(60, OCR_MAX_PAGES_PER_FILE=200) = 60(=total)
+
+
+@pytest.mark.asyncio
+async def test_scanned_over_page_limit_rejected(client: AsyncClient, auth_header: dict):
+    """천장(OCR_MAX_PAGES_PER_FILE) 초과 스캔본 업로드는 422로 거부된다(원자 처리 원칙)."""
+    with patch("app.routers.pdf.settings.OCR_MAX_PAGES_PER_FILE", 5), \
+         patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock):
+        res = await client.post(
+            "/api/pdf/upload",
+            headers=auth_header,
+            files={"file": ("scan.pdf", io.BytesIO(make_blank_pdf(pages=6)), "application/pdf")},
+        )
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert detail["code"] == "scanned_page_limit_exceeded"
+    assert detail["limit"] == 5 and detail["pages"] == 6
+
+
+@pytest.mark.asyncio
+async def test_text_pdf_over_page_limit_allowed(client: AsyncClient, auth_header: dict):
+    """텍스트 레이어 PDF는 OCR 불요 → 페이지 천장 무관(거부 안 함)."""
+    import fitz
+    doc = fitz.open()
+    for i in range(6):
+        p = doc.new_page()
+        p.insert_text((72, 72), f"page {i} has a real text layer")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    with patch("app.routers.pdf.settings.OCR_MAX_PAGES_PER_FILE", 5), \
+         patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_detect_chapters", new_callable=AsyncMock):
+        res = await client.post(
+            "/api/pdf/upload",
+            headers=auth_header,
+            files={"file": ("text.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        )
+    assert res.status_code == 200
+    assert res.json()["is_scanned"] is False
+
+
+@pytest.mark.asyncio
+async def test_ocr_monthly_quota_gate_and_resume(client: AsyncClient, auth_header: dict, db_session):
+    """월 건수 한도 초과 시 start_ocr이 429. 이미 시작한 책의 재개는 재카운트 없이 통과."""
+    from sqlalchemy import update
+    from app.models.textbook import TextbookSource
+    with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
+         patch("app.core.quota.settings.OCR_MONTHLY_FILES_FREE", 1), \
+         patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
+         patch("app.routers.pdf._background_ocr", new_callable=AsyncMock):
+        a = await _upload(client, auth_header, make_blank_pdf(pages=4))
+        b = await _upload(client, auth_header, make_blank_pdf(pages=5))  # 다른 페이지수 → 다른 hash(중복 회피)
+
+        # 1건째 시작 → OK, 그 달의 슬롯 1 소비(ocr_started_at set)
+        r1 = await client.post(f"/api/pdf/{a['id']}/ocr/start", headers=auth_header)
+        assert r1.status_code == 200
+
+        # 2건째(다른 책) 시작 → 월 한도(1) 초과 → 429 ocr_quota_exceeded
+        r2 = await client.post(f"/api/pdf/{b['id']}/ocr/start", headers=auth_header)
+        assert r2.status_code == 429
+        assert r2.json()["detail"]["code"] == "ocr_quota_exceeded"
+
+        # a를 paused로 강등(백스톱/스위퍼 시나리오) 후 재시작 → 이미 슬롯 소비 → 재카운트 없이 200
+        await db_session.execute(
+            update(TextbookSource).where(TextbookSource.id == a["id"]).values(ocr_status="paused")
+        )
+        await db_session.commit()
+        r3 = await client.post(f"/api/pdf/{a['id']}/ocr/start", headers=auth_header)
+        assert r3.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -424,7 +494,7 @@ async def test_scanned_eval_unconditional_status_derives_available(client: Async
 
 @pytest.mark.asyncio
 async def test_admin_scanned_upload_is_unlimited(client: AsyncClient, admin_header: dict):
-    """admin(role=admin) 스캔본 → status.cap_limit=null(무제한). free 50p 캡 미적용."""
+    """admin(role=admin) 스캔본 → status.cap_limit=null, ocr_pages_total=풀북."""
     with patch("app.routers.pdf.settings.ENABLE_OCR", True), \
          patch("app.routers.pdf._background_index", new_callable=AsyncMock), \
          patch("app.routers.pdf._background_ocr", new_callable=AsyncMock):

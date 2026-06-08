@@ -23,14 +23,18 @@ class Settings(BaseSettings):
     DAILY_COST_LIMIT_PRO_USD: float = 0.0
 
     # 스캔본(이미지) PDF OCR — docs/scanned-pdf-ocr-spec.md.
-    # 기능 토글. 켜기 전 OCR 예산 한도(양수)를 반드시 설정할 것(§1.4 운영 리스크).
+    # 기능 토글. 켜기 전 월 건수 한도를 확인할 것.
     ENABLE_OCR: bool = False
-    # pro OCR 백그라운드 일일 예산(USD, task_type="ocr"만 합산). 0/미설정 → 무제한.
+    # OCR 예산 모델: "한 PDF는 원자적으로 처리"가 원칙(시간축 분할 금지). 게이트는 두 지점.
+    #  1) per-file: 스캔본이 이 페이지 수를 넘으면 업로드 자체를 거부(422). free·pro 공통 천장.
+    #  2) 월 건수: OCR을 시작한 스캔본 파일 수를 KST 달력 월 단위로 제한(free<pro).
+    # 월 건수×페이지천장이 곧 유저당 월 비용 상한이라 별도 일일 비용 버킷은 불필요.
+    OCR_MAX_PAGES_PER_FILE: int = 200
+    OCR_MONTHLY_FILES_FREE: int = 2
+    OCR_MONTHLY_FILES_PRO: int = 5
+    # 무한재시도 등 폭주 버그 대비 *높은* 백스톱(USD, task_type="ocr" 일일 합산). 0/미설정 → 무제한.
+    # 정상 사용(월 N건×≤200p)에선 절대 닿지 않는다 — UX(원자 처리)와 무관한 안전망.
     DAILY_COST_LIMIT_OCR_PRO_USD: float = 0.0
-    # free(normal) 권당(per-textbook) OCR 페이지 하드 캡.
-    OCR_FREE_CAP_PAGES: int = 50
-    # pro 권당 OCR 페이지 백스톱(잘못된 TOC로 거대 범위가 잡혀도 비용 캡).
-    OCR_MAX_PAGES_PER_BOOK: int = 600
 
     # IAP (Apple StoreKit 2 구독). docs/iap-subscription-spec.md §4.1/§4.3.
     APPLE_BUNDLE_ID: str = "com.joho54.scatchlm"

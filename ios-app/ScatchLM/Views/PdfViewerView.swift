@@ -33,6 +33,7 @@ struct PdfViewerView: View {
     @State private var pdfStatus: PdfStatus?
     @State private var showOcrStartAlert = false
     @State private var ocrStarting = false
+    @State private var ocrError: String?   // OCR 시작 실패(월 건수 초과 등) 사용자 안내
     @State private var guideError: String?
     @State private var chapterGuideError: String?
     /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
@@ -112,7 +113,12 @@ struct PdfViewerView: View {
             Button("취소", role: .cancel) {}
             Button("시작") { startOcr() }
         } message: {
-            Text("이 교재는 텍스트가 인식되지 않습니다. 이미지 인식(OCR)을 시작하면 챕터·가이드를 쓸 수 있지만 AI 사용량(쿼터)을 소진합니다.")
+            Text("이 교재는 텍스트가 인식되지 않습니다. 이미지 인식(OCR)을 시작하면 챕터·가이드를 쓸 수 있어요. 이번 달 이미지 인식 가능 건수에서 1건이 차감되며, 한 번 시작하면 끝까지 인식합니다.")
+        }
+        .alert("이미지 인식을 시작할 수 없어요", isPresented: Binding(get: { ocrError != nil }, set: { if !$0 { ocrError = nil } })) {
+            Button("확인", role: .cancel) { ocrError = nil }
+        } message: {
+            Text(ocrError ?? "")
         }
         .task { await pollOcrStatus() }
         .onDisappear { if inkMode { inkMode = false } }   // PDF 닫히면 노트 캔버스 그리기 복구
@@ -132,12 +138,9 @@ struct PdfViewerView: View {
                         .font(.caption2.bold())
                         .buttonStyle(.borderedProminent)
                         .controlSize(.mini)
-                case "capped":
-                    Image(systemName: "lock.fill")
-                    Text("무료는 \(status.capLimit ?? status.ocrPagesDone)p까지 인식해요 · 전체 인식은 Pro")
                 case "paused":
                     Image(systemName: "pause.circle")
-                    Text("오늘 인식 분량을 다 썼어요 · 잠시 후 자동으로 이어집니다")
+                    Text("인식을 잠시 멈췄어요 · 곧 자동으로 이어집니다")
                 case "error":
                     Image(systemName: "exclamationmark.triangle")
                     Text("인식 중 문제가 생겼어요 · 곧 자동으로 다시 시도합니다")
@@ -171,6 +174,10 @@ struct PdfViewerView: View {
                 await pollOcrStatus()  // pending/running 진행률 폴링 재개
             } catch {
                 appLogError("pdf", "ocr start failed", ["textbookId": textbookId, "error": "\(error)"])
+                // 월 건수 초과 등은 사용자에게 안내(침묵 금지). 그 외도 일반 메시지로 노출.
+                let msg = (error as? LocalizedError)?.errorDescription
+                    ?? "이미지 인식을 시작하지 못했어요. 잠시 후 다시 시도해 주세요."
+                await MainActor.run { ocrError = msg }
             }
         }
     }

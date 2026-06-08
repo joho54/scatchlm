@@ -17,10 +17,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.usage import LLMUsage
+from app.models.textbook import TextbookSource
 
 log = logging.getLogger(__name__)
 
 KST = timezone(timedelta(hours=9))
+
+
+def _kst_month_bounds(now_utc: datetime | None = None) -> tuple[datetime, datetime]:
+    """(이번 달 KST 1일 0시의 UTC-naive 시각, 다음 달 KST 1일 0시 aware 시각)을 반환.
+
+    ocr_started_at은 naive UTC로 저장되므로 비교 하한도 naive UTC로 맞춘다.
+    """
+    now_utc = now_utc or datetime.now(timezone.utc)
+    now_kst = now_utc.astimezone(KST)
+    month_start_kst = now_kst.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if month_start_kst.month == 12:
+        next_month_kst = month_start_kst.replace(year=month_start_kst.year + 1, month=1)
+    else:
+        next_month_kst = month_start_kst.replace(month=month_start_kst.month + 1)
+    since_utc_naive = month_start_kst.astimezone(timezone.utc).replace(tzinfo=None)
+    return since_utc_naive, next_month_kst
 
 
 def _kst_day_bounds(now_utc: datetime | None = None) -> tuple[datetime, datetime]:
@@ -98,12 +115,77 @@ async def check_daily_quota(user_id: str, tier: str, db: AsyncSession, *, is_adm
         )
 
 
-async def check_ocr_quota(user_id: str, db: AsyncSession) -> bool:
-    """OCR(task_type="ocr") 전용 일일 비용 버킷 초과 여부를 반환한다(True=초과).
+def _ocr_monthly_limit_for_tier(tier: str) -> int:
+    if tier == "pro":
+        return settings.OCR_MONTHLY_FILES_PRO
+    return settings.OCR_MONTHLY_FILES_FREE
 
-    interactive(피드백/챗) 쿼터와 분리된 별도 예산. 백그라운드 OCR 잡의 페이싱용이라
-    429를 던지지 않고 bool을 반환한다(초과 시 잡은 paused 후 다음 사이클 재개).
-    DAILY_COST_LIMIT_OCR_PRO_USD가 0/미설정이면 무제한(False).
+
+async def check_ocr_monthly_quota(
+    user_id: str, tier: str, db: AsyncSession, *, is_admin: bool = False
+) -> None:
+    """이번 KST 달력 월에 OCR을 시작한 스캔본 *파일 수*가 tier 한도 이상이면 429를 던진다.
+
+    "한 PDF는 원자적으로 처리"가 원칙이라 시간축 분할(일일 예산 pause) 대신 시작 시점에
+    건수로 게이트한다. ocr_started_at이 이번 달인 행을 센다(재개/재시도는 ocr_started_at을
+    갱신하지 않으므로 한 파일은 평생 1건만 차지 — 중복 카운트 없음). 호출부는 이 체크를
+    통과한 뒤에만 ocr_started_at을 set하므로, 시작하려는 당사자는 아직 카운트에 안 잡힌다.
+
+    is_admin이면 무제한(통과).
+    """
+    if is_admin:
+        return
+    limit = _ocr_monthly_limit_for_tier(tier)
+    if not limit or limit <= 0:
+        # 0 → 해당 tier는 스캔본 OCR 비허용.
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "detail": "Scanned OCR is not available on this plan",
+                "code": "ocr_quota_exceeded",
+                "tier": tier,
+                "limit_files": 0,
+                "used_files": 0,
+            },
+        )
+
+    # 같은 유저의 동시 start_ocr가 한도를 넘겨 통과하는 race 방지(check_daily_quota와 동일 패턴).
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:uid))"), {"uid": "ocrm:" + user_id})
+
+    since, next_month_kst = _kst_month_bounds()
+    used = await db.scalar(
+        select(func.count()).select_from(TextbookSource).where(
+            TextbookSource.user_id == user_id,
+            TextbookSource.ocr_started_at >= since,
+        )
+    )
+    used = int(used or 0)
+    if used >= limit:
+        retry_after = max(1, int((next_month_kst - datetime.now(KST)).total_seconds()))
+        log.warning(
+            "OCR monthly quota exceeded: user=%s tier=%s used=%d limit=%d",
+            user_id, tier, used, limit,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "detail": "Monthly OCR file limit reached",
+                "code": "ocr_quota_exceeded",
+                "tier": tier,
+                "limit_files": limit,
+                "used_files": used,
+                "reset_at": next_month_kst.isoformat(),
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+async def check_ocr_quota(user_id: str, db: AsyncSession) -> bool:
+    """OCR(task_type="ocr") 일일 비용 *백스톱* 초과 여부를 반환한다(True=초과).
+
+    1차 게이트는 check_ocr_monthly_quota(건수). 이건 무한재시도 등 폭주 버그 대비 안전망일
+    뿐 정상 UX 경로에선 닿지 않는다. 백그라운드 잡 페이싱용이라 429를 던지지 않고 bool 반환
+    (초과 시 잡은 paused 후 다음 사이클 재개). DAILY_COST_LIMIT_OCR_PRO_USD가 0/미설정이면 무제한(False).
     """
     limit = settings.DAILY_COST_LIMIT_OCR_PRO_USD
     if not limit or limit <= 0:

@@ -85,12 +85,29 @@ def test_enable_ocr_off_by_default():
     assert settings.ENABLE_OCR is False
 
 
-def test_tier_from_cap_roundtrip():
-    """스위퍼는 JWT가 없어 저장된 ocr_cap으로 tier를 역추론한다."""
-    from app.routers.pdf import _tier_from_cap
-    assert _tier_from_cap(settings.OCR_FREE_CAP_PAGES) == "normal"
-    assert _tier_from_cap(settings.OCR_MAX_PAGES_PER_BOOK) == "pro"
-    assert _tier_from_cap(None) == "pro"  # cap 미상 → pro(백스톱)로 취급
+def test_ocr_monthly_limits_free_lt_pro():
+    """월 OCR 건수는 per-file 천장과 함께 비용 상한을 형성. free < pro."""
+    assert settings.OCR_MONTHLY_FILES_FREE < settings.OCR_MONTHLY_FILES_PRO
+    assert settings.OCR_MAX_PAGES_PER_FILE > 0
+
+
+def test_ocr_monthly_limit_for_tier():
+    from app.core.quota import _ocr_monthly_limit_for_tier
+    assert _ocr_monthly_limit_for_tier("pro") == settings.OCR_MONTHLY_FILES_PRO
+    assert _ocr_monthly_limit_for_tier("normal") == settings.OCR_MONTHLY_FILES_FREE
+    assert _ocr_monthly_limit_for_tier("anything-else") == settings.OCR_MONTHLY_FILES_FREE
+
+
+def test_kst_month_bounds_rolls_over_year():
+    """KST 달력 월 경계: 12월이면 다음 달은 이듬해 1월. 하한은 naive UTC."""
+    from datetime import datetime, timezone
+    from app.core.quota import _kst_month_bounds
+    # 2026-12-15 09:00 UTC = 2026-12-15 18:00 KST → 월초 2026-12-01 KST, 다음달 2027-01-01 KST
+    since, nxt = _kst_month_bounds(datetime(2026, 12, 15, 9, 0, tzinfo=timezone.utc))
+    assert nxt.year == 2027 and nxt.month == 1 and nxt.day == 1
+    assert since.tzinfo is None  # naive UTC (ocr_started_at 컬럼과 비교용)
+    # 2026-12-01 00:00 KST == 2026-11-30 15:00 UTC
+    assert (since.year, since.month, since.day, since.hour) == (2026, 11, 30, 15)
 
 
 def test_headers_from_ocr_rows_skips_blank_and_truncates():

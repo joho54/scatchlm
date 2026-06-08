@@ -2,24 +2,23 @@
 import SwiftUI
 import PencilKit
 
-/// 떨림 소거법 — **스텝 5: 큰 contentView + 작은(뷰포트) 캔버스 bounds.**
+/// 떨림 소거법 — **스텝 6: windowed 캔버스(해법 검증).**
 ///
-/// 스텝1(네이티브, canvas bounds=뷰포트, contentSize만 큼) = 떨림 없음.
-/// 스텝4(demote, canvas bounds=6000 고정) = **확장 0회인데도 떨림(시작부터).**
-/// → 트리거는 확장 행위가 아니라 **PKCanvasView가 큰 bounds를 가진 것** 자체로 좁혀짐.
+/// 범인 확정: PKCanvasView가 큰 frame(bounds)을 가지면 떨림(스텝4 떪, 스텝5 안 떪 — 변수는 bounds 크기뿐).
 ///
-/// 스텝5: 스텝4와 전부 동일(host>contentView(6000)>canvas, demote)인데 **canvas.frame만 뷰포트 크기**.
-/// 위쪽(캔버스가 덮는 영역)에서 그려본다. canvas bounds 크기 하나만 변수.
+/// 스텝6은 해법 후보 검증: host 계층(카드·줌용)은 그대로 두되, **캔버스를 뷰포트 크기로 고정**하고
+/// host 스크롤을 따라 frame.origin + contentOffset을 옮겨 "보이는 슬라이스"만 렌더하는 windowed 방식.
+/// 캔버스 bounds 크기는 항상 뷰포트라 떨림 조건(큰 bounds)을 회피. ink는 content 좌표 그대로.
 ///
 /// 판정:
-/// - **안 떨림** → 큰 canvas bounds가 범인 확정. 해법: 캔버스 bounds를 뷰포트로 유지(타일/윈도잉) 또는 네이티브.
-/// - **떨림** → bounds 크기 무관, demote/nesting 자체가 범인 → 네이티브 복귀.
+/// - **안 떨림(깊은 위치에서도)** → windowed 해법 검증 완료 → 실제 NoteView에 포팅.
+/// - **떨림** → windowed로도 부족 → 네이티브 복귀 검토.
 struct DebugCanvasView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            HostStaticCanvas()
+            HostWindowedCanvas()
                 .ignoresSafeArea()
             Button("닫기") { dismiss() }
                 .padding(10)
@@ -30,13 +29,15 @@ struct DebugCanvasView: View {
     }
 }
 
-private struct HostStaticCanvas: UIViewRepresentable {
+private struct HostWindowedCanvas: UIViewRepresentable {
     func makeUIView(context: Context) -> UIScrollView {
         let coord = context.coordinator
         let w = UIScreen.main.bounds.width
-        let fixedH: CGFloat = 6000   // 처음부터 크게 고정. 확장(setContentHeight) 전혀 없음.
+        let fixedH: CGFloat = 6000
+        let viewportH = UIScreen.main.bounds.height
 
         let host = UIScrollView()
+        host.delegate = coord
         host.alwaysBounceVertical = true
         host.contentInsetAdjustmentBehavior = .never
         host.backgroundColor = .systemGray5
@@ -46,14 +47,19 @@ private struct HostStaticCanvas: UIViewRepresentable {
         host.addSubview(contentView)
         host.contentSize = contentView.bounds.size
 
-        // 스텝5: 캔버스 frame을 contentView(6000)가 아니라 뷰포트 크기로 작게. 위쪽만 덮는다.
-        let viewportH = UIScreen.main.bounds.height
+        // windowed: 캔버스는 뷰포트 크기로 고정(bounds 작게 = 떨림 회피). 큰 contentSize로 슬라이스 오프셋.
         let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: w, height: viewportH))
-        canvas.drawingPolicy = .pencilOnly   // 펜=그리기, 손가락=host 스크롤
-        canvas.isScrollEnabled = false        // 강등: 스크롤은 host 담당
+        canvas.drawingPolicy = .pencilOnly
+        canvas.isScrollEnabled = false
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
+        canvas.contentSize = CGSize(width: w, height: fixedH)   // 전체 높이만큼 슬라이스 가능
         contentView.addSubview(canvas)
+
+        coord.host = host
+        coord.contentView = contentView
+        coord.canvas = canvas
+        coord.viewportH = viewportH
 
         coord.toolPicker = {
             let tp = PKToolPicker()
@@ -69,9 +75,20 @@ private struct HostStaticCanvas: UIViewRepresentable {
 
     func makeCoordinator() -> Coord { Coord() }
 
-    // 델리게이트·핸들러 0개. 순수 구조만(host>contentView>canvas, 전부 정적).
-    final class Coord: NSObject {
+    final class Coord: NSObject, UIScrollViewDelegate {
         var toolPicker: PKToolPicker?
+        weak var host: UIScrollView?
+        weak var contentView: UIView?
+        weak var canvas: PKCanvasView?
+        var viewportH: CGFloat = 0
+
+        // host 스크롤마다 캔버스 윈도우를 보이는 영역으로 이동 + 그 슬라이스를 렌더.
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard let canvas, let w = contentView?.bounds.width else { return }
+            let y = max(0, scrollView.contentOffset.y)
+            canvas.frame = CGRect(x: 0, y: y, width: w, height: viewportH)  // 뷰포트 위치로 이동(크기 불변)
+            canvas.contentOffset = CGPoint(x: 0, y: y)                       // 같은 슬라이스를 렌더
+        }
     }
 }
 #endif

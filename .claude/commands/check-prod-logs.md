@@ -21,6 +21,8 @@
 /check-prod-logs follow           # 실시간 스트림 (Ctrl+C로 중단)
 /check-prod-logs users            # 최근 24h 사용자 수·세션·액션 통계 (별칭: stats)
 /check-prod-logs users 48h        # 윈도우 지정 (기본 24h)
+/check-prod-logs funnel           # 활성화 퍼널 + 리텐션 (별칭: cohort, 기본 30d)
+/check-prod-logs funnel 7d        # 활성화 윈도우 지정 (리텐션은 전체 기간 코호트)
 ```
 
 ## 로그 가져오기 (단일 호스트)
@@ -131,6 +133,70 @@ ssh scatchlm "cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --en
 > 에러 요약, uxTrack 결과 분포를 표로 정리. 매칭 실패(`email IS NULL`)는 "미가입/삭제"로 명시.
 > **이메일은 PII이므로 결과를 외부(이슈/PR/채팅 등)에 붙여넣지 않는다.**
 
+### 활성화·리텐션 분석 (`funnel` / `cohort`) — SQL 집계 (app_logs)
+
+광고(ASA) 켜기 전후로 "유입된 유저가 *첫 성공 피드백*까지 가나(활성화), 다시 오나(리텐션)"를
+바로 통계화. 새 계측 불필요 — 이미 적재된 FE 이벤트(`appLog` info, Release 유저도 옴)로 SQL만.
+
+마일스톤 정의 (message 기준):
+- **signed in** = `user_id` 존재 (앱 진입 + 인증)
+- **created note** = `createNote OK`
+- **uploaded textbook** = `upload OK` (실패는 `upload failed`)
+- **activated** = `feedback received` (성공). cf. `feedback: no new strokes` = 눌렀으나 빈 캔버스
+
+`PSQL`/`WIN`은 위 "사용자 활동 분석" 섹션 정의 재사용. 활성화 윈도우 기본 `30 days`(짧으면 신규가
+마일스톤 도달 전이라 과소집계). **리텐션 D1/D7은 코호트라 윈도우 무시하고 전체 기간** 사용.
+
+```bash
+# A) 활성화 퍼널 — 윈도우 내 고유 유저의 단계별 도달 수 (NULL user_id=pre-auth 제외)
+PSQL "SELECT
+  count(DISTINCT user_id) AS users,
+  count(DISTINCT user_id) FILTER (WHERE message='createNote OK')   AS created_note,
+  count(DISTINCT user_id) FILTER (WHERE message='upload OK')        AS uploaded_tb,
+  count(DISTINCT user_id) FILTER (WHERE message='feedback received') AS activated
+FROM app_logs WHERE user_id IS NOT NULL AND ts > now() - interval '$WIN';"
+
+# B) 유저별 마일스톤 + 활동일수 (소표본 eyeball용; 내부 계정은 해석 시 제외)
+PSQL "SELECT u.email, min(l.ts)::date AS first_day,
+  count(DISTINCT l.ts::date) AS active_days,
+  bool_or(l.message='createNote OK')    AS made_note,
+  bool_or(l.message='upload OK')         AS uploaded,
+  bool_or(l.message='feedback received') AS activated
+FROM app_logs l LEFT JOIN users u ON u.id=l.user_id
+WHERE l.user_id IS NOT NULL AND l.ts > now() - interval '$WIN'
+GROUP BY u.email ORDER BY first_day;"
+
+# C) 리텐션 — 전체 기간 코호트(윈도우 무시). 첫 활동일(d0) 대비 복귀.
+PSQL "WITH f AS (SELECT user_id, min(ts)::date AS d0 FROM app_logs
+                 WHERE user_id IS NOT NULL GROUP BY user_id),
+           d AS (SELECT DISTINCT user_id, ts::date AS day FROM app_logs WHERE user_id IS NOT NULL)
+SELECT count(DISTINCT f.user_id) AS users,
+  count(DISTINCT f.user_id) FILTER (WHERE d.day > f.d0)                         AS returned_any,
+  count(DISTINCT f.user_id) FILTER (WHERE d.day = f.d0 + 1)                     AS d1,
+  count(DISTINCT f.user_id) FILTER (WHERE d.day > f.d0 AND d.day <= f.d0 + 7)   AS within_7d
+FROM f LEFT JOIN d ON d.user_id=f.user_id;"
+
+# D) 설치일(첫활동일) 코호트 — ASA 어트리뷰션 프록시. 광고 켠 날 전후 신규/활성화 비교.
+PSQL "WITH f AS (SELECT l.user_id, min(l.ts)::date AS d0,
+                        bool_or(l.message='feedback received') AS activated
+                 FROM app_logs l WHERE l.user_id IS NOT NULL GROUP BY l.user_id)
+SELECT d0 AS cohort_day, count(*) AS new_users,
+       count(*) FILTER (WHERE activated) AS activated
+FROM f GROUP BY d0 ORDER BY d0;"
+```
+
+> **한계 (보고 시 명시):**
+> - **pre-auth(설치→가입 전 이탈)는 안 보임** — `user_id` 기준이라. top-of-funnel(노출·탭·설치)은
+>   **ASA 대시보드**가 단일 진실. app_logs는 "앱 진입 이후"만.
+> - **어트리뷰션 없음** — 어떤 설치가 광고发인지 app_logs는 모름. D) 설치일 코호트로 "광고 켠 주
+>   신규 활성화율 vs 안 켠 주"를 **프록시 비교**만 가능. 정밀 귀속은 Apple Ads Attribution(AdServices).
+> - **내부 계정 오염** — 개발자 본인 계정(gmail/naver/hufs 등)이 퍼널·리텐션을 부풀린다. B) 표로
+>   eyeball하거나 쿼리에 `AND u.email NOT IN ('joho0504@gmail.com', …)` 추가해 제외하고 해석.
+> - **마일스톤은 message 문자열 의존** — FE 로그 메시지가 바뀌면 쿼리도 갱신 필요.
+> - **app_logs는 2026-06-04부터 적재** — 그 이전 활동 유저는 퍼널/리텐션에 **안 보이고**(예:
+>   textbook_sources엔 있으나 app_logs엔 없는 유저), 06-04 걸친 유저의 `d0`가 **06-04로 clamp**되어
+>   설치일 코호트(D)가 왜곡된다. 06-04 직후 구간은 "진짜 신규"가 아닐 수 있으니 해석 주의.
+
 ### 실시간 스트림 (follow)
 ```bash
 ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f --no-color --tail=20 app'
@@ -145,6 +211,8 @@ ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --en
   - `service=<name>` → 해당 서비스 로그
   - `users` / `stats` (+ 선택 윈도우, 예: `users 48h`) → 사용자 활동 분석 (위 섹션). 등장한
     user prefix를 `users` 테이블과 자동 join해 이메일까지 매칭(미가입/삭제 prefix는 명시)
+  - `funnel` / `cohort` (+ 선택 윈도우, 예: `funnel 7d`) → 활성화 퍼널 + 리텐션 (위 섹션).
+    활성화 윈도우 기본 30d, 리텐션은 전체 기간 코호트. 한계(pre-auth·어트리뷰션·내부계정) 명시
   - 그 외 → 키워드 grep
 
 ## 실행 로직
@@ -162,6 +230,12 @@ elif echo "$ARGUMENTS" | grep -qE "^(users|stats)( |$)"; then
   W=$(echo "$ARGUMENTS" | awk '{print $2}'); W=${W:-24h}
   WIN="${W%h} hours"   # "48h" → "48 hours"
   # → 위 섹션의 PSQL 쿼리들을 interval '$WIN'로 실행. [access] 집계만 json-log grep 유지.
+elif echo "$ARGUMENTS" | grep -qE "^(funnel|cohort)( |$)"; then
+  # 활성화·리텐션 분석 — "활성화·리텐션 분석" 섹션의 A~D 쿼리(app_logs)를 따른다.
+  # 활성화 윈도우 기본 30d(짧으면 과소집계), 리텐션 D1/D7은 윈도우 무시 전체 기간.
+  W=$(echo "$ARGUMENTS" | awk '{print $2}'); W=${W:-30d}
+  WIN="${W%d} days"   # "7d" → "7 days"
+  # → A) 퍼널, B) 유저별 마일스톤, C) 리텐션, D) 설치일 코호트 실행. 한계 명시해 보고.
 elif echo "$ARGUMENTS" | grep -q "^service="; then
   svc=$(echo "$ARGUMENTS" | sed 's/^service=//')
   eval "$SSH_BASE --tail=100 $svc'"

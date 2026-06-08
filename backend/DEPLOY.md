@@ -162,9 +162,12 @@ Alembic 마이그레이션은 컨테이너 시작 시 `alembic upgrade head`로 
 - **idempotent**(있으면 no-op)라 매 요청 안전. DB 마이그레이션도 불필요(기존 테이블 사용).
 - 기존 유저도 다음 인증 요청 때 자동으로 데모 교재를 받는다(같은 훅).
 
-데모 PDF 내용을 바꾸려면: `cd backend && source venv/bin/activate && python scripts/gen_demo_textbook.py`
-로 재생성(백엔드 `app/assets/`와 iOS 번들 양쪽 갱신) → 이미지 재빌드/배포. 이미 복사된
-유저별 사본은 갱신되지 않는다(원하면 `{user_id}_demo.pdf` 삭제 + `demo-{user_id}` row 삭제 후 재생성).
+**데모 PDF 교체(플레이스홀더 → 정식, 코드 변경 불필요):** `backend/app/assets/demo-template.pdf`
+와 `ios-app/ScatchLM/Resources/demo-template.pdf`를 같은 파일명으로 덮어쓰고 배포한다.
+- `ensure_demo_textbook`은 **콘텐츠 인지** — 템플릿 해시가 바뀌면 각 유저의 기존 사본을 다음
+  요청 때 **자동 갱신**(파일 재복사 + total_pages·챕터 재생성). 수동 삭제 불필요.
+- 페이지 수는 PDF에서 자동 추출. iOS는 표시용 상수 `OnboardingView.demoTextbookPages`만 페이지
+  수에 맞추면 된다. 자세한 절차: `backend/app/assets/README.md`.
 
 ### 설정 파일만 갱신 (compose / Caddy)
 이미지 재빌드 없이 compose/Caddy 설정만 바뀐 경우:

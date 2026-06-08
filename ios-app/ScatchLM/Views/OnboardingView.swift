@@ -27,6 +27,11 @@ struct OnboardingView: View {
 
     private let db = DatabaseService.shared
 
+    // 데모 교재 메타 — 백엔드 정적 에셋(app/assets/demo-template.pdf)과 짝. 정식 PDF로 교체 시,
+    // 페이지 수가 다르면 이 값만 맞추면 된다(백엔드 total_pages는 PDF에서 자동 추출).
+    private static let demoTextbookName = "ScatchLM 데모 교재.pdf"
+    private static let demoTextbookPages = 2
+
     var body: some View {
         Group {
             switch step {
@@ -127,8 +132,8 @@ struct OnboardingView: View {
         let userId = AuthService.shared.syncUserId ?? ""
         if !userId.isEmpty {
             note.textbookId = "demo-\(userId)"
-            note.textbookName = "ScatchLM 데모 교재.pdf"
-            note.textbookPages = 2
+            note.textbookName = Self.demoTextbookName
+            note.textbookPages = Self.demoTextbookPages
             note.pdfOpen = true
             note.lastPage = 1
         }

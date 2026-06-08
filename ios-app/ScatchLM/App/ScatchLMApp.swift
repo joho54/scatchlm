@@ -56,7 +56,7 @@ struct ScatchLMApp: App {
             .task {
                 // 빌드 마커 — 기기에 어떤 빌드가 깔렸는지 app_logs로 확정(진동 픽스 검증용).
                 // 픽스/계측 바꿀 때마다 build 값을 올려 재현 로그가 어느 빌드인지 구분한다.
-                appLog("boot", "build marker", ["build": "jitter-fix-4"])
+                appLog("boot", "build marker", ["build": "jitter-fix-3"])
                 await auth.initialize()
                 // 구독 라이프사이클 리스너 시작 + 서버 상태 동기화(§B-2). 로그인 후 호출해 status 동기화.
                 // v1 무료 출시에선 비활성(Config.subscriptionEnabled=false). ASC 구독 상품 등록 후 켜짐.

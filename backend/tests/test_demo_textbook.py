@@ -52,6 +52,37 @@ async def test_ensure_creates_textbook_and_chapter(db_session):
     assert ch[0].page_end == 2
 
 
+async def test_ensure_freezes_existing_on_template_change(db_session, monkeypatch):
+    """create-once: 템플릿 PDF가 나중에 바뀌어도 기존 사본은 갱신하지 않는다(클라 캐시와 일치 유지)."""
+    import app.services.demo_textbook as dt
+
+    await _seed_user(db_session)
+    tid = await ensure_demo_textbook(_UID, db_session)
+    tb0 = (await db_session.execute(select(TextbookSource).where(TextbookSource.id == tid))).scalar_one()
+    old_hash = tb0.content_hash
+
+    # 템플릿이 3쪽짜리 새 PDF로 바뀐 상황을 시뮬레이트.
+    import fitz
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    new_bytes = doc.tobytes()
+    doc.close()
+    import hashlib as _h
+    new_hash = _h.sha256(new_bytes).hexdigest()
+    monkeypatch.setattr(dt, "_template", lambda: (new_bytes, new_hash, 3))
+
+    tid2 = await ensure_demo_textbook(_UID, db_session)
+    assert tid2 == tid
+
+    db_session.expire_all()
+    tb1 = (await db_session.execute(select(TextbookSource).where(TextbookSource.id == tid))).scalar_one()
+    assert tb1.content_hash == old_hash          # 동결 — 갱신 안 함
+    assert tb1.total_pages == 2
+    chs = (await db_session.execute(select(Chapter).where(Chapter.textbook_id == tid))).scalars().all()
+    assert len(chs) == 1 and chs[0].page_end == 2
+
+
 async def test_ensure_is_idempotent(db_session):
     await _seed_user(db_session)
 

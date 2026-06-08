@@ -1311,7 +1311,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
         canvasView.contentInsetAdjustmentBehavior = .never
         canvasView.tool = PKInkingTool(.pen, color: isDark ? .white : .black, width: 3)
         canvasView.delegate = coordinator
+        // windowed 캔버스: frame은 초기 contentView 크기(작음). 이후 절대 키우지 않고 updateCanvasWindow가
+        // 보이는 슬라이스로만 옮긴다. contentSize는 전체 높이를 추종해 슬라이스 오프셋을 허용.
         canvasView.frame = contentView.bounds
+        canvasView.contentSize = contentView.bounds.size
         contentView.addSubview(canvasView)
 
         coordinator.host = host
@@ -1514,6 +1517,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         func hostDidLayout() {
             centerContent()
             ensureMinimumContentHeight()
+            updateCanvasWindow()   // windowed 캔버스를 현재 뷰포트/오프셋에 맞춤(초기·회전·divider 포함)
         }
 
         /// 줌 시(scrollViewDidZoom) 및 패널 변경 시 — 콘텐츠가 viewport보다 좁으면 가로 가운데 정렬.
@@ -1539,20 +1543,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let origin = contentView.frame.origin
             let offBefore = host.contentOffset.y
             let drawing = (host as? HostScrollView)?.isDrawingActive ?? false
+            _ = (offBefore, drawing)   // (구 진동 진단용 — windowed 전환으로 무의미해짐)
             contentView.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             contentView.center = CGPoint(x: origin.x + (w * s) / 2, y: origin.y + (h * s) / 2)
-            canvas?.frame = contentView.bounds
-            // 변환 입력값 — origin/zoomScale이 스크롤 직후 흔들리면 center가 매번 미세하게 달라져 상하 진동.
-            // draw=1 = 펜 접촉 중 reframe(=진동 후보). offΔ = reframe이 host offset을 흔들었는지.
-            appLogDebug("canvas", "setH", [
-                "h": "\(Int(h))",
-                "zoom": String(format: "%.4f", s),
-                "originY": String(format: "%.1f", origin.y),
-                "newOriginY": String(format: "%.1f", contentView.frame.origin.y),
-                "draw": drawing ? "1" : "0",
-                "offBefore": String(format: "%.1f", offBefore),
-                "offAfter": String(format: "%.1f", host.contentOffset.y),
-            ])
+            // windowed 캔버스: PKCanvasView.frame(bounds)은 절대 키우지 않는다 — 큰 bounds가 펜 입력 시
+            // 떨림을 유발(소거법 스텝4/5로 확정). contentSize만 확장해 슬라이스 렌더 범위를 넓히고,
+            // 실제 frame/offset은 updateCanvasWindow가 "보이는 영역"으로만 맞춘다(뷰포트 크기 유지).
+            canvas?.contentSize = CGSize(width: w, height: h)
             // 템플릿 레이어도 함께 확장. implicit 애니메이션 차단(깜빡임 방지) — 새 타일은
             // CATiledLayer가 fade 없이(fadeDuration=0) 채운다.
             if let templateLayer {
@@ -1562,6 +1559,21 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 CATransaction.commit()
             }
             host.contentSize = CGSize(width: w * s, height: h * s)
+            updateCanvasWindow()
+        }
+
+        /// windowed 캔버스 — 보이는 content 슬라이스에만 캔버스를 놓는다. 줌(s) 반영:
+        /// top = host.offset.y/s, height = hostBounds.height/s (둘 다 content 좌표). 캔버스 bounds
+        /// 크기를 뷰포트(÷s)로 유지해 큰-bounds 떨림을 구조적으로 회피. ink는 content 좌표 그대로.
+        func updateCanvasWindow() {
+            guard let host, let canvas, let contentView else { return }
+            let s = max(host.zoomScale, 0.01)
+            let w = contentView.bounds.width
+            let topY = max(0, host.contentOffset.y / s)
+            let visibleH = host.bounds.height / s
+            guard visibleH > 0 else { return }
+            canvas.frame = CGRect(x: 0, y: topY, width: w, height: visibleH)
+            canvas.contentOffset = CGPoint(x: 0, y: topY)
         }
 
         /// contentView 높이가 h보다 작으면 확장. host/contentView 미연결(단위 테스트 등) 시엔
@@ -1601,8 +1613,17 @@ struct PencilKitCanvasView: UIViewRepresentable {
             contentView
         }
 
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            // PKCanvasViewDelegate는 UIScrollViewDelegate를 상속 → canvas의 self-offset 콜백도 여기로
+            // 온다. host만 처리해 재귀(updateCanvasWindow→canvas.contentOffset set→이 콜백) 차단.
+            guard scrollView === host else { return }
+            updateCanvasWindow()
+        }
+
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            guard scrollView === host else { return }
             centerContent()
+            updateCanvasWindow()
         }
 
         @objc func feedbackCardTapped(_ gesture: FeedbackTapGesture) {

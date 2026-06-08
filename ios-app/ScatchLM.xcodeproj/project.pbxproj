@@ -15,6 +15,7 @@
 		18AC9BB7343336EE101ACA63 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380787FC7AF195DA35EE153 /* APIClient.swift */; };
 		27F35F95F92188CB80F6E5DD /* MoveToFolderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB59BE6EEE292BBCB6EFFF61 /* MoveToFolderSheet.swift */; };
 		29767428ECA536B01783F8D4 /* FolderEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62027EE95AB235B602002766 /* FolderEditSheet.swift */; };
+		2A40B5BDC768921B075FD35E /* DocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CDA96077DF41ED9CBF03294 /* DocumentPicker.swift */; };
 		2BD1B671389331E7F0DC1E98 /* ChapterDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC2179BEC204EBD835987DD /* ChapterDrawerView.swift */; };
 		2CB209193FCAAD7BB4F35E3A /* BakedMarkdownHTMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */; };
 		2E4DE5B39114BE137C2444A3 /* ScatchLMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E694681F7B469459BF1C53F /* ScatchLMApp.swift */; };
@@ -75,6 +76,7 @@
 
 /* Begin PBXFileReference section */
 		0C9978D4A1B1559395568666 /* ViewExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewExtensions.swift; sourceTree = "<group>"; };
+		0CDA96077DF41ED9CBF03294 /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
 		0EE72A7D66F9437169D5258B /* ReadOnlyNoteCanvasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyNoteCanvasTests.swift; sourceTree = "<group>"; };
 		1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		154C163A4458A929F3381C5D /* DrawingHash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingHash.swift; sourceTree = "<group>"; };
@@ -261,6 +263,7 @@
 				D8501E7F3A1B232E3B9F4311 /* CanvasTemplateLayer.swift */,
 				5FC2179BEC204EBD835987DD /* ChapterDrawerView.swift */,
 				971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */,
+				0CDA96077DF41ED9CBF03294 /* DocumentPicker.swift */,
 				F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */,
 				F5997BF81BCD5D68E0CF767A /* FeedbackRatingSheet.swift */,
 				62027EE95AB235B602002766 /* FolderEditSheet.swift */,
@@ -419,6 +422,7 @@
 				6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */,
 				355605C1914429CB5EBE47E1 /* DatabaseService+Sync.swift in Sources */,
 				C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */,
+				2A40B5BDC768921B075FD35E /* DocumentPicker.swift in Sources */,
 				48593657C2174AD1AF1E6EC5 /* DrawingHash.swift in Sources */,
 				172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */,
 				7E87EBB94433FC4D7672837C /* FeedbackRatingSheet.swift in Sources */,

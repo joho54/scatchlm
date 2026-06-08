@@ -124,12 +124,17 @@ struct CreateNoteSheet: View {
                 loadRecentLanguages()
                 loadTextbooks()
             }
-            .fileImporter(
-                isPresented: $showFilePicker,
-                allowedContentTypes: [UTType.pdf],
-                allowsMultipleSelection: false
-            ) { result in
-                handleFileImport(result)
+            .sheet(isPresented: $showFilePicker) {
+                // asCopy 피커 — 클라우드(OneDrive 등) 미다운로드 파일도 시스템이 다운로드+샌드박스
+                // 복사한 로컬 사본 URL을 준다. (구 .fileImporter는 placeholder URL → 비조정 읽기 ENOENT)
+                DocumentPicker(
+                    contentTypes: [.pdf],
+                    onPick: { url in
+                        showFilePicker = false
+                        handleFileImport(url)
+                    },
+                    onCancel: { showFilePicker = false }
+                )
             }
             .alert("교재를 올릴 수 없어요", isPresented: Binding(get: { uploadError != nil }, set: { if !$0 { uploadError = nil } })) {
                 Button("확인", role: .cancel) { uploadError = nil }
@@ -163,76 +168,59 @@ struct CreateNoteSheet: View {
         }
     }
 
-    private func handleFileImport(_ result: Result<[URL], Error>) {
-        appLog("pdf-upload", "fileImporter callback")
+    /// asCopy 피커가 넘긴 로컬 사본 URL을 업로드. 사본이라 security-scope 처리 불필요.
+    private func handleFileImport(_ url: URL) {
+        appLog("pdf-upload", "picked file", [
+            "name": url.lastPathComponent,
+            "isFileURL": "\(url.isFileURL)",
+        ])
 
-        switch result {
-        case .failure(let err):
-            appLogError("pdf-upload", "picker returned error", ["error": "\(err)"])
-            return
-        case .success(let urls):
-            guard let url = urls.first else {
-                appLogError("pdf-upload", "picker returned empty urls")
-                return
-            }
-            appLog("pdf-upload", "picked file", [
+        uploading = true
+        Task {
+            let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+            appLog("pdf-upload", "starting upload", [
                 "name": url.lastPathComponent,
-                "isFileURL": "\(url.isFileURL)",
+                "size": "\(fileSize)",
             ])
 
-            uploading = true
-            Task {
-                // security-scoped 접근은 Task 안에서 잡고 풀어야 한다.
-                // 함수가 먼저 리턴하면 defer가 즉시 호출돼서 Task가 파일을 못 읽음.
-                let granted = url.startAccessingSecurityScopedResource()
-                defer { if granted { url.stopAccessingSecurityScopedResource() } }
-
-                let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
-                appLog("pdf-upload", "starting upload", [
-                    "name": url.lastPathComponent,
-                    "size": "\(fileSize)",
-                    "securityScoped": "\(granted)",
+            do {
+                struct UploadResult: Decodable {
+                    let id: String
+                    let fileName: String
+                    let totalPages: Int
+                    let isScanned: Bool?
+                    let ocrStatus: String?
+                    enum CodingKeys: String, CodingKey {
+                        case id, fileName, totalPages
+                        case isScanned = "is_scanned"
+                        case ocrStatus = "ocr_status"
+                    }
+                }
+                let res: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
+                appLog("pdf-upload", "upload OK", [
+                    "id": res.id,
+                    "name": res.fileName,
+                    "pages": "\(res.totalPages)",
+                    "scanned": "\(res.isScanned ?? false)",
                 ])
-
-                do {
-                    struct UploadResult: Decodable {
-                        let id: String
-                        let fileName: String
-                        let totalPages: Int
-                        let isScanned: Bool?
-                        let ocrStatus: String?
-                        enum CodingKeys: String, CodingKey {
-                            case id, fileName, totalPages
-                            case isScanned = "is_scanned"
-                            case ocrStatus = "ocr_status"
-                        }
-                    }
-                    let res: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
-                    appLog("pdf-upload", "upload OK", [
-                        "id": res.id,
-                        "name": res.fileName,
-                        "pages": "\(res.totalPages)",
-                        "scanned": "\(res.isScanned ?? false)",
-                    ])
-                    let item = TextbookListItem(
-                        id: res.id, fileName: res.fileName, totalPages: res.totalPages,
-                        isScanned: res.isScanned ?? false, ocrStatus: res.ocrStatus,
-                        ocrPagesTotal: (res.isScanned ?? false) ? res.totalPages : 0
-                    )
-                    await MainActor.run {
-                        textbooks.append(item)
-                        selectedTextbookId = item.id
-                        uploading = false
-                    }
-                } catch {
-                    appLogError("pdf-upload", "upload failed", ["error": "\(error)"])
-                    // 침묵 금지 — 스캔 페이지 천장 초과(422) 등 실패를 사용자에게 알린다.
-                    let msg = (error as? LocalizedError)?.errorDescription
-                        ?? "교재를 올리지 못했어요. 잠시 후 다시 시도해 주세요."
-                    await MainActor.run {
-                        uploading = false
-                        uploadError = msg
-                    }
+                let item = TextbookListItem(
+                    id: res.id, fileName: res.fileName, totalPages: res.totalPages,
+                    isScanned: res.isScanned ?? false, ocrStatus: res.ocrStatus,
+                    ocrPagesTotal: (res.isScanned ?? false) ? res.totalPages : 0
+                )
+                await MainActor.run {
+                    textbooks.append(item)
+                    selectedTextbookId = item.id
+                    uploading = false
+                }
+            } catch {
+                appLogError("pdf-upload", "upload failed", ["error": "\(error)"])
+                // 침묵 금지 — 스캔 페이지 천장 초과(422)·클라우드 다운로드 실패 등을 사용자에게 알린다.
+                let msg = (error as? LocalizedError)?.errorDescription
+                    ?? "교재를 올리지 못했어요. 잠시 후 다시 시도해 주세요."
+                await MainActor.run {
+                    uploading = false
+                    uploadError = msg
                 }
             }
         }

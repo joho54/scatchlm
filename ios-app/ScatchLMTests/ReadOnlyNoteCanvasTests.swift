@@ -183,6 +183,50 @@ final class ReadOnlyNoteCanvasTests: XCTestCase {
             "화면상(×fit) 카드 폭은 ≈ 아이폰 폭(logical-32)")
     }
 
+    // MARK: - 드로어 점프 스크롤 (iPhone 점프 활성화)
+
+    @MainActor
+    func testScrollCardIntoViewMovesOffsetToPositionY() {
+        // 레이아웃 완료된 캔버스에 점프 요청 → 카드 상단이 화면 1/3 지점에 오도록 즉시 스크롤.
+        let logical = Config.logicalCanvasWidth
+        let (coordinator, host, _, _) = makeWired(panelWidth: logical, panelHeight: 900)
+        coordinator.layout()   // zoom=1, contentSize 확보
+
+        coordinator.scrollCardIntoView(positionY: 1200)
+
+        // targetY = positionY*zoom - viewportH/3 = 1200 - 300 = 900, contentSize로 clamp.
+        let vh = host.bounds.height
+        let expectedMax = host.contentSize.height - vh
+        let expected = min(1200 - vh / 3, expectedMax)
+        XCTAssertEqual(host.contentOffset.y, max(-host.contentInset.top, expected), accuracy: 1.0,
+            "카드 Y 1200을 화면 1/3 지점에 배치(콘텐츠 높이로 clamp)")
+    }
+
+    @MainActor
+    func testScrollCardIntoViewPendingFlushesOnLayout() {
+        // 페이지 전환 직후처럼 host가 아직 레이아웃 전(bounds 0)이면 즉시 스크롤하지 않고
+        // pending 보관 → layout()에서 소비한다(타이밍 견고화).
+        let logical = Config.logicalCanvasWidth
+        let coordinator = ReadOnlyNoteCanvas.Coordinator()
+        let host = UIScrollView(frame: .zero)   // bounds height 0
+        let contentView = UIView(frame: CGRect(x: 0, y: 0, width: logical, height: logical * 2))
+        host.addSubview(contentView)
+        let canvas = PKCanvasView(frame: contentView.bounds)
+        contentView.addSubview(canvas)
+        host.delegate = coordinator
+        coordinator.host = host
+        coordinator.contentView = contentView
+        coordinator.canvas = canvas
+
+        coordinator.scrollCardIntoView(positionY: 800)
+        XCTAssertEqual(host.contentOffset.y, 0, "레이아웃 전이라 아직 스크롤 안 함 (pending 보관)")
+
+        // 페이지가 보이며 레이아웃 → pending 소비.
+        host.frame = CGRect(x: 0, y: 0, width: logical, height: 900)
+        coordinator.layout()
+        XCTAssertGreaterThan(host.contentOffset.y, 0, "layout 완료 시 pending 점프가 소비돼 스크롤됨")
+    }
+
     @MainActor
     func testCardsDoNotOverlapAfterCounterScale() {
         // 커진 카드가 서로 겹치지 않도록 순차 배치 — 두 카드의 y 범위가 겹치지 않아야.

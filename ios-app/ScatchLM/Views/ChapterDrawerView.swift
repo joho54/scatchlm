@@ -105,10 +105,11 @@ struct ChapterDrawerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // 점프(캔버스 카드 위치로 이동)는 캔버스 네비게이션이라 iPhone 읽기 전용에선 비노출
-        // (iphone-companion-app-spec §1.4·§4.3·C-1). iPhone은 행 탭 "열기"(세션 대화)만 허용.
+        // 점프(캔버스 카드 위치로 이동)는 캔버스 위치 스크롤(읽기 행위)이라 iPhone 읽기 전용
+        // 리더에서도 허용한다. iPhone은 `PhoneNoteReaderView`의 onJump이 TabView 페이지 전환 +
+        // 해당 페이지 `ReadOnlyNoteCanvas`를 fb.positionY로 스크롤한다(좌표계는 편집 캔버스와 동일).
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if !Platform.isPhone, let placement {
+            if let placement {
                 Button {
                     onJump(placement)
                 } label: {

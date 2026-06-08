@@ -18,6 +18,8 @@ struct PhoneNoteReaderView: View {
     @State private var showDrawer = false
     @State private var showPages = false
     @State private var showTextbook = false
+    /// 페이지별 읽기 전용 캔버스 Coordinator 레지스트리(점프용). @State라 재렌더에도 동일 인스턴스 유지.
+    @State private var canvasRegistry = ReaderCanvasRegistry()
 
     private let db = DatabaseService.shared
 
@@ -42,9 +44,11 @@ struct PhoneNoteReaderView: View {
                 TabView(selection: $pageIndex) {
                     ForEach(Array(pages.enumerated()), id: \.element.id) { idx, page in
                         ReadOnlyNoteCanvas(
+                            pageId: page.id,
                             drawingData: page.drawingData,
                             feedbacks: page.feedbacks,
-                            onChat: { openChat(for: $0) }
+                            onChat: { openChat(for: $0) },
+                            registry: canvasRegistry
                         )
                         .ignoresSafeArea(edges: .bottom)
                         .tag(idx)
@@ -115,7 +119,10 @@ struct PhoneNoteReaderView: View {
                 noteId: noteId,
                 textbookId: note?.textbookId,
                 subject: note?.language,
-                onJump: { _ in }   // iPhone: 캔버스 네비게이션 미지원 — 드로어에서 비노출(no-op)
+                onJump: { fb in
+                    showDrawer = false
+                    jumpToCard(fb)
+                }
             )
         }
         .sheet(item: $chatContext) { ctx in
@@ -165,6 +172,31 @@ struct PhoneNoteReaderView: View {
         } catch {
             appLogError("phoneReader", "load failed", ["error": "\(error)"])
         }
+    }
+
+    /// 드로어 "점프" → 카드가 있는 페이지로 전환 후 해당 페이지 캔버스를 fb.positionY로 스크롤.
+    /// iPad의 jumpToPlacement/scrollCardIntoView와 동일한 방식(콘텐츠 좌표 setContentOffset).
+    /// TabView는 페이지마다 독립 캔버스라 레지스트리로 대상 페이지 Coordinator를 찾아 호출한다.
+    private func jumpToCard(_ fb: FeedbackRecord) {
+        let targetIdx = pages.firstIndex { page in
+            if let pid = fb.pageId { return page.id == pid }
+            // 레거시(pageId 없는 단독 카드)는 카드 id 소속으로 페이지를 찾는다.
+            return page.feedbacks.contains { $0.id == fb.id }
+        }
+        guard let idx = targetIdx else {
+            appLogError("phoneReader", "jump: page not found", ["fb": fb.id])
+            return
+        }
+        let pageId = pages[idx].id
+        if idx != pageIndex {
+            withAnimation { pageIndex = idx }
+        }
+        // 페이지 전환 애니메이션 대기 후 스크롤 요청. 대상 캔버스의 레이아웃이 아직이면
+        // Coordinator가 pending으로 보관했다가 layout 완료 시 소비한다(타이밍 견고화).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            canvasRegistry.coordinator(for: pageId)?.scrollCardIntoView(positionY: fb.positionY)
+        }
+        appLog("phoneReader", "jump", ["fb": fb.id, "page": "\(idx)", "y": "\(Int(fb.positionY))"])
     }
 
     /// 카드 "대화" → 세션 채팅 열기(§4.3·§4.5 E-3). 카드에 세션이 있으면 그대로 열고,
@@ -315,15 +347,35 @@ private struct PhonePageThumbnail: View {
     }
 }
 
+// MARK: - 점프용 캔버스 레지스트리
+
+/// 페이지 id → 해당 페이지 `ReadOnlyNoteCanvas.Coordinator`(weak) 매핑. 드로어 점프 시
+/// 부모가 대상 페이지 Coordinator를 찾아 `scrollCardIntoView`를 호출하는 데 쓴다.
+/// TabView가 페이지마다 독립 캔버스를 만들기 때문에 단일 delegate 핸들로는 도달 불가 → 레지스트리.
+final class ReaderCanvasRegistry {
+    private let table = NSMapTable<NSString, ReadOnlyNoteCanvas.Coordinator>(
+        keyOptions: .copyIn, valueOptions: .weakMemory
+    )
+    func register(_ pageId: String, _ coordinator: ReadOnlyNoteCanvas.Coordinator) {
+        table.setObject(coordinator, forKey: pageId as NSString)
+    }
+    func coordinator(for pageId: String) -> ReadOnlyNoteCanvas.Coordinator? {
+        table.object(forKey: pageId as NSString)
+    }
+}
+
 // MARK: - 읽기 전용 캔버스 (좌표 정합 보장)
 
 /// host(UIScrollView) > contentView(논리폭 종이) > PKCanvasView(읽기 전용) 구조를 편집 캔버스와
 /// 동일하게 구성한다(§4.5·§6.3). 입력만 차단(`isUserInteractionEnabled=false`)하고, 줌/세로 스크롤은
 /// host가 담당한다. 카드는 `fb.positionY` 콘텐츠 좌표에 그대로 얹혀 위치 정합이 유지된다.
 struct ReadOnlyNoteCanvas: UIViewRepresentable {
+    let pageId: String
     let drawingData: Data?
     let feedbacks: [FeedbackRecord]
     let onChat: (FeedbackRecord) -> Void
+    /// 점프용 — 부모(PhoneNoteReaderView)가 페이지 id로 이 캔버스 Coordinator를 찾기 위한 레지스트리.
+    var registry: ReaderCanvasRegistry?
     @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> UIScrollView {
@@ -376,6 +428,9 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         coordinator.onChat = onChat
         coordinator.renderCards(feedbacks)
 
+        // 점프용 — 이 페이지의 Coordinator를 레지스트리에 등록(weak 보관).
+        registry?.register(pageId, coordinator)
+
         return host
     }
 
@@ -399,9 +454,32 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         var contentWidth: CGFloat = Config.logicalCanvasWidth
         private var lastWidth: CGFloat = 0
         private var maxCardBottom: CGFloat = 0
+        /// 레이아웃 완료 전에 도착한 점프 요청을 보관했다가 layout()에서 소비한다.
+        private var pendingScrollY: CGFloat?
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { contentView }
         func scrollViewDidZoom(_ scrollView: UIScrollView) { center() }
+
+        /// 드로어 점프 진입점. 카드의 콘텐츠 좌표(positionY)로 host를 스크롤.
+        /// host가 아직 레이아웃 전(bounds 0)이면 pending으로 보관 → layout 완료 시 flush.
+        func scrollCardIntoView(positionY: CGFloat) {
+            pendingScrollY = positionY
+            flushPendingScroll()
+        }
+
+        /// 편집 캔버스 NoteView.scrollCardIntoView와 동일 식 — 카드 상단을 화면 1/3 지점에 배치.
+        private func flushPendingScroll() {
+            guard let host, let y = pendingScrollY else { return }
+            let vh = host.bounds.height
+            guard vh > 0 else { return }   // 레이아웃 전 — pending 유지
+            let s = host.zoomScale
+            let targetY = max(-host.contentInset.top, y * s - vh / 3)
+            let maxY = max(-host.contentInset.top, host.contentSize.height - vh)
+            let clamped = min(targetY, maxY)
+            host.setContentOffset(CGPoint(x: -host.contentInset.left, y: clamped), animated: true)
+            pendingScrollY = nil
+            appLog("phoneReader", "scroll card", ["targetY": "\(Int(clamped))", "cardY": "\(Int(y))", "zoom": "\(s)"])
+        }
 
         /// zoom-to-fit + 가운데 정렬 + 콘텐츠 높이 보장. 편집 캔버스 `fitAndCenter`와 동일 식.
         func layout() {
@@ -433,6 +511,8 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             }
             host.contentSize = CGSize(width: logical * s, height: needed * s)
             center()
+            // 레이아웃 전 도착한 점프 요청이 있으면 이제 소비(페이지 전환 직후 경로).
+            flushPendingScroll()
         }
 
         /// 콘텐츠가 뷰포트보다 좁으면 가로 가운데 정렬(레터박스).

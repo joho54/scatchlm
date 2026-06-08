@@ -55,3 +55,27 @@ PKCanvasView가 **큰 frame(bounds)**을 가지면 펜 입력 시 떨린다. 기
 1. `PageGuide` 모델에 `language` 컬럼 추가, UniqueConstraint를 `(textbook_id, page, language)` 로 변경.
 2. Alembic 마이그레이션 생성 + 기존 row의 `language` 백필 (현재는 전부 한국어 가정 가능).
 3. `routers/pdf.py` 의 두 캐시 조회/INSERT 지점에 `language` 필터/값 추가.
+
+---
+
+## iPhone — 대화 세션 리스트에서 피드백 카드로 점프 (구현됨, 미검증)
+
+**증상 (원래)**
+iPhone 앱의 대화 세션 리스트(`ChapterDrawerView`)에서 항목을 옆으로 슬라이드해도 "점프" 버튼이 나타나지 않아, 해당 피드백 카드(캔버스 위치)로 이동할 수 없었다. 슬라이드 → 버튼 reveal → 점프 흐름의 슬라이드 단계에서 막힘.
+
+**원인** (2026-06-08 코드 조사로 확정)
+고장이 아니라 컴패니언 스펙(`iphone-companion-app-spec §1.4·§4.3·C-1`)에 따라 iPhone에서 **의도적으로 비활성화**돼 있었다:
+1. swipeActions 버튼이 `if !Platform.isPhone` 가드로 iPhone에서 미노출 (`ChapterDrawerView.swift`)
+2. iPhone 리더가 넘기는 `onJump`이 no-op (`PhoneNoteReaderView.swift`)
+
+**해결** (2026-06-08, 미검증)
+점프는 캔버스 위치 스크롤(읽기 행위)이라 읽기 전용 정책과 충돌하지 않는다고 판단해 iPhone에서도 활성화:
+1. `ChapterDrawerView.swift` — swipe "점프" 버튼의 `!Platform.isPhone` 가드 제거(`if let placement`).
+2. `PhoneNoteReaderView.swift` — `onJump`을 `jumpToCard(fb)`로 배선. `fb.pageId`로 TabView 페이지 전환(`withAnimation`) → 0.35s 후 해당 페이지 `ReadOnlyNoteCanvas`를 `fb.positionY`로 스크롤.
+3. 도달 경로: TabView가 페이지마다 독립 캔버스를 만들어 단일 핸들로 못 닿으므로 `ReaderCanvasRegistry`(page id → weak Coordinator) 신설. `onJump`이 대상 페이지 Coordinator를 찾아 `scrollCardIntoView` 호출.
+4. 스크롤 식은 iPad `NoteView.scrollCardIntoView`와 동일(카드 상단을 화면 1/3 지점, 콘텐츠 높이로 clamp). 페이지 전환 직후 대상 캔버스가 레이아웃 전이면 `pendingScrollY`로 보관 → `layout()` 완료 시 flush(타이밍 견고화).
+
+회귀 가드: `ReadOnlyNoteCanvasTests` — `testScrollCardIntoViewMovesOffsetToPositionY`, `testScrollCardIntoViewPendingFlushesOnLayout`.
+
+**상태**
+🔧 **수정됨, 미검증.** 시뮬레이터 빌드 성공. **실기기(iPhone)에서 슬라이드→점프 버튼→해당 카드로 스크롤이 실제 동작하는지는 미확인** — TabView 페이징·PencilKit 스크롤은 기기 종속이라 실기기 확인 전엔 "된다" 아님. iPad 점프도 코드 경로만 확인(실기기 미검증).

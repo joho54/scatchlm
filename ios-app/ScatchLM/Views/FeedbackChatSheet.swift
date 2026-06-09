@@ -13,6 +13,8 @@ struct SessionChatSheet: View {
     var currentPage: Int?
     var noteId: String?
     var subject: String?
+    /// 온보딩 전용 — 상단에 "스크랩→필기·피드백 루프" 안내 배너를 띄운다. 일반 진입은 false.
+    var showScrapHint: Bool = false
     var onPin: ((String, String?) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -21,6 +23,7 @@ struct SessionChatSheet: View {
     @State private var sending = false
     @State private var pushedRatingMessageId: String?
     @State private var errorMessage: String?
+    @State private var scrapHintDismissed = false   // 온보딩 스크랩 안내 카드 닫힘.
 
     private let db = DatabaseService.shared
 
@@ -88,6 +91,13 @@ struct SessionChatSheet: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
+            .overlay(alignment: .top) {
+                if showScrapHint && !scrapHintDismissed {
+                    scrapHintCard
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
             .navigationTitle(session.title.isEmpty ? String(localized: "대화") : session.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -120,6 +130,38 @@ struct SessionChatSheet: View {
                 }
             }
         }
+    }
+
+    /// 온보딩 스크랩 안내 카드 — 답변 아래 '스크랩' 버튼을 가리켜 "캔버스로 가져와 필기·피드백을
+    /// 이어가는" 루프를 알린다. 캔버스의 write/chat 안내(OnboardingView.hintCard)와 같은
+    /// 검은 플로팅 카드 스타일로 통일한다.
+    private var scrapHintCard: some View {
+        VStack(spacing: 12) {
+            Label {
+                Text(String(localized: "대화 내용은 ‘스크랩’으로 캔버스에 다시 가져올 수 있어요"))
+                    .font(.title3.weight(.semibold))
+            } icon: {
+                Image(systemName: "pin.fill")
+                    .font(.title3)
+            }
+            Text(String(localized: "스크랩한 내용 위에 다시 필기하고 ✨로 피드백을 이어가면 학습 루프가 완성돼요"))
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+            Button { withAnimation { scrapHintDismissed = true } } label: {
+                Text(String(localized: "확인"))
+                    .font(.headline).frame(maxWidth: 200).padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white)
+            .foregroundStyle(.black)
+        }
+        .padding(20)
+        .frame(maxWidth: 480)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color.black.opacity(0.85)))
+        .foregroundStyle(.white)
+        .shadow(radius: 10)
+        .padding(.horizontal, 16)
     }
 
     @ViewBuilder

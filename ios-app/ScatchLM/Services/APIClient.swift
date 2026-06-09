@@ -60,7 +60,7 @@ final class APIClient {
 
     private func authHeaders() async -> [String: String] {
         var headers = ["Content-Type": "application/json"]
-        if let token = AuthService.shared.accessToken {
+        if let token = await AuthService.shared.validAccessToken() {
             headers["Authorization"] = "Bearer \(token)"
         }
         return headers
@@ -126,7 +126,7 @@ final class APIClient {
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        if let token = AuthService.shared.accessToken {
+        if let token = await AuthService.shared.validAccessToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -196,7 +196,7 @@ final class APIClient {
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        if let token = AuthService.shared.accessToken {
+        if let token = await AuthService.shared.validAccessToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

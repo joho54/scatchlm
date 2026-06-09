@@ -24,6 +24,23 @@ final class AuthService {
     var userId: String? { session?.user.id.uuidString }
     var accessToken: String? { session?.accessToken }
 
+    /// 네트워크 호출용 유효 access token. 캐시 프로퍼티 `accessToken`(session?.accessToken)은
+    /// JWT가 만료돼도 그대로 반환돼 서버 401("Token expired")을 유발한다(예: sync push). 반면
+    /// supabase-swift의 `client.auth.session` getter는 만료 시 refresh token으로 자동 갱신한다.
+    /// 네트워크 헤더는 이 경로를 써서 stale 토큰 첨부를 막는다. 갱신 실패(네트워크/refresh 만료)
+    /// 시엔 캐시 토큰이라도 반환(미인증이면 nil) — 호출부가 401을 만나면 평소대로 처리.
+    func validAccessToken() async -> String? {
+        do {
+            let refreshed = try await client.auth.session
+            if refreshed.accessToken != session?.accessToken {
+                await MainActor.run { self.session = refreshed }
+            }
+            return refreshed.accessToken
+        } catch {
+            return session?.accessToken
+        }
+    }
+
     /// 로컬 DB sync 스코프용 canonical user_id (소문자 UUID, JWT sub와 일치).
     /// Supabase `UUID.uuidString`은 대문자라 서버 측 lowercase sub와 어긋나므로 소문자화한다.
     var syncUserId: String? { session?.user.id.uuidString.lowercased() }

@@ -92,13 +92,19 @@ final class SyncService: @unchecked Sendable {
     }
 
     /// 로컬 write 후 디바운스 push (§4.2-1). 연속 편집을 한 번으로 묶는다.
+    ///
+    /// 주의: sync 본체는 `requestSync()`(별도 top-level Task)로 띄운다. debounceTask 안에서
+    /// `await runLoop()`을 직접 돌리면 sync가 debounceTask의 structured child가 되어,
+    /// 다음 write의 `debounceTask?.cancel()`이 in-flight URLSession 요청까지 취소(-999
+    /// NSURLErrorCancelled)한다. 분리하면 cancel은 대기 중 디바운스 sleep만 끊고, 진행 중
+    /// sync는 coalescing(isRunning/pendingResync)이 흡수한다.
     func scheduleDebouncedSync() {
         debounceTask?.cancel()
         let interval = debounceInterval
         debounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             if Task.isCancelled { return }
-            await self?.runLoop()
+            self?.requestSync()
         }
     }
 

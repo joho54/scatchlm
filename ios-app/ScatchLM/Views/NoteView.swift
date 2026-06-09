@@ -38,6 +38,10 @@ struct NoteView: View {
     let noteId: String
     /// 온보딩 전용 훅 — 피드백 카드가 캔버스에 추가되면 호출(채팅 안내 타이밍용). 일반 노트는 nil.
     var onFeedbackAppended: (() -> Void)? = nil
+    /// 온보딩 전용 훅 — 피드백 카드에서 채팅을 열면 호출(캔버스 채팅 안내 자막 끄기용). 일반 노트는 nil.
+    var onChatOpened: (() -> Void)? = nil
+    /// 온보딩 전용 — 채팅 시트 상단에 "스크랩→필기·피드백 루프" 안내 배너 노출. 일반 노트는 false.
+    var showChatScrapHint: Bool = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var note: Note?
@@ -251,6 +255,7 @@ struct NoteView: View {
                 currentPage: currentPage,
                 noteId: noteId,
                 subject: note?.language,
+                showScrapHint: showChatScrapHint,
                 onPin: { content, responseId in
                     pinToCanvas(content: content, serverFeedbackId: responseId)
                 }
@@ -885,6 +890,7 @@ struct NoteView: View {
             headerContent: fb.content,
             headerServerId: fb.serverFeedbackId
         )
+        onChatOpened?()
     }
 
     /// 드로어 → 캔버스로 점프. placement 카드의 페이지로 이동 후 해당 위치로 스크롤한다.

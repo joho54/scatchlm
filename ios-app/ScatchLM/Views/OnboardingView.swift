@@ -25,6 +25,7 @@ struct OnboardingView: View {
     @State private var hint: Hint = .write
     @State private var gotFeedback = false
     @State private var hintVisible = true     // 안내 카드 노출. '확인'으로 닫고, 피드백 시 다시 표시.
+    @State private var welcomeTextIn = false   // 로고 인트로 완료 후 텍스트/버튼 페이드인.
 
     private let db = DatabaseService.shared
 
@@ -47,16 +48,20 @@ struct OnboardingView: View {
     private var welcomeStep: some View {
         VStack(spacing: 24) {
             Spacer()
-            Image(systemName: "sparkles")
-                .font(.system(size: 64))
-                .foregroundStyle(.tint)
+            LogoIntroView(size: 140) {
+                withAnimation(.easeOut(duration: 0.4)) { welcomeTextIn = true }
+            }
             Text(String(localized: "30초면 핵심을 보여드릴게요"))
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
+                .opacity(welcomeTextIn ? 1 : 0)
+                .offset(y: welcomeTextIn ? 0 : 10)
             Text(String(localized: "데모 교재를 보고 손으로 답을 쓰면,\nAI가 그 교재 기준으로 피드백을 드려요.\n그 피드백으로 대화도 이어갈 수 있어요."))
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .opacity(welcomeTextIn ? 1 : 0)
+                .offset(y: welcomeTextIn ? 0 : 10)
             Spacer()
             VStack(spacing: 8) {
                 Button {
@@ -71,6 +76,8 @@ struct OnboardingView: View {
                     .font(.body)
                     .frame(maxWidth: 320)
             }
+            .opacity(welcomeTextIn ? 1 : 0)
+            .offset(y: welcomeTextIn ? 0 : 10)
             Spacer().frame(height: 40)
         }
         .padding()
@@ -88,7 +95,11 @@ struct OnboardingView: View {
                         gotFeedback = true
                         withAnimation { hint = .chat; hintVisible = true }   // 채팅 안내 재노출
                     }
-                })
+                }, onChatOpened: {
+                    // '대화'를 누르면 캔버스의 채팅 안내 자막은 알아서 꺼진다.
+                    // 스크랩 안내는 채팅 시트 안 배너(showChatScrapHint)로 이어서 노출된다.
+                    withAnimation { hintVisible = false }
+                }, showChatScrapHint: true)
                 // 진동 픽스 검증: NoteView가 온보딩 경로(HomeView path 우회)로 떴음을 표시.
                 .onAppear { appLog("boot", "noteview mount", ["via": "onboarding"]) }
             }
@@ -105,20 +116,37 @@ struct OnboardingView: View {
         .overlay(alignment: .topTrailing) { skipChip }
     }
 
+    private var hintTitle: String {
+        switch hint {
+        case .write: return String(localized: "PDF 문제의 답을 캔버스에 손글씨로 써보세요")
+        case .chat:  return String(localized: "피드백 카드의 ‘대화’ 버튼으로 AI와 대화를 이어갈 수 있어요")
+        }
+    }
+
+    private var hintSubtitle: String {
+        switch hint {
+        case .write: return String(localized: "다 쓰면 ✨ 버튼을 눌러 교재 기준 AI 피드백을 받으세요")
+        case .chat:  return String(localized: "피드백 카드 아래 💬 ‘대화’ 버튼을 눌러보세요")
+        }
+    }
+
+    private var hintIcon: String {
+        switch hint {
+        case .write: return "pencil.and.outline"
+        case .chat:  return "bubble.left.and.text.bubble.right.fill"
+        }
+    }
+
     private var hintCard: some View {
         VStack(spacing: 12) {
             Label {
-                Text(hint == .write
-                     ? String(localized: "PDF 문제의 답을 캔버스에 손글씨로 써보세요")
-                     : String(localized: "피드백 카드의 ‘대화’ 버튼으로 AI와 대화를 이어갈 수 있어요"))
+                Text(hintTitle)
                     .font(.title3.weight(.semibold))
             } icon: {
-                Image(systemName: hint == .write ? "pencil.and.outline" : "bubble.left.and.text.bubble.right.fill")
+                Image(systemName: hintIcon)
                     .font(.title3)
             }
-            Text(hint == .write
-                 ? String(localized: "다 쓰면 ✨ 버튼을 눌러 교재 기준 AI 피드백을 받으세요")
-                 : String(localized: "피드백 카드 아래 💬 ‘대화’ 버튼을 눌러보세요"))
+            Text(hintSubtitle)
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)

@@ -36,6 +36,7 @@ struct LogoIntroView: View {
     @State private var fieldIn = false      // 전체 페이드/팝 인
     @State private var aligned = false      // 흩어짐 → 대각선 스택 정렬
     @State private var gone = [Bool](repeating: false, count: decoys.count)  // 한 장씩 소거
+    @State private var penShown = false     // 데코 소거 후 마지막에 펜(+카드 컷) 등장
     @State private var didComplete = false
 
     // 로고 카드 (생존자) — app-icon.svg의 두 rect.
@@ -79,6 +80,8 @@ struct LogoIntroView: View {
             .mask(penCutMask)
 
             Pen24().stroke(.white, style: strokeStyle)
+                .opacity(penShown ? 1 : 0)
+                .scaleEffect(penShown ? 1 : 0.86)
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
@@ -92,8 +95,9 @@ struct LogoIntroView: View {
     private var penCutMask: some View {
         ZStack {
             Rectangle().fill(.white)
-            Pen24().fill(.black)
-            Pen24().stroke(.black, lineWidth: lineWidth * 2)
+            // 펜이 떠야 비로소 카드에 구멍이 뚫린다(penShown 전엔 카드가 온전).
+            Pen24().fill(.black).opacity(penShown ? 1 : 0)
+            Pen24().stroke(.black, lineWidth: lineWidth * 2).opacity(penShown ? 1 : 0)
         }
         .compositingGroup()
         .luminanceToAlpha()
@@ -122,9 +126,10 @@ struct LogoIntroView: View {
 
     private func play() {
         guard !reduceMotion else {
-            // 모션 최소화: 데코 없이 최종 로고만 즉시 표시.
+            // 모션 최소화: 데코 없이 최종 로고(펜 포함)만 즉시 표시.
             gone = [Bool](repeating: true, count: Self.decoys.count)
             aligned = true
+            penShown = true
             fieldIn = true
             complete()
             return
@@ -145,8 +150,10 @@ struct LogoIntroView: View {
                 gone[idx] = true
             }
         }
-        let doneAt = removeStart + Double(order.count) * step + 0.4
-        DispatchQueue.main.asyncAfter(deadline: .now() + doneAt) { complete() }
+        // 3) 데코가 다 사라진 뒤 마지막에 펜(+카드 컷)이 떠 로고 완성.
+        let penAt = removeStart + Double(order.count) * step + 0.35
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.6).delay(penAt)) { penShown = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + penAt + 0.5) { complete() }
     }
 
     private func complete() {

@@ -17,30 +17,28 @@ struct LogoIntroView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// 흩어진 데코 페이지들. 흩어짐 상태의 offset(24-unit)과 회전만 가진다 —
-    /// 정렬 목표(대각선 스택)는 인덱스로 계산한다.
-    private struct Decoy { var dx: CGFloat; var dy: CGFloat; var rot: Double }
-    private static let decoys: [Decoy] = [
-        Decoy(dx: -7.0, dy:  3.0, rot:  16),    // 좌측 하단으로 정렬
-        Decoy(dx:  6.5, dy: -5.5, rot: -19),    // 우측 상단으로 정렬
+    /// 한 장의 페이지. 흩어짐 offset(24-unit)·회전과 정렬 슬롯(스텝 배수), 생존 여부를 가진다.
+    /// 모든 페이지가 흩어짐 → 슬롯 정렬을 함께 수행하고, 데코(slot -1·2)만 정렬 후 fade out한다.
+    /// 슬롯 0·1은 로고 앞/뒤 카드(생존, penCut 적용). 같은 앞-카드 모양을 슬롯만큼 어긋내 그린다.
+    private struct Page { var slot: CGFloat; var dx: CGFloat; var dy: CGFloat; var rot: Double; var survivor: Bool }
+    private static let pages: [Page] = [   // 뒤→앞(슬롯 내림차순)으로 그려 z-순서 = 책 적층.
+        Page(slot:  2, dx:  6.5, dy: -5.5, rot: -19, survivor: false),  // 우측 상단 데코
+        Page(slot:  1, dx:  4.5, dy:  6.5, rot:  21, survivor: true),   // 뒤 카드
+        Page(slot:  0, dx: -6.0, dy: -3.5, rot: -12, survivor: true),   // 앞 카드
+        Page(slot: -1, dx: -7.0, dy:  3.0, rot:  16, survivor: false),  // 좌측 하단 데코
     ]
 
     /// 45° 대각선 스택 한 칸 간격(24-unit). 로고 두 카드의 어긋남(앞 x4y5 → 뒤 x6y3 = +2,-2)과
     /// 동일. 스텝 벡터는 우상향 (+2, -2).
     private static let stackStep: CGFloat = 2.0
 
-    /// 각 데코의 정렬 슬롯(스텝 배수). 로고 카드가 슬롯 0(앞)·1(뒤)이고,
-    /// 데코는 좌측 하단(-1) 1장, 우측 상단(+2) 1장 — 한 대각선에 균일 간격, 로고 기준 대칭.
-    private static let slots: [CGFloat] = [-1, 2]
-
     @State private var fieldIn = false      // 전체 페이드/팝 인
     @State private var aligned = false      // 흩어짐 → 대각선 스택 정렬
-    @State private var gone = [Bool](repeating: false, count: decoys.count)  // 한 장씩 소거
+    @State private var gone = [Bool](repeating: false, count: pages.count)   // 데코 한 장씩 소거
     @State private var penShown = false     // 데코 소거 후 마지막에 펜(+카드 컷) 등장
     @State private var didComplete = false
 
-    // 로고 카드 (생존자) — app-icon.svg의 두 rect.
-    private let backCard  = RectSpec(x: 6, y: 3, w: 14, h: 16, rot: 0)
+    // 로고 카드 기준 모양 — 모든 페이지가 이 앞-카드 모양을 공유하고 슬롯 offset으로 어긋난다.
     private let frontCard = RectSpec(x: 4, y: 5, w: 14, h: 16, rot: 0)
 
     private var gradient: LinearGradient {
@@ -60,24 +58,11 @@ struct LogoIntroView: View {
         ZStack {
             gradient
 
-            // 데코 페이지들 — 흩어짐 → 45° 대각선 스택 정렬 → 랜덤 소거.
-            // 로고 앞 카드와 동일한 모양을 offset/rotation으로 변형(같은 페이지가 모이는 느낌).
-            ForEach(Self.decoys.indices, id: \.self) { i in
-                Rect24(spec: frontCard)
-                    .stroke(.white.opacity(0.92), style: strokeStyle)
-                    .rotationEffect(.degrees(decoyRotation(i)))
-                    .offset(decoyOffset(i))
-                    .opacity(gone[i] ? 0 : 1)
+            // 모든 페이지(데코+로고) — 흩어짐 → 45° 대각선 슬롯 정렬.
+            // 생존 페이지(슬롯 0·1)는 penCut 마스크로 펜과 분리, 데코는 정렬 후 fade out.
+            ForEach(Self.pages.indices, id: \.self) { i in
+                pageView(i)
             }
-
-            // 로고 (생존자) — 데코가 사라지면 이것만 남는다. 인트로 내내 떠 있다.
-            // 카드는 펜 모양 구멍(app-icon.svg의 penCut 마스크)을 뚫어 펜과 분리한다.
-            ZStack {
-                Rect24(spec: backCard).stroke(.white, style: strokeStyle)
-                Rect24(spec: frontCard).stroke(.white, style: strokeStyle)
-            }
-            .compositingGroup()
-            .mask(penCutMask)
 
             Pen24().stroke(.white, style: strokeStyle)
                 .opacity(penShown ? 1 : 0)
@@ -103,31 +88,41 @@ struct LogoIntroView: View {
         .luminanceToAlpha()
     }
 
-    // MARK: 데코 변형 (흩어짐 / 대각선 스택 정렬 / 소거)
+    // MARK: 페이지 변형 (흩어짐 / 대각선 슬롯 정렬 / 데코 소거)
 
     private var unit: CGFloat { size / 24 }
 
-    /// 정렬·소거 시 0°, 흩어짐 시 고유 회전.
-    private func decoyRotation(_ i: Int) -> Double {
-        (aligned || gone[i]) ? 0 : Self.decoys[i].rot
+    /// 한 페이지 뷰. 생존 페이지는 penCut 마스크(펜과 분리), 데코는 정렬 후 fade out.
+    @ViewBuilder
+    private func pageView(_ i: Int) -> some View {
+        let p = Self.pages[i]
+        let card = Rect24(spec: frontCard)
+            .stroke(.white.opacity(p.survivor ? 1 : 0.92), style: strokeStyle)
+            .rotationEffect(.degrees((aligned || gone[i]) ? 0 : p.rot))
+            .offset(pageOffset(i))
+        if p.survivor {
+            // 마스크는 프레임 좌표 고정 — 정렬 후 카드가 제자리에 오면 펜 컷이 정확히 맞는다.
+            card.compositingGroup().mask(penCutMask)
+        } else {
+            card.opacity(gone[i] ? 0 : 1)
+        }
     }
 
-    /// 흩어짐 offset → 정렬 시 슬롯(±대각선) 위치. 소거는 위치 이동 없이 제자리 fade out.
+    /// 흩어짐 offset → 정렬 시 슬롯(±대각선) 위치. 데코 소거는 위치 이동 없이 제자리 fade out.
     /// 스텝 벡터는 우상향 (+1, -1). 슬롯 음수=좌측 하단, 양수=우측 상단.
-    private func decoyOffset(_ i: Int) -> CGSize {
-        let step = Self.stackStep * unit
+    private func pageOffset(_ i: Int) -> CGSize {
+        let p = Self.pages[i]
         if aligned {
-            let slot = Self.slots[i]
-            return CGSize(width: slot * step, height: -slot * step)
+            let step = Self.stackStep * unit
+            return CGSize(width: p.slot * step, height: -p.slot * step)
         }
-        let d = Self.decoys[i]
-        return CGSize(width: d.dx * unit, height: d.dy * unit)
+        return CGSize(width: p.dx * unit, height: p.dy * unit)
     }
 
     private func play() {
         guard !reduceMotion else {
             // 모션 최소화: 데코 없이 최종 로고(펜 포함)만 즉시 표시.
-            gone = [Bool](repeating: true, count: Self.decoys.count)
+            gone = Self.pages.map { !$0.survivor }
             aligned = true
             penShown = true
             fieldIn = true
@@ -137,12 +132,12 @@ struct LogoIntroView: View {
 
         withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) { fieldIn = true }
 
-        // 1) 흩어짐 → 45° 대각선 스택으로 정렬 (책 입체감).
+        // 1) 모든 페이지가 흩어짐 → 45° 대각선 스택으로 정렬 (책 입체감).
         withAnimation(.spring(response: 0.55, dampingFraction: 0.74).delay(0.25)) { aligned = true }
         let alignDone = 0.25 + 0.6
 
-        // 2) 정렬된 스택을 랜덤 순서로 한 장씩 미끄러뜨려 소거 → 로고만 남는다.
-        let order = Self.decoys.indices.shuffled()
+        // 2) 정렬된 스택의 데코를 랜덤 순서로 한 장씩 fade out → 로고만 남는다.
+        let order = Self.pages.indices.filter { !Self.pages[$0].survivor }.shuffled()
         let step = 0.13
         let removeStart = alignDone + 0.45      // 스택을 잠깐 보여준 뒤 소거 시작
         for (k, idx) in order.enumerated() {

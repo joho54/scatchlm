@@ -48,9 +48,7 @@ struct OnboardingView: View {
     private var welcomeStep: some View {
         VStack(spacing: 24) {
             Spacer()
-            LogoIntroView(size: 140) {
-                withAnimation(.easeOut(duration: 0.4)) { welcomeTextIn = true }
-            }
+            LogoIntroView(size: 140)
             Text(String(localized: "30초면 핵심을 보여드릴게요"))
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
@@ -83,6 +81,11 @@ struct OnboardingView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
+        // 텍스트·버튼은 로고 모션 완료를 기다리지 않고 곧바로(짧은 페이드) 노출 →
+        // 급한 유저는 인트로를 보는 동안에도 바로 '시작'할 수 있다(퍼널 마찰 제거).
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.4).delay(0.35)) { welcomeTextIn = true }
+        }
     }
 
     // MARK: - Editor (real NoteView + onboarding bar)

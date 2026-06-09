@@ -217,6 +217,9 @@ struct NoteMetaSheet: View {
     private func handleFileImport(_ url: URL) {
         appLog("pdf-upload", "picked file", ["name": url.lastPathComponent])
         uploading = true
+        let t0 = Date()
+        func elapsedMs() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
+        track(.textbookUpload, .start)
         Task {
             do {
                 struct UploadResult: Decodable {
@@ -232,6 +235,7 @@ struct NoteMetaSheet: View {
                     }
                 }
                 let res: UploadResult = try await APIClient.shared.uploadFile("/pdf/upload", fileURL: url)
+                track(.textbookUpload, .ok, ms: elapsedMs(), ["scanned": res.isScanned ?? false])
                 let item = TextbookListItem(
                     id: res.id, fileName: res.fileName, totalPages: res.totalPages,
                     isScanned: res.isScanned ?? false, ocrStatus: res.ocrStatus,
@@ -246,6 +250,7 @@ struct NoteMetaSheet: View {
                 }
             } catch {
                 appLogError("pdf-upload", "upload failed", ["error": "\(error)"])
+                track(.textbookUpload, .fail, reason: reasonClass(error), ms: elapsedMs())
                 // 침묵 금지 — 스캔 페이지 천장 초과(422)·클라우드 다운로드 실패 등을 사용자에게 알린다.
                 let msg = (error as? LocalizedError)?.errorDescription
                     ?? "교재를 올리지 못했어요. 잠시 후 다시 시도해 주세요."

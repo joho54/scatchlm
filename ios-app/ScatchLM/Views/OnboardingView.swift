@@ -26,6 +26,7 @@ struct OnboardingView: View {
     @State private var gotFeedback = false
     @State private var hintVisible = true     // 안내 카드 노출. '확인'으로 닫고, 피드백 시 다시 표시.
     @State private var welcomeTextIn = false   // 로고 인트로 완료 후 텍스트/버튼 페이드인.
+    @State private var welcomeLogged = false    // onboardingShown 세션당 1회 가드.
 
     private let db = DatabaseService.shared
 
@@ -85,6 +86,7 @@ struct OnboardingView: View {
         // 급한 유저는 인트로를 보는 동안에도 바로 '시작'할 수 있다(퍼널 마찰 제거).
         .onAppear {
             withAnimation(.easeOut(duration: 0.4).delay(0.35)) { welcomeTextIn = true }
+            if !welcomeLogged { welcomeLogged = true; track(.onboardingShown, .ok) }
         }
     }
 
@@ -201,11 +203,12 @@ struct OnboardingView: View {
         } catch {
             appLogError("onboarding", "demo note create failed", ["error": "\(error)"])
         }
+        track(.onboardingStart, .ok)
         withAnimation { step = .editor }
     }
 
     /// 환영 화면에서 건너뛰기 — 노트를 만들기 전이라 정리할 것 없음.
-    private func skip() { completed = true }
+    private func skip() { track(.onboardingSkip, .ok); completed = true }
 
     /// 온보딩 종료(마치기/에디터 건너뛰기). 노트는 NoteView가 이미 영속했으므로 첫 노트로 남는다.
     /// 단, 사용자가 아무것도 안 쓴 빈 노트면 정리(클러터 방지).
@@ -215,6 +218,7 @@ struct OnboardingView: View {
             try? db.deleteNote(id: noteId)
             appLog("onboarding", "empty demo note removed", ["noteId": noteId])
         }
+        track(.onboardingFinish, .ok, ["gotFeedback": gotFeedback])
         completed = true
     }
 }

@@ -1088,7 +1088,10 @@ struct NoteView: View {
         loading = true
 
         let requestId = String(UUID().uuidString.prefix(8))
+        let t0 = Date()
+        func elapsedMs() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
         appLog("note", "feedback: start", ["requestId": requestId])
+        track(.feedback, .start)
         Task { @MainActor in
             do {
                 appLog("note", "feedback: task entered", ["requestId": requestId])
@@ -1099,6 +1102,7 @@ struct NoteView: View {
                 let newStrokes = Array(allStrokes.dropFirst(frozenEnd))
                 guard !newStrokes.isEmpty else {
                     appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)"])
+                    track(.feedback, .empty, ms: elapsedMs())
                     showToast(String(localized: "먼저 필기를 해주세요. 손글씨를 인식해 피드백을 드려요."))
                     loading = false
                     return
@@ -1171,8 +1175,10 @@ struct NoteView: View {
                 appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId)
 
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])
+                track(.feedback, .ok, ms: elapsedMs(), ["hasTextbook": note?.textbookId != nil])
             } catch {
                 appLogError("note", "feedback failed", ["requestId": "\(requestId)", "error": "\(error)"])
+                track(.feedback, .fail, reason: reasonClass(error), ms: elapsedMs())
                 // quota 429: 구독 활성 시에만 Paywall 노출(v1 무료라 비활성), 아니면 친화 토스트.
                 if Config.subscriptionEnabled, case APIError.quotaExceeded = error, !StoreKitService.shared.isPro {
                     showPaywall = true

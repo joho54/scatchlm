@@ -172,6 +172,7 @@ final class SyncService: @unchecked Sendable {
             setStatus(.idle)
         } catch {
             appLogError("sync", "performSync failed", ["error": "\(error)"])
+            track(.sync, .fail, reason: reasonClass(error))
             setStatus(isOnline ? .error("\(error)") : .offline)
             scheduleRetry()
         }

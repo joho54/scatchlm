@@ -185,7 +185,45 @@ SELECT d0 AS cohort_day, count(*) AS new_users,
 FROM f GROUP BY d0 ORDER BY d0;"
 ```
 
-> **한계 (보고 시 명시):**
+#### 코어 루프 안정성 (구조화 `funnel` 태그 — step/result/reason/ms)
+
+> **2026-06-09 추가(funnel-stability-telemetry-spec):** 위 A~D는 *활성화 도달*(성공만)을 본다.
+> 아래 E~G는 **step별 실패율·원인·지연**을 본다 — 방향1(안정화) 우선순위를 데이터로 정렬하는 뷰.
+> 소스는 `tag='funnel'`, `data`의 `step`(appOpen/onboarding*/noteCreate/textbookUpload/feedback/sync),
+> `result`(start/ok/fail/empty/cancel), `reason`(http_4xx/5xx/422·offline·timeout·quota·decode·…), `ms`.
+> message 문자열이 아니라 `data` 필드 집계라 문구 변경에 안 깨짐. (sync는 폴링 플러딩 회피로 `fail`만 적재.)
+
+```bash
+# E) 코어 루프 step별 시도/성공/실패율 + 지연 (안정성 단일 뷰) ★핵심
+PSQL "SELECT data->>'step' AS step,
+  count(*) FILTER (WHERE data->>'result'='start') AS attempts,
+  count(*) FILTER (WHERE data->>'result'='ok')    AS ok,
+  count(*) FILTER (WHERE data->>'result'='fail')  AS fail,
+  round(100.0*count(*) FILTER (WHERE data->>'result'='fail')
+        / NULLIF(count(*) FILTER (WHERE data->>'result' IN ('ok','fail')),0),1) AS fail_pct,
+  percentile_disc(0.5)  WITHIN GROUP (ORDER BY (data->>'ms')::int) FILTER (WHERE data->>'ms' IS NOT NULL) AS p50_ms,
+  percentile_disc(0.95) WITHIN GROUP (ORDER BY (data->>'ms')::int) FILTER (WHERE data->>'ms' IS NOT NULL) AS p95_ms
+FROM app_logs WHERE tag='funnel' AND ts > now() - interval '$WIN'
+GROUP BY 1 ORDER BY fail DESC;"
+
+# F) 실패 원인 분포 — 어디가 왜 깨지나 (트리아지)
+PSQL "SELECT data->>'step' AS step, data->>'reason' AS reason, count(*)
+FROM app_logs WHERE tag='funnel' AND data->>'result'='fail' AND ts > now()-interval '$WIN'
+GROUP BY 1,2 ORDER BY 3 DESC;"
+
+# G) 온보딩 드롭오프 — session 단위 (pre-auth 포함, welcome→시작→마치기)
+PSQL "SELECT
+  count(DISTINCT session_id) FILTER (WHERE data->>'step'='onboardingShown')  AS shown,
+  count(DISTINCT session_id) FILTER (WHERE data->>'step'='onboardingStart')  AS started,
+  count(DISTINCT session_id) FILTER (WHERE data->>'step'='onboardingSkip')    AS skipped,
+  count(DISTINCT session_id) FILTER (WHERE data->>'step'='onboardingFinish') AS finished
+FROM app_logs WHERE tag='funnel' AND ts > now()-interval '$WIN';"
+```
+
+> E~G 한계: app 진입 이후만(pre-auth top-of-funnel은 ASA). `unknown` reason 비중이 크면 E의
+> 분류 버킷(`reasonClass`/`APIError.reasonTag`)에 case 추가. sync는 `fail`만이라 E에서 fail_pct=NULL.
+
+> **한계 (A~D, 보고 시 명시):**
 > - **pre-auth(설치→가입 전 이탈)는 안 보임** — `user_id` 기준이라. top-of-funnel(노출·탭·설치)은
 >   **ASA 대시보드**가 단일 진실. app_logs는 "앱 진입 이후"만.
 > - **어트리뷰션 없음** — 어떤 설치가 광고发인지 app_logs는 모름. D) 설치일 코호트로 "광고 켠 주

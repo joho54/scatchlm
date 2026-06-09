@@ -398,6 +398,22 @@ enum APIError: LocalizedError {
     case scannedPageLimit(ScannedLimitInfo)
     case ocrIncomplete(OcrIncompleteInfo)
 
+    /// 안정성 계측용 reason 버킷 (reasonClass에서 사용). errorDescription(사용자 문구)와 분리.
+    var reasonTag: String {
+        switch self {
+        case .quotaExceeded, .ocrQuotaExceeded: return "quota"
+        case .scannedPageLimit: return "scan_limit"
+        case .ocrIncomplete: return "ocr_incomplete"
+        case .serverError(let code, _):
+            switch code {
+            case 422: return "http_422"
+            case 400..<500: return "http_4xx"
+            case 500..<600: return "http_5xx"
+            default: return "http_other"
+            }
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .scannedPageLimit(let info):

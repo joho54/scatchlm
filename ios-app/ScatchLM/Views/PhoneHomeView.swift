@@ -120,6 +120,7 @@ private struct PhoneNotesTab: View {
             try db.saveNote(&note)
             notes.insert(note, at: 0)
             appLog("phoneHome", "createNote OK", ["id": note.id, "hasPdf": "\(note.textbookId != nil)"])
+            track(.noteCreate, .ok, ["hasPdf": note.textbookId != nil])
             path.append(note.id)   // 생성 직후 리더 진입
         } catch {
             appLogError("phoneHome", "createNote failed", ["error": "\(error)"])

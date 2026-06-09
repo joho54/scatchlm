@@ -316,6 +316,49 @@ func uxTrack<T>(_ event: String, _ meta: [String: Any] = [:],
     }
 }
 
+// MARK: - 코어 루프 퍼널·안정성 계측 (funnel-stability-telemetry-spec)
+//
+// 흩어진 메시지 문자열 대신 단일 헬퍼 + 구조화 필드(step/result/reason/ms)로 통일한다.
+// 집계는 `data`의 step/result/reason으로 → 메시지 문구가 바뀌어도 SQL이 안 깨진다.
+// 태그는 단일 `funnel`. `.fail`만 error 레벨(Release 전송 보장 + 에러 SQL 포함), 나머지 info.
+
+enum FunnelStep: String {
+    case appOpen, onboardingShown, onboardingStart, onboardingSkip, onboardingFinish
+    case noteCreate, textbookUpload, feedback, sync
+}
+enum StepResult: String { case start, ok, fail, empty, cancel }
+
+/// 코어 루프 한 단계의 결과를 표준 스키마로 기록. `ms`는 체감 latency(캡처+네트워크 포함).
+func track(_ step: FunnelStep, _ result: StepResult,
+           reason: String? = nil, ms: Int? = nil, _ extra: [String: Any] = [:]) {
+    var d: [String: Any] = ["step": step.rawValue, "result": result.rawValue]
+    if let reason { d["reason"] = reason }
+    if let ms { d["ms"] = ms }
+    d.merge(extra) { _, new in new }
+    if result == .fail {
+        LogService.shared.error("funnel", step.rawValue, d)
+    } else {
+        LogService.shared.info("funnel", step.rawValue, d)
+    }
+}
+
+/// 에러를 안정성 트리아지용 reason 버킷으로 분류 (feedback/upload/sync 공용).
+/// 원시 `\(error)` 문자열은 GROUP BY가 안 되므로, 안정된 카테고리로 정규화한다.
+func reasonClass(_ error: Error) -> String {
+    if let api = error as? APIError { return api.reasonTag }
+    if error is DecodingError { return "decode" }
+    let ns = error as NSError
+    if ns.domain == NSURLErrorDomain {
+        switch ns.code {
+        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost: return "offline"
+        case NSURLErrorTimedOut: return "timeout"
+        case NSURLErrorCancelled: return "cancelled"
+        default: return "network"
+        }
+    }
+    return "unknown"
+}
+
 /// 사용자가 의도적으로 취소한 케이스(에러 표시·실패 집계에서 제외). 도메인 문자열만으로 판별해
 /// LogService를 AuthenticationServices에 결합하지 않는다.
 private func isUserCancel(_ error: Error) -> Bool {

@@ -370,6 +370,7 @@ struct HomeView: View {
             try db.saveNote(&note)
             notes.insert(note, at: 0)
             appLog("home", "createNote OK", ["id": note.id, "hasPdf": "\(note.textbookId != nil)"])
+            track(.noteCreate, .ok, ["hasPdf": note.textbookId != nil])
             path.append(note.id)  // 즉시 진입
         } catch {
             appLogError("home", "createNote failed", ["error": "\(error)"])

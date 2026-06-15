@@ -17,7 +17,15 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.feedback import AIResponse, AIResponseRating
-from app.models.sync import ChatMessage, Feedback, Note, NotePage
+from app.models.sync import (
+    ChatMessage,
+    ChatSession,
+    Feedback,
+    Folder,
+    Note,
+    NotePage,
+    PdfAnnotation,
+)
 from app.models.textbook import TextbookSource
 from app.models.usage import LLMUsage
 from app.models.user import User
@@ -45,11 +53,15 @@ async def delete_db_rows(user_id: str, db: AsyncSession) -> dict[str, int]:
         res = await db.execute(delete(model).where(model.user_id == user_id))
         counts[label] = res.rowcount or 0
 
-    # 자식·무FK 테이블 먼저
+    # 자식·무FK 테이블 먼저. users.id를 FK로 참조하는 테이블은 users 삭제 전에 모두 비워야
+    # 한다(ON DELETE CASCADE 미설정 — 하나라도 행이 남으면 DELETE users가 FK 위반).
     await _del(NotePage, "note_pages")
+    await _del(PdfAnnotation, "pdf_annotations")
     await _del(Feedback, "feedbacks")
     await _del(ChatMessage, "chat_messages")
+    await _del(ChatSession, "chat_sessions")
     await _del(Note, "notes")
+    await _del(Folder, "folders")
     await _del(AIResponseRating, "ai_response_rating")
     await _del(AIResponse, "ai_response")
     await _del(LLMUsage, "llm_usage")

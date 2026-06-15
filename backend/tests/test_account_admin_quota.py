@@ -48,6 +48,32 @@ async def test_delete_account_happy_path(client: AsyncClient, auth_header: dict,
     m.assert_awaited_once()
 
 
+async def test_delete_account_with_user_fk_children(client: AsyncClient, auth_header: dict, db_session):
+    """users.id를 FK로 참조하는 모든 자식 테이블에 행이 있어도 삭제가 성공해야 한다.
+
+    회귀: folders·pdf_annotations·chat_sessions가 delete_db_rows에서 누락돼 있어
+    DELETE users가 FK 위반(500)으로 롤백되던 버그(2026-06-10 운영 재현). 이 세 테이블에
+    행을 심고 200으로 삭제되는지 검증한다. 수정 전이면 FK 위반으로 500.
+    """
+    from app.models.sync import ChatSession, Folder, PdfAnnotation
+
+    db_session.add(Folder(id="f1", user_id=TEST_USER_ID, name="x"))
+    db_session.add(PdfAnnotation(id="a1", user_id=TEST_USER_ID, note_id="n1", pdf_page=1))
+    db_session.add(ChatSession(id="s1", user_id=TEST_USER_ID, kind="feedback"))
+    await db_session.commit()
+
+    with patch("app.routers.account.delete_auth_user", new_callable=AsyncMock, return_value=True):
+        res = await client.delete("/api/account", headers=auth_header)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["deleted"] is True
+    assert body["counts"]["users"] == 1
+    assert body["counts"]["folders"] >= 1
+    assert body["counts"]["pdf_annotations"] >= 1
+    assert body["counts"]["chat_sessions"] >= 1
+
+
 async def test_delete_account_blobs_complete_false_on_prefix_failure(
     client: AsyncClient, auth_header: dict, monkeypatch
 ):

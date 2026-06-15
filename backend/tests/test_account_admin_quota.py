@@ -74,6 +74,28 @@ async def test_delete_account_with_user_fk_children(client: AsyncClient, auth_he
     assert body["counts"]["chat_sessions"] >= 1
 
 
+def test_account_deletion_covers_all_user_fk_tables():
+    """users.id를 FK로 참조하는 모든 테이블이 삭제 커버 목록(_USER_SCOPED_MODELS)에 있어야 한다.
+
+    가드: 새 user-scoped 테이블을 추가하고 목록에 안 넣으면 여기서 실패한다 → 계정삭제 시
+    DELETE users가 FK 위반(500)으로 깨지는 재발을 운영이 아니라 CI에서 잡는다. DB CASCADE 대신
+    CI 가드를 쓰는 이유: CASCADE는 (1) 실수 DELETE users의 FK 제동장치를 없애고 (2) 삭제 회계
+    (테이블별 counts) 보고를 무력화한다. 명시적 삭제 + CI 가드가 둘 다 보존한다.
+    """
+    from app.models.user import Base
+    from app.services.account_deletion import _USER_SCOPED_MODELS
+
+    covered = {label for _, label in _USER_SCOPED_MODELS}
+    fk_tables = {
+        table.name
+        for table in Base.metadata.tables.values()
+        for fk in table.foreign_keys
+        if fk.column.table.name == "users" and fk.column.name == "id"
+    }
+    missing = fk_tables - covered
+    assert not missing, f"users.id FK 테이블이 delete_db_rows에서 누락됨: {missing}"
+
+
 async def test_delete_account_blobs_complete_false_on_prefix_failure(
     client: AsyncClient, auth_header: dict, monkeypatch
 ):

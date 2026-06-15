@@ -34,6 +34,30 @@ from app.services.storage import storage
 log = logging.getLogger(__name__)
 
 
+# user_id로 직접 삭제하는 user-scoped 테이블 (model, count 라벨). User 행보다 **먼저** 비운다.
+# users.id를 FK로 참조하는 테이블(sync 4종·textbook_sources)은 ON DELETE CASCADE가 없으므로
+# 반드시 여기 포함돼야 DELETE users가 FK 위반(500)을 내지 않는다. AIResponse 등은 users FK가
+# 없지만 user_id 컬럼으로 같이 지운다.
+#
+# ⚠️ 새 user-scoped 테이블을 추가하면 이 목록에도 넣을 것.
+# tests의 test_account_deletion_covers_all_user_fk_tables가 users FK 테이블 누락 시 CI에서
+# 실패시킨다(과거 folders·pdf_annotations·chat_sessions 누락으로 계정삭제 전면 500 재발 방지).
+_USER_SCOPED_MODELS: list[tuple[type, str]] = [
+    (NotePage, "note_pages"),
+    (PdfAnnotation, "pdf_annotations"),
+    (Feedback, "feedbacks"),
+    (ChatMessage, "chat_messages"),
+    (ChatSession, "chat_sessions"),
+    (Note, "notes"),
+    (Folder, "folders"),
+    (AIResponseRating, "ai_response_rating"),
+    (AIResponse, "ai_response"),
+    (LLMUsage, "llm_usage"),
+    # textbook_sources → FK cascade(document_chunks·chapters·page_guides)
+    (TextbookSource, "textbook_sources"),
+]
+
+
 async def collect_blob_keys(user_id: str, db: AsyncSession) -> list[str]:
     """삭제 대상 blob 키(텍스트북 PDF server_path)를 행 삭제 전에 수집한다."""
     result = await db.execute(
@@ -49,24 +73,11 @@ async def delete_db_rows(user_id: str, db: AsyncSession) -> dict[str, int]:
     """
     counts: dict[str, int] = {}
 
-    async def _del(model, label: str) -> None:
+    # user-scoped 자식 테이블 먼저 (users.id FK 테이블 포함 — users 삭제 전에 모두 비운다).
+    for model, label in _USER_SCOPED_MODELS:
         res = await db.execute(delete(model).where(model.user_id == user_id))
         counts[label] = res.rowcount or 0
 
-    # 자식·무FK 테이블 먼저. users.id를 FK로 참조하는 테이블은 users 삭제 전에 모두 비워야
-    # 한다(ON DELETE CASCADE 미설정 — 하나라도 행이 남으면 DELETE users가 FK 위반).
-    await _del(NotePage, "note_pages")
-    await _del(PdfAnnotation, "pdf_annotations")
-    await _del(Feedback, "feedbacks")
-    await _del(ChatMessage, "chat_messages")
-    await _del(ChatSession, "chat_sessions")
-    await _del(Note, "notes")
-    await _del(Folder, "folders")
-    await _del(AIResponseRating, "ai_response_rating")
-    await _del(AIResponse, "ai_response")
-    await _del(LLMUsage, "llm_usage")
-    # textbook_sources → FK cascade(document_chunks·chapters·page_guides)
-    await _del(TextbookSource, "textbook_sources")
     # 마지막으로 users (PK는 id — user_id 컬럼 없음)
     users_res = await db.execute(delete(User).where(User.id == user_id))
     counts["users"] = users_res.rowcount or 0

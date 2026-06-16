@@ -109,7 +109,11 @@ _estimate_cost = estimate_cost
 
 # 피드백 응답 output 상한 (§11 L1). 전형 피드백은 ~600토큰이라 평균엔 영향 없고
 # 롱테일/폭주 응답 비용만 상한한다(output은 $15/1M로 비용의 ~55%).
-FEEDBACK_MAX_TOKENS = 1536
+# 과금은 실제 output_tokens 기준이라 상한을 올려도 짧은 응답 비용은 불변 — 1536은
+# 교재 컨텍스트 + 정정 많은 손글씨 같은 긴 케이스에서 stop_reason=max_tokens로 응답을
+# 문장 중간에 잘랐다(prod에서 output_tokens=1536 절단 2건 확인). sonnet-4-6 단일 응답
+# 한도는 64K이므로 넉넉히 상향한다.
+FEEDBACK_MAX_TOKENS = 4096
 
 
 @dataclass
@@ -207,9 +211,18 @@ async def get_feedback(
     cost = _estimate_cost(model, input_tokens, output_tokens)
 
     log.info(
-        "LLM response: model=%s latency=%dms tokens=%d (in=%d out=%d) cost=$%.4f",
+        "LLM response: model=%s latency=%dms tokens=%d (in=%d out=%d) cost=$%.4f stop=%s",
         model, latency_ms, total_tokens, input_tokens, output_tokens, cost,
+        response.stop_reason,
     )
+
+    # max_tokens 도달 = 응답이 문장 중간에 잘려 저장됨(침묵 절단). 상한을 넘기는
+    # 트래픽이 다시 생기면 바로 보이도록 경보로 남긴다.
+    if response.stop_reason == "max_tokens":
+        log.warning(
+            "LLM response truncated at max_tokens: model=%s out=%d (FEEDBACK_MAX_TOKENS=%d)",
+            model, output_tokens, FEEDBACK_MAX_TOKENS,
+        )
 
     content = response.content[0].text.strip()
 

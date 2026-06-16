@@ -166,18 +166,7 @@ struct NoteView: View {
                         }
                     }
 
-                    // Back + page navigator moved into canvasPanel overlay
-
-                    // FAB
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            fabPill(note: note)
-                                .padding(.trailing, 20)
-                                .padding(.bottom, 32)
-                        }
-                    }
+                    // Back + page navigator(좌상단) / FAB(우상단) 모두 canvasPanel overlay로 이동
 
                     // Page navigator slide-over (좌측)
                     if pageNavOpen {
@@ -371,6 +360,12 @@ struct NoteView: View {
             canvasContent(note: note, panelWidth: panelWidth)
         }
         .overlay(alignment: .topLeading) { canvasTopControls() }
+        // AI 피드백(✨) 포함 FAB pill을 캔버스 상단 우측에 둔다 — 좌상단 컨트롤과 대칭.
+        .overlay(alignment: .topTrailing) {
+            fabPill(note: note)
+                .padding(.trailing, 12)
+                .padding(.top, 12)
+        }
     }
 
     @ViewBuilder
@@ -398,9 +393,6 @@ struct NoteView: View {
             },
             onFeedbackRevert: { fb in
                 pendingRevert = fb
-            },
-            onStrokeRejected: {
-                showToast(String(localized: "이 영역은 피드백이 완료됐습니다. 되돌리려면 카드의 ↩︎를 누르세요"))
             },
             onFeedbackRate: { fb, rating in
                 submitRating(feedback: fb, rating: rating, reasonTags: [], comment: nil)
@@ -715,7 +707,6 @@ struct NoteView: View {
         // coordinator의 렌더링 높이 리셋
         if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
             delegate.lastRenderedBottom = 0
-            delegate.frozenBottom = 0
             delegate.frozenEndIndex = 0
             delegate.previousStrokeCount = 0
         }
@@ -789,11 +780,9 @@ struct NoteView: View {
                 stripRevert(card)
             }
             coordinator.renderCard(on: canvasView, feedback: record, isLast: true)
-            // 실제 렌더 후 bbox 높이 동기화 → frozenBottom 재계산
+            // 실제 렌더 후 bbox 높이 동기화
             if let card = cardContainer().subviews.first(where: { $0.tag == 9999 && $0.accessibilityIdentifier == record.id }) {
                 let actualBottom = card.frame.maxY
-                // 렌더 후엔 실제 카드 높이를 쓴다. max(estimatedHeight, …)로 부풀리면 카드가 400보다
-                // 짧을 때 frozen 영역이 카드 하단 아래까지 내려가 "회색 + 필기 불가" 데드존이 생긴다.
                 record.bboxHeight = max(actualBottom - record.bboxY, 1)
                 // 높이 동기화 업데이트 — 실패해도 카드는 이미 저장됨, 로깅만.
                 do {
@@ -805,7 +794,7 @@ struct NoteView: View {
                     appLogError("note", "saveFeedback (bbox sync) failed", ["error": "\(error)"])
                 }
             }
-            coordinator.recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
+            coordinator.recalculateFrozenEnd(on: canvasView, feedbacks: feedbacks)
             nextCardY = coordinator.lastRenderedBottom + 24
 
             // 콘텐츠 높이 확장 + 새 카드가 viewport 안에 들어오도록 자동 스크롤(줌 배율 반영)
@@ -1029,7 +1018,7 @@ struct NoteView: View {
         feedbacks.removeAll { $0.id == fb.id }
         if let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator {
             coordinator.removeCard(on: canvasView, feedbackId: fb.id)
-            coordinator.recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
+            coordinator.recalculateFrozenEnd(on: canvasView, feedbacks: feedbacks)
         }
         appLog("note", "feedback reverted", ["id": fb.id])
     }
@@ -1231,7 +1220,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var feedbacks: [FeedbackRecord]
     var onFeedbackTapped: ((FeedbackRecord) -> Void)?
     var onFeedbackRevert: ((FeedbackRecord) -> Void)?
-    var onStrokeRejected: (() -> Void)?
     var onFeedbackRate: ((FeedbackRecord, Int) -> Void)?
     var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
     var onFeedbackCopy: ((FeedbackRecord) -> Void)?
@@ -1356,7 +1344,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.isDarkMode = isDark
         coordinator.onFeedbackTapped = onFeedbackTapped
         coordinator.onFeedbackRevert = onFeedbackRevert
-        coordinator.onStrokeRejected = onStrokeRejected
         coordinator.onFeedbackCopy = onFeedbackCopy
         coordinator.onPaste = onPaste
         coordinator.contentView?.backgroundColor = isDark ? .black : .white
@@ -1391,7 +1378,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         // Render feedback cards — coordinator에 위임
         context.coordinator.renderAllCards(on: canvasView, feedbacks: feedbacks)
-        context.coordinator.updateFrozenOverlay(on: canvasView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1399,7 +1385,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
         c.onStrokeChanged = onStrokeChanged
         c.onFeedbackTapped = onFeedbackTapped
         c.onFeedbackRevert = onFeedbackRevert
-        c.onStrokeRejected = onStrokeRejected
         c.onFeedbackRate = onFeedbackRate
         c.onFeedbackRateDetail = onFeedbackRateDetail
         c.onFeedbackCopy = onFeedbackCopy
@@ -1412,7 +1397,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var onStrokeChanged: (() -> Void)?
         var onFeedbackTapped: ((FeedbackRecord) -> Void)?
         var onFeedbackRevert: ((FeedbackRecord) -> Void)?
-        var onStrokeRejected: (() -> Void)?
         var onFeedbackRate: ((FeedbackRecord, Int) -> Void)?
         var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
         var onFeedbackCopy: ((FeedbackRecord) -> Void)?
@@ -1442,7 +1426,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
         /// renderAllCards 멱등성 가드 — 카드 표시/레이아웃에 영향 주는 입력의 시그니처.
         /// 동일하면 재생성(특히 WKWebView reload)을 건너뛴다. 필기 중 깜빡임 방지.
         private var lastCardsSignature: String?
-        var frozenBottom: CGFloat = 0
         var frozenEndIndex: Int = 0
         var previousStrokeCount: Int = 0
         var isDarkMode: Bool = false
@@ -1633,13 +1616,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         // MARK: - Frozen state
 
-        func recalculateFrozenBottom(on canvasView: PKCanvasView, feedbacks: [FeedbackRecord]) {
-            frozenBottom = feedbacks.map { CGFloat($0.bboxY + $0.bboxHeight) }.max() ?? 0
+        /// 마지막으로 피드백을 받은 stroke 인덱스를 재계산한다. 이 값(frozenEndIndex)은
+        /// 피드백 요청 시 "아직 안 본 새 stroke만 전송"하는 중복제거 용도로만 쓰인다.
+        /// 더 이상 입력을 막지 않으므로 영역(bottom)·오버레이 계산은 없다.
+        func recalculateFrozenEnd(on canvasView: PKCanvasView, feedbacks: [FeedbackRecord]) {
             frozenEndIndex = feedbacks.map { $0.strokeRangeEnd }.max() ?? 0
             previousStrokeCount = canvasView.drawing.strokes.count
-            updateFrozenOverlay(on: canvasView)
             appLogDebug("canvas", "frozen recalc", [
-                "bottom": "\(Int(frozenBottom))",
                 "endIndex": "\(frozenEndIndex)",
                 "strokes": "\(previousStrokeCount)",
             ])
@@ -1653,32 +1636,6 @@ struct PencilKitCanvasView: UIViewRepresentable {
             // lastRenderedBottom 재계산 (남은 카드 기준)
             let remaining = c.subviews.filter { $0.tag == 9999 }
             lastRenderedBottom = remaining.map { $0.frame.maxY }.max() ?? 0
-        }
-
-        func updateFrozenOverlay(on canvasView: PKCanvasView) {
-            let width = currentWidth(canvasView)
-            guard width > 0 else { return }
-            let c = container(canvasView)
-
-            // 중복 제거
-            let existing = c.subviews.filter { $0.tag == 9997 }
-            if existing.count > 1 {
-                existing.dropFirst().forEach { $0.removeFromSuperview() }
-            }
-            let overlay: UIView
-            if let v = existing.first {
-                overlay = v
-            } else {
-                overlay = UIView()
-                overlay.tag = 9997
-                overlay.isUserInteractionEnabled = false
-                c.addSubview(overlay)
-                c.sendSubviewToBack(overlay)
-            }
-            let alpha: CGFloat = isDarkMode ? 0.10 : 0.07
-            overlay.backgroundColor = UIColor.systemGray.withAlphaComponent(alpha)
-            overlay.frame = CGRect(x: 0, y: 0, width: width, height: max(0, frozenBottom))
-            overlay.isHidden = frozenBottom <= 0
         }
 
         // MARK: - Card Rendering
@@ -1705,7 +1662,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 renderCard(on: canvasView, feedback: fb, isLast: i == feedbacks.count - 1)
             }
             updateNextPositionIndicator(on: canvasView)
-            recalculateFrozenBottom(on: canvasView, feedbacks: feedbacks)
+            recalculateFrozenEnd(on: canvasView, feedbacks: feedbacks)
         }
 
         /// 단일 카드를 캔버스에 추가 (피드백 수신 시 직접 호출)
@@ -1968,23 +1925,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            // Frozen 영역 입력 차단 — 새로 추가된 stroke만 검사
-            let strokes = canvasView.drawing.strokes
-            if frozenBottom > 0, strokes.count > previousStrokeCount {
-                let diff = strokes.count - previousStrokeCount
-                let added = Array(strokes.suffix(diff))
-                let invalidIdx = added.enumerated().compactMap { (i, s) -> Int? in
-                    s.renderBounds.minY < frozenBottom ? (previousStrokeCount + i) : nil
-                }
-                if !invalidIdx.isEmpty {
-                    let invalidSet = Set(invalidIdx)
-                    let kept = strokes.enumerated().filter { !invalidSet.contains($0.offset) }.map { $0.element }
-                    // PKDrawing 통째 재할당 → PencilKit 전체 재래스터화(큰 깜빡임 후보).
-                    canvasView.drawing = PKDrawing(strokes: kept)
-                    appLog("canvas", "stroke rejected", ["count": "\(invalidIdx.count)", "frozenBottom": "\(Int(frozenBottom))"])
-                    onStrokeRejected?()
-                }
-            }
+            // 피드백 완료 영역도 자유롭게 수정 가능. frozen 영역 입력 차단은 제거됨
+            // (frozenEndIndex는 "새 stroke만 피드백 전송"하는 중복제거에만 계속 쓰인다).
             previousStrokeCount = canvasView.drawing.strokes.count
 
             // Auto-expand content height (downward only). 버퍼는 viewport를 콘텐츠 좌표로 환산(줌 반영).

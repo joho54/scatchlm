@@ -1,8 +1,7 @@
 DEVICE_ID := 00008103-000C65D43AEB001E
-# iPhone 컴패니언 실기기. 연결돼 있으면 UDID를 자동 감지한다(연결된 첫 iPhone).
-# 고정하려면 override: `make reinstall-iphone IPHONE_ID=00008XXX-XXXXXXXXXXXXXXXX`
-# 확인: `make iphone-id` (연결+잠금해제+신뢰 후).
-IPHONE_ID ?= $(shell xcrun xctrace list devices 2>/dev/null | grep -i 'iPhone' | grep -v 'Simulator' | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}' | head -1)
+# iPhone 컴패니언 실기기. 이름이 'iPhone'을 안 담아도(예: "갤럭시 버즈 프로") 잡히도록 UDID 고정.
+# 다른 기기로 override: `make reinstall-iphone IPHONE_ID=00008XXX-XXXXXXXXXXXXXXXX`
+IPHONE_ID ?= 00008110-001E2CD03E62401E
 SIM_ID := E9FA98C5-3953-4CAF-9076-81000B685E2F
 # iPhone 컴패니언 UI 확인용 시뮬레이터(iPhone 17). override: make run-sim-iphone IPHONE_SIM_ID=<udid>
 IPHONE_SIM_ID := F584BD56-7FCB-4F29-B40A-1611912C9D80
@@ -15,7 +14,7 @@ DEV_APP_PATH = $(shell ls -td $(HOME)/Library/Developer/Xcode/DerivedData/Scatch
 SIM_APP_PATH = $(shell ls -td $(HOME)/Library/Developer/Xcode/DerivedData/ScatchLM-*/Build/Products/Debug-iphonesimulator/ScatchLM.app 2>/dev/null | head -1)
 BUNDLE_ID := com.joho54.scatchlm
 
-.PHONY: gen build build-dev build-sim build-sim-iphone build-iphone install install-dev install-iphone reinstall reinstall-dev reinstall-iphone iphone-id clean run-sim run-sim-iphone
+.PHONY: gen build build-dev build-sim build-sim-iphone build-iphone build-iphone-dev install install-dev install-iphone install-iphone-dev reinstall reinstall-dev reinstall-iphone reinstall-iphone-dev iphone-id clean run-sim run-sim-iphone
 
 gen:
 	xcodegen generate
@@ -51,6 +50,14 @@ build-iphone: gen
 	  -destination 'id=$(IPHONE_ID)' \
 	  -allowProvisioningUpdates build
 
+# iPhone 실기기 Debug 빌드 — build-dev와 동일(#if DEBUG → appLogDebug 텔레메트리 ON), 기기만 IPHONE_ID.
+build-iphone-dev: gen
+	@test -n "$(IPHONE_ID)" || { echo "✗ iPhone 미인식 — 연결·잠금해제·신뢰 후 'make iphone-id'로 확인하세요."; exit 1; }
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	  -configuration Debug \
+	  -destination 'id=$(IPHONE_ID)' \
+	  -allowProvisioningUpdates build
+
 install:
 	xcrun devicectl device install app --device $(DEVICE_ID) $(APP_PATH)
 
@@ -61,6 +68,10 @@ install-iphone:
 	@test -n "$(IPHONE_ID)" || { echo "✗ iPhone 미인식 — 연결·잠금해제·신뢰 후 'make iphone-id'로 확인하세요."; exit 1; }
 	xcrun devicectl device install app --device $(IPHONE_ID) $(APP_PATH)
 
+install-iphone-dev:
+	@test -n "$(IPHONE_ID)" || { echo "✗ iPhone 미인식 — 연결·잠금해제·신뢰 후 'make iphone-id'로 확인하세요."; exit 1; }
+	xcrun devicectl device install app --device $(IPHONE_ID) $(DEV_APP_PATH)
+
 # 7일 만료 시 한 줄로 재설치 (Release — 성능/출시 parity)
 reinstall: build install
 
@@ -69,6 +80,9 @@ reinstall-dev: build-dev install-dev
 
 # iPhone 컴패니언 실기기 재설치 (Release — reinstall과 동일, 기기만 아이폰).
 reinstall-iphone: build-iphone install-iphone
+
+# iPhone 컴패니언 실기기 재설치 (Debug — appLogDebug 텔레메트리 관측용. 카드/필기 기하 디버깅).
+reinstall-iphone-dev: build-iphone-dev install-iphone-dev
 
 # 연결된 iPhone UDID 출력 — IPHONE_ID 고정값 확인용.
 iphone-id:

@@ -534,19 +534,56 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             // 읽기 힘드므로, 카드를 그 역수 k배로 키워(content 좌표) 화면상 원래 크기로 보이게 한다.
             // (필기는 좌표 그대로 축소, 카드만 counter-scale — 사용자 요청.)
             let k = max(1, contentWidth / Config.logicalCanvasWidth)
+            // 카드 counter-scale(k)이 후속 필기를 덮는지 진단하기 위해 stroke 경계를 미리 수집.
+            // (콘텐츠 좌표 = iPad 논리 좌표 그대로. 카드만 k배 확대돼 세로로 더 내려간다.)
+            let strokeBounds = canvas?.drawing.strokes.map { $0.renderBounds } ?? []
+            let drawingMaxY = strokeBounds.reduce(CGFloat(0)) { max($0, $1.maxY) }
+            appLogDebug("cardGeom", "renderCards begin", [
+                "cards": "\(feedbacks.count)",
+                "k": String(format: "%.3f", k),
+                "contentWidth": "\(Int(contentWidth))",
+                "logicalWidth": "\(Int(Config.logicalCanvasWidth))",
+                "strokes": "\(strokeBounds.count)",
+                "drawingMaxY": "\(Int(drawingMaxY))",
+            ])
+            let margin: CGFloat = 12 * k
             var runningBottom: CGFloat = 0
-            for fb in feedbacks {
-                let card = makeCard(fb: fb, scale: k)
-                // 카드가 커져 서로 겹치지 않도록 순차 배치(원 위치 우선, 겹치면 아래로).
+            for (idx, fb) in feedbacks.enumerated() {
+                // 1. 카드 상단 — 원 위치 우선, 직전 카드와 겹치면 아래로(카드-카드 분리).
                 let y = max(fb.positionY, runningBottom + 12 * k)
+                // 2. 이 카드 아래에서 시작하는 첫 stroke까지의 거리 = iPad에서 카드가 쓰던 공백.
+                //    그 공백 이하로 카드를 capping하면 후속 필기 위로 흘러내리지 않는다(겹침 0).
+                //    아래에 stroke가 없으면(마지막 영역) cap 없음 → 자연 높이.
+                let nextStrokeTop = strokeBounds.compactMap { $0.minY > y + 1 ? $0.minY : nil }.min()
+                let cap: CGFloat? = nextStrokeTop.map { $0 - y - margin }
+
+                let card = makeCard(fb: fb, scale: k, maxHeight: cap)
                 card.frame.origin.y = y
-                runningBottom = card.frame.maxY
+                let cardBottom = card.frame.maxY
+                // 검증용: 카드 세로 구간에 걸치는 stroke = 잔여 겹침(목표 0).
+                let overlapping = strokeBounds.filter { $0.maxY > y && $0.minY < cardBottom }
+                appLogDebug("cardGeom", "card placed", [
+                    "idx": "\(idx)",
+                    "fbId": String(fb.id.prefix(8)),
+                    "positionY": "\(Int(fb.positionY))",
+                    "placedY": "\(Int(y))",
+                    "bumped": "\(y > fb.positionY)",
+                    "cap": cap.map { "\(Int($0))" } ?? "nil",
+                    "nextStrokeTop": nextStrokeTop.map { "\(Int($0))" } ?? "nil",
+                    "cardH": "\(Int(cardBottom - y))",
+                    "cardBottom": "\(Int(cardBottom))",
+                    "scrolls": "\((card.subviews.compactMap { $0 as? UIScrollView }.first?.isScrollEnabled) ?? false)",
+                    "overlapStrokes": "\(overlapping.count)",
+                ])
+                runningBottom = cardBottom
                 contentView.addSubview(card)
-                maxCardBottom = max(maxCardBottom, card.frame.maxY)
+                maxCardBottom = max(maxCardBottom, cardBottom)
             }
         }
 
-        private func makeCard(fb: FeedbackRecord, scale k: CGFloat) -> UIView {
+        /// maxHeight: 카드가 차지할 수 있는 콘텐츠 높이 상한(공백 기반). nil이면 자연 높이.
+        /// 상한을 넘는 본문은 내부 스크롤로 본다 → 카드가 후속 필기 위로 흘러내리지 않음.
+        private func makeCard(fb: FeedbackRecord, scale k: CGFloat, maxHeight: CGFloat?) -> UIView {
             let cardWidth = (Config.logicalCanvasWidth - 32) * k
             let fontSize = 14 * k
             let parsed = try? JSONDecoder().decode(AIResponse.self, from: fb.content.data(using: .utf8) ?? Data())
@@ -603,25 +640,53 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             buttonBar.axis = .horizontal
             buttonBar.alignment = .center
 
-            card.addSubview(label)
-            card.addSubview(buttonBar)
+            // 본문 자연 높이 측정(스크롤 콘텐츠 높이). KaTeX 경로도 textView 측정값으로 근사.
+            let naturalLabelHeight = textView.sizeThatFits(
+                CGSize(width: cardWidth - 24 * k, height: .greatestFiniteMagnitude)
+            ).height
+
+            // 본문을 내부 스크롤뷰에 담는다 → 카드 높이를 cap해도 넘치는 부분은 스크롤로 본다.
+            let scroll = UIScrollView()
+            scroll.translatesAutoresizingMaskIntoConstraints = false
+            scroll.showsVerticalScrollIndicator = true
+            scroll.alwaysBounceVertical = false
+            scroll.clipsToBounds = true
             label.translatesAutoresizingMaskIntoConstraints = false
+            scroll.addSubview(label)
+            card.addSubview(scroll)
+            card.addSubview(buttonBar)
             buttonBar.translatesAutoresizingMaskIntoConstraints = false
+
+            // chrome = top inset + label↔button gap + button + bottom inset
+            let chrome: CGFloat = (12 + 8 + 28 + 8) * k
+            let minCardHeight: CGFloat = 120 * k   // 너무 작아 못 읽는 카드 방지(최소 가독 높이)
+            let naturalCardHeight = naturalLabelHeight + chrome
+            let finalCardHeight = maxHeight.map { max(minCardHeight, min(naturalCardHeight, $0)) } ?? naturalCardHeight
+            // cap이 자연 높이보다 작을 때만 스크롤 활성(여유 0.5 마진).
+            scroll.isScrollEnabled = finalCardHeight + 0.5 < naturalCardHeight
+
             NSLayoutConstraint.activate([
-                label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12 * k),
-                label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12 * k),
-                label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12 * k),
-                buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8 * k),
+                scroll.topAnchor.constraint(equalTo: card.topAnchor, constant: 12 * k),
+                scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12 * k),
+                scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12 * k),
+                scroll.bottomAnchor.constraint(equalTo: buttonBar.topAnchor, constant: -8 * k),
+
                 buttonBar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12 * k),
                 buttonBar.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12 * k),
                 buttonBar.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8 * k),
                 buttonBar.heightAnchor.constraint(equalToConstant: 28 * k),
+
+                // label = 스크롤 콘텐츠. 폭은 뷰포트에 고정, 높이는 자연 높이(고정) → 넘치면 스크롤.
+                label.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+                label.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+                label.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+                label.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+                label.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+                label.heightAnchor.constraint(equalToConstant: naturalLabelHeight),
             ])
 
-            let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24 * k, height: .greatestFiniteMagnitude))
-            let cardHeight = labelSize.height + 48 * k
             // x는 makeCard에서, y는 renderCards가 순차 배치로 설정.
-            card.frame = CGRect(x: 16 * k, y: 0, width: cardWidth, height: cardHeight)
+            card.frame = CGRect(x: 16 * k, y: 0, width: cardWidth, height: finalCardHeight)
             return card
         }
 

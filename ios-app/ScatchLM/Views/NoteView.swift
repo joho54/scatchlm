@@ -1087,12 +1087,22 @@ struct NoteView: View {
                 let allStrokes = canvasView.drawing.strokes
                 let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
                 let frozenEnd = min(coordinator?.frozenEndIndex ?? 0, allStrokes.count)
-                appLog("note", "feedback: strokes read", ["requestId": requestId, "count": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)"])
-                let newStrokes = Array(allStrokes.dropFirst(frozenEnd))
+                // 이미 피드백받은 stroke들의 실제 잉크 하단. append-only이므로 prefix(frozenEnd)가 곧 리뷰된 stroke들.
+                let reviewedBottom = allStrokes.prefix(frozenEnd).reduce(CGFloat(0)) { max($0, $1.renderBounds.maxY) }
+                // 시간상 새 stroke 중, 공간상 옛(리뷰된) 영역 안에 쓴 주석은 전송에서 제외한다.
+                // 캔버스의 stroke 자체는 지우지 않으므로 편집은 그대로 가능 — 어디까지나 "전송 대상"에서만 뺀다.
+                let temporallyNew = Array(allStrokes.dropFirst(frozenEnd))
+                let newStrokes = temporallyNew.filter { $0.renderBounds.minY >= reviewedBottom }
+                let excludedInReviewed = temporallyNew.count - newStrokes.count
+                appLog("note", "feedback: strokes read", ["requestId": requestId, "count": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)", "reviewedBottom": "\(Int(reviewedBottom))", "excludedInReviewed": "\(excludedInReviewed)"])
                 guard !newStrokes.isEmpty else {
-                    appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)"])
+                    appLog("note", "feedback: no new strokes", ["total": "\(allStrokes.count)", "frozenEnd": "\(frozenEnd)", "excludedInReviewed": "\(excludedInReviewed)"])
                     track(.feedback, .empty, ms: elapsedMs())
-                    showToast(String(localized: "먼저 필기를 해주세요. 손글씨를 인식해 피드백을 드려요."))
+                    // 시간상 새 stroke는 있었는데 전부 옛 영역 주석이라 걸러진 경우 vs 진짜 아무것도 안 쓴 경우 구분.
+                    let msg = excludedInReviewed > 0
+                        ? String(localized: "이전 피드백 영역에 쓴 필기는 전송하지 않아요. 새 영역에 써 주세요.")
+                        : String(localized: "먼저 필기를 해주세요. 손글씨를 인식해 피드백을 드려요.")
+                    showToast(msg)
                     loading = false
                     return
                 }

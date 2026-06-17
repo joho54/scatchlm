@@ -605,7 +605,7 @@ struct NoteView: View {
                     .fill(Color.black.opacity(0.08))
                     .frame(width: 1, height: 24)
 
-                // Feedback request
+                // Feedback request (길게 누르면 "피드백 없이 완료" 메뉴)
                 Button {
                     requestFeedback()
                 } label: {
@@ -620,6 +620,13 @@ struct NoteView: View {
                     }
                 }
                 .disabled(loading)
+                .contextMenu {
+                    Button {
+                        flushWithoutFeedback()
+                    } label: {
+                        Label("피드백 없이 완료", systemImage: "checkmark.circle")
+                    }
+                }
             }
             .padding(4)
             .background(.ultraThinMaterial)
@@ -726,8 +733,9 @@ struct NoteView: View {
     /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수.
     /// 카드는 세션을 캔버스에 배치한 placement다(§4.5). `sessionId`가 주어지면 그 세션에 연결하고
     /// (드로어 재스크랩 — 1 session→N cards), 없으면 이 카드용 kind=feedback 세션을 새로 만든다(세션화 통일).
-    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil) {
-        let placementSessionId = sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId)?.id
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false) {
+        // skip(피드백 없이 완료) 레코드는 채팅 세션을 만들지 않는다 — 대화할 내용이 없음.
+        let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId)?.id)
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
         // 먼저 인디케이터를 현재 스트로크/카드 기준으로 갱신해 nextCardLineY를 최신화한 뒤 그 값을 읽는다.
         let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
@@ -750,7 +758,7 @@ struct NoteView: View {
             bboxX: 16,
             bboxY: nextCardY,
             bboxWidth: width,
-            bboxHeight: estimatedHeight,
+            bboxHeight: skip ? 36 : estimatedHeight,
             strokeRangeStart: rangeStart,
             strokeRangeEnd: rangeEnd,
             createdAt: Date(),
@@ -810,6 +818,23 @@ struct NoteView: View {
     private func pinToCanvas(content: String, serverFeedbackId: String? = nil) {
         let jsonContent = "{\"type\":\"feedback\",\"content\":\(String(data: (try? JSONEncoder().encode(content)) ?? Data(), encoding: .utf8) ?? "\"\"")}"
         appendFeedbackCard(content: jsonContent, serverFeedbackId: serverFeedbackId)
+    }
+
+    /// 피드백 없이 현재 영역을 완료 처리(flush without feedback). API 호출 없이 현재 stroke들을
+    /// frozen으로 전진시키고 "피드백 제외" 바를 남긴다. 옛 영역 재주석처럼 굳이 피드백받기 싫은 필기에 사용.
+    private func flushWithoutFeedback() {
+        guard !loading else { return }
+        let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
+        let total = canvasView.drawing.strokes.count
+        let frozenEnd = coordinator?.frozenEndIndex ?? 0
+        guard total > frozenEnd else {
+            showToast(String(localized: "완료 처리할 새 필기가 없어요."))
+            return
+        }
+        // strokeRange/위치는 appendFeedbackCard 기본값(frozenEnd..total, 가이드라인 위치)이 그대로 맞다.
+        appendFeedbackCard(content: FeedbackRecord.skipSentinel, skip: true)
+        appLog("note", "flush without feedback", ["frozenEnd": "\(frozenEnd)", "to": "\(total)"])
+        showToast(String(localized: "피드백 없이 완료 처리했어요."))
     }
 
     /// 클립보드의 카드 본문을 현재 페이지의 다음 카드 위치(가이드라인)에 정적 카드로 붙여넣는다.
@@ -1151,8 +1176,8 @@ struct NoteView: View {
                     fields["current_page"] = "\(currentPage)"
                 }
 
-                // Build previous context
-                if let lastFeedback = feedbacks.last,
+                // Build previous context — skip 바는 본문이 없으므로 마지막 실제 피드백을 쓴다.
+                if let lastFeedback = feedbacks.last(where: { !$0.isSkip }),
                    let data = lastFeedback.content.data(using: .utf8),
                    let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
                     let ctx = "Previous feedback:\n\(parsed.displayText)"
@@ -1677,6 +1702,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
         /// 단일 카드를 캔버스에 추가 (피드백 수신 시 직접 호출)
         func renderCard(on canvasView: PKCanvasView, feedback fb: FeedbackRecord, isLast: Bool = true) {
+            // 피드백 없이 완료(skip)된 영역은 카드 대신 얇은 "피드백 제외" 바로 표시.
+            if fb.isSkip {
+                renderSkipBar(on: canvasView, feedback: fb, isLast: isLast)
+                return
+            }
             let cardWidth = currentWidth(canvasView) - 32
             let parsed = try? JSONDecoder().decode(AIResponse.self, from: fb.content.data(using: .utf8) ?? Data())
 
@@ -1816,6 +1846,80 @@ struct PencilKitCanvasView: UIViewRepresentable {
             let cardBottom = fb.positionY + cardHeight
             ensureContentHeight(cardBottom + 200, fallbackCanvas: canvasView)
             lastRenderedBottom = max(lastRenderedBottom, cardBottom)
+            updateNextPositionIndicator(on: canvasView)
+        }
+
+        /// "피드백 없이 완료"된 영역 표식 — 피드백 카드와 같은 세로 흐름(tag 9999)에 얇은 점선 바로 렌더.
+        /// 위쪽 stroke들이 피드백 제외 대상임을 암시한다(카드가 위 stroke에 대응하는 것과 동일 규칙).
+        func renderSkipBar(on canvasView: PKCanvasView, feedback fb: FeedbackRecord, isLast: Bool) {
+            let barWidth = currentWidth(canvasView) - 32
+            let barHeight: CGFloat = 36
+
+            let bar = UIView()
+            bar.tag = 9999
+            bar.accessibilityIdentifier = fb.id
+            bar.backgroundColor = .clear
+            bar.isUserInteractionEnabled = true
+
+            let stack = UIStackView()
+            stack.axis = .horizontal
+            stack.spacing = 6
+            stack.alignment = .center
+            stack.translatesAutoresizingMaskIntoConstraints = false
+
+            let icon = UIImageView(image: UIImage(systemName: "nosign"))
+            icon.tintColor = .tertiaryLabel
+            icon.contentMode = .scaleAspectFit
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.widthAnchor.constraint(equalToConstant: 14).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 14).isActive = true
+
+            let lbl = UILabel()
+            lbl.text = String(localized: "피드백 제외")
+            lbl.font = .systemFont(ofSize: 12, weight: .medium)
+            lbl.textColor = .tertiaryLabel
+
+            stack.addArrangedSubview(icon)
+            stack.addArrangedSubview(lbl)
+            stack.addArrangedSubview(UIView())  // spacer
+
+            if isLast {
+                let revertBtn = UIButton(type: .system)
+                revertBtn.tag = 8888
+                revertBtn.setImage(UIImage(systemName: "arrow.uturn.backward"), for: .normal)
+                revertBtn.setTitle(" " + String(localized: "되돌리기"), for: .normal)
+                revertBtn.titleLabel?.font = .systemFont(ofSize: 12)
+                revertBtn.tintColor = UIColor.systemRed.withAlphaComponent(0.7)
+                let revertGesture = FeedbackTapGesture(target: self, action: #selector(feedbackRevertTapped(_:)))
+                revertGesture.feedbackRecord = fb
+                revertBtn.addGestureRecognizer(revertGesture)
+                stack.addArrangedSubview(revertBtn)
+            }
+
+            bar.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
+                stack.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
+                stack.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            ])
+
+            bar.frame = CGRect(x: 16, y: fb.positionY, width: barWidth, height: barHeight)
+            container(canvasView).addSubview(bar)
+
+            // 위/아래 점선 hairline — 카드와 시각적으로 확실히 구분.
+            let dash = CAShapeLayer()
+            dash.strokeColor = UIColor.separator.cgColor
+            dash.lineDashPattern = [4, 4]
+            dash.lineWidth = 1
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 0, y: 0.5)); path.addLine(to: CGPoint(x: barWidth, y: 0.5))
+            path.move(to: CGPoint(x: 0, y: barHeight - 0.5)); path.addLine(to: CGPoint(x: barWidth, y: barHeight - 0.5))
+            dash.path = path.cgPath
+            bar.layer.addSublayer(dash)
+
+            let barBottom = fb.positionY + barHeight
+            ensureContentHeight(barBottom + 200, fallbackCanvas: canvasView)
+            lastRenderedBottom = max(lastRenderedBottom, barBottom)
             updateNextPositionIndicator(on: canvasView)
         }
 

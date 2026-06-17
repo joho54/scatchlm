@@ -229,6 +229,11 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
     var deleted: Bool
     var dirty: Bool
 
+    /// 피드백 없이 "완료" 처리된 영역 표식(flush without feedback).
+    /// 전용 컬럼 대신 content를 센티넬로 태워 GRDB 스키마·sync DTO·서버 무변경으로 전 기기 전파한다.
+    static let skipSentinel = "__SCATCHLM_SKIP__"
+    var isSkip: Bool { content == FeedbackRecord.skipSentinel }
+
     enum CodingKeys: String, CodingKey {
         case id, content
         case noteId = "note_id"

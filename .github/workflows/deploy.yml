@@ -93,15 +93,17 @@ jobs:
       - name: Health check
         run: |
           # app 프록시(/docs) + Caddy 정적 서빙(/privacy,/terms, 심사 차단 아티팩트)을 모두 검증.
-          for i in 1 2 3 4 5 6 7 8 9 10; do
+          # Micro(1 vCPU) 서버는 재시작 후 uvicorn 워커 부팅이 ~40-60초 걸려 50초 윈도우로는
+          # 성공 배포도 오탐 실패가 났다 → 20회 × 6초 = 120초로 확대.
+          for i in $(seq 1 20); do
             if curl -fsS https://scatchlm.duckdns.org/docs > /dev/null \
                && curl -fsS https://scatchlm.duckdns.org/privacy > /dev/null \
                && curl -fsS https://scatchlm.duckdns.org/terms > /dev/null; then
               echo "Healthy (app + static)"
               exit 0
             fi
-            echo "Attempt $i failed, retrying in 5s..."
-            sleep 5
+            echo "Attempt $i failed, retrying in 6s..."
+            sleep 6
           done
           echo "Health check failed"
           exit 1

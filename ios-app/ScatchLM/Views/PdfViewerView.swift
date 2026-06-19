@@ -280,151 +280,68 @@ struct PdfViewerView: View {
 
     // MARK: - Shared chat UI (page guide + chapter guide)
 
-    @ViewBuilder
-    private func chatBubble(_ msg: GuideChatMessage, onRate: @escaping (Int) -> Void, onPinTap: @escaping () -> Void) -> some View {
-        HStack {
-            if msg.role == "user" { Spacer(minLength: 60) }
-            VStack(alignment: .leading, spacing: 4) {
-                MarkdownContentView(content: msg.content)
-                if msg.role != "user" {
-                    Divider()
-                    HStack(spacing: 12) {
-                        if onPin != nil {
-                            Button {
-                                onPin?(msg.content, msg.serverId)
-                                onPinTap()
-                            } label: {
-                                Label("스크랩", systemImage: "pin.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        ratingButtons(
-                            serverId: msg.serverId,
-                            currentRating: msg.rating,
-                            onRate: onRate,
-                            onDetail: nil
-                        )
-                    }
-                }
-            }
-            .padding(12)
-            .background(msg.role == "user" ? Color.blue.opacity(0.1) : Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            if msg.role != "user" { Spacer(minLength: 60) }
-        }
-        .padding(.horizontal)
-    }
-
-    @ViewBuilder
-    private func chatInputBar(text: Binding<String>, sending: Bool, onSend: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            TextField("질문하기...", text: text, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-
-            Button {
-                onSend()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(text.wrappedValue.isEmpty || sending ? .gray : .blue)
-            }
-            .disabled(text.wrappedValue.isEmpty || sending)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
 
     private var guideSheet: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            if guideLoading {
-                                ProgressView().padding(.top, 40)
-                            } else if let guide = pageGuide {
-                                // Page content explanation — long press to pin
-                                VStack(alignment: .leading, spacing: 8) {
-                                    if !guide.topic.isEmpty {
-                                        Text(guide.topic)
-                                            .font(.headline)
-                                    }
+            ChatThreadView(
+                turns: guideChatMessages.map {
+                    ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
+                             serverId: $0.serverId, rating: $0.rating)
+                },
+                input: $guideChatInput,
+                sending: guideChatSending,
+                placeholder: "질문하기...",
+                onSend: sendGuideChat,
+                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); showGuide = false } : nil,
+                onRate: { turn, r in
+                    if let i = guideChatMessages.firstIndex(where: { $0.id.uuidString == turn.id }) {
+                        guideChatMessages[i].rating = r
+                    }
+                    submitGuideRating(serverId: turn.serverId, rating: r, isPage: false)
+                }
+            ) {
+                // 헤더 — 페이지 가이드 설명 + 스크랩/평가
+                if guideLoading {
+                    ProgressView().padding(.top, 40)
+                } else if let guide = pageGuide {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !guide.topic.isEmpty {
+                            Text(guide.topic).font(.headline)
+                        }
+                        if let content = guide.content, !content.isEmpty {
+                            MarkdownContentView(content: content, preferBake: true)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top)
 
-                                    if let content = guide.content, !content.isEmpty {
-                                        MarkdownContentView(content: content)
-                                    }
-                                }
-                                .padding(.horizontal)
-                                .padding(.top)
-
-                                HStack(spacing: 12) {
-                                    if onPin != nil {
-                                        Button {
-                                            let text = guide.content ?? guide.topic
-                                            onPin?(text, guide.feedbackId)
-                                            showGuide = false
-                                        } label: {
-                                            Label("스크랩", systemImage: "pin.fill")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    ratingButtons(
-                                        serverId: guide.feedbackId,
-                                        currentRating: pageGuideRating,
-                                        onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: true) },
-                                        onDetail: {
-                                            appLog("guide-detail", "page detail tapped", ["serverId": guide.feedbackId ?? "nil"])
-                                            pageGuideRatingDetail = true
-                                        }
-                                    )
-                                }
-                                .padding(.horizontal)
-
-                                Divider().padding(.vertical, 8)
-
-                                // Chat messages
-                                ForEach(Array(guideChatMessages.enumerated()), id: \.element.id) { i, msg in
-                                    chatBubble(
-                                        msg,
-                                        onRate: { r in
-                                            guideChatMessages[i].rating = r
-                                            submitGuideRating(serverId: msg.serverId, rating: r, isPage: false)
-                                        },
-                                        onPinTap: { showGuide = false }
-                                    )
-                                    .id(i)
-                                }
-
-                                if guideChatSending {
-                                    HStack {
-                                        ProgressView().padding(.leading, 16)
-                                        Spacer()
-                                    }
-                                    .id("loading")
-                                }
-                            } else {
-                                Text(guideError ?? "가이드를 불러올 수 없습니다.")
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.top, 40)
-                                    .padding(.horizontal)
+                    HStack(spacing: 12) {
+                        if onPin != nil {
+                            Button {
+                                onPin?(guide.content ?? guide.topic, guide.feedbackId)
+                                showGuide = false
+                            } label: {
+                                Label("스크랩", systemImage: "pin.fill")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
                         }
+                        ratingButtons(
+                            serverId: guide.feedbackId,
+                            currentRating: pageGuideRating,
+                            onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: true) },
+                            onDetail: { pageGuideRatingDetail = true }
+                        )
                     }
-                    .onChange(of: guideChatMessages.count) { _, _ in
-                        withAnimation {
-                            proxy.scrollTo(guideChatMessages.count - 1, anchor: .bottom)
-                        }
-                    }
+                    .padding(.horizontal)
+
+                    Divider().padding(.vertical, 8)
+                } else {
+                    Text(guideError ?? "가이드를 불러올 수 없습니다.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 40)
+                        .padding(.horizontal)
                 }
-
-                Divider()
-
-                // Chat input
-                chatInputBar(text: $guideChatInput, sending: guideChatSending, onSend: sendGuideChat)
             }
             .navigationTitle("p.\(currentPage) 가이드")
             .navigationBarTitleDisplayMode(.inline)
@@ -447,7 +364,8 @@ struct PdfViewerView: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .interactiveDismissDisabled(!guideChatMessages.isEmpty)
+        // 명시적 '닫기' 버튼으로만 닫는다 — 스와이프/바깥 탭 비활성화.
+        .interactiveDismissDisabled(true)
     }
 
     private func sendGuideChat() {
@@ -520,104 +438,82 @@ struct PdfViewerView: View {
 
     private var chapterGuideSheet: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        if chapterGuideLoading {
-                            ProgressView().padding(.top, 40)
-                        } else if let guide = chapterGuide {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(guide.title).font(.headline)
-                                Text(guide.topic).font(.subheadline)
+            ChatThreadView(
+                turns: chapterChatMessages.map {
+                    ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
+                             serverId: $0.serverId, rating: $0.rating)
+                },
+                input: $chapterChatInput,
+                sending: chapterChatSending,
+                placeholder: "질문하기...",
+                onSend: sendChapterChat,
+                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); showChapterGuide = false } : nil,
+                onRate: { turn, r in
+                    if let i = chapterChatMessages.firstIndex(where: { $0.id.uuidString == turn.id }) {
+                        chapterChatMessages[i].rating = r
+                    }
+                    submitGuideRating(serverId: turn.serverId, rating: r, isPage: false)
+                }
+            ) {
+                // 헤더 — 챕터 가이드 요약 + 스크랩/평가
+                if chapterGuideLoading {
+                    ProgressView().padding(.top, 40)
+                } else if let guide = chapterGuide {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(guide.title).font(.headline)
+                        Text(guide.topic).font(.subheadline)
 
-                                Section {
-                                    ForEach(guide.keyConcepts, id: \.self) { item in
-                                        Text("• \(item)").font(.subheadline)
-                                    }
-                                } header: { Text("📌 핵심 개념").font(.subheadline.bold()) }
+                        Section {
+                            ForEach(guide.keyConcepts, id: \.self) { item in
+                                Text("• \(item)").font(.subheadline)
+                            }
+                        } header: { Text("📌 핵심 개념").font(.subheadline.bold()) }
 
-                                Section {
-                                    ForEach(Array(guide.studyOrder.enumerated()), id: \.offset) { i, item in
-                                        Text("\(i+1). \(item)").font(.subheadline)
-                                    }
-                                } header: { Text("📋 학습 순서").font(.subheadline.bold()) }
+                        Section {
+                            ForEach(Array(guide.studyOrder.enumerated()), id: \.offset) { i, item in
+                                Text("\(i+1). \(item)").font(.subheadline)
+                            }
+                        } header: { Text("📋 학습 순서").font(.subheadline.bold()) }
 
-                                Section {
-                                    ForEach(guide.commonMistakes, id: \.self) { item in
-                                        Text("• \(item)").font(.subheadline)
-                                    }
-                                } header: { Text("⚠️ 자주 하는 실수").font(.subheadline.bold()) }
+                        Section {
+                            ForEach(guide.commonMistakes, id: \.self) { item in
+                                Text("• \(item)").font(.subheadline)
+                            }
+                        } header: { Text("⚠️ 자주 하는 실수").font(.subheadline.bold()) }
 
-                                Section {
-                                    Text(guide.summary).font(.subheadline)
-                                } header: { Text("요약").font(.subheadline.bold()) }
+                        Section {
+                            Text(guide.summary).font(.subheadline)
+                        } header: { Text("요약").font(.subheadline.bold()) }
 
-                                Divider()
-                                HStack(spacing: 12) {
-                                    if onPin != nil {
-                                        Button {
-                                            onPin?(chapterGuideText(guide), guide.feedbackId)
-                                            showChapterGuide = false
-                                        } label: {
-                                            Label("스크랩", systemImage: "pin.fill")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    ratingButtons(
-                                        serverId: guide.feedbackId,
-                                        currentRating: chapterGuideRating,
-                                        onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: false, isChapter: true) },
-                                        onDetail: {
-                                            appLog("guide-detail", "chapter detail tapped", ["serverId": guide.feedbackId ?? "nil"])
-                                            chapterGuideRatingDetail = true
-                                        }
-                                    )
-                                }
-
-                                Divider().padding(.vertical, 8)
-
-                                // Chat messages
-                                ForEach(Array(chapterChatMessages.enumerated()), id: \.element.id) { i, msg in
-                                    chatBubble(
-                                        msg,
-                                        onRate: { r in
-                                            chapterChatMessages[i].rating = r
-                                            submitGuideRating(serverId: msg.serverId, rating: r, isPage: false)
-                                        },
-                                        onPinTap: { showChapterGuide = false }
-                                    )
-                                    .id(i)
-                                }
-
-                                if chapterChatSending {
-                                    HStack {
-                                        ProgressView().padding(.leading, 16)
-                                        Spacer()
-                                    }
-                                    .id("loading")
+                        Divider()
+                        HStack(spacing: 12) {
+                            if onPin != nil {
+                                Button {
+                                    onPin?(chapterGuideText(guide), guide.feedbackId)
+                                    showChapterGuide = false
+                                } label: {
+                                    Label("스크랩", systemImage: "pin.fill")
+                                        .font(.caption).foregroundStyle(.secondary)
                                 }
                             }
-                            .padding()
-                        } else {
-                            Text(chapterGuideError ?? "챕터 가이드를 불러올 수 없습니다.")
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.top, 40)
-                                .padding(.horizontal)
+                            ratingButtons(
+                                serverId: guide.feedbackId,
+                                currentRating: chapterGuideRating,
+                                onRate: { r in submitGuideRating(serverId: guide.feedbackId, rating: r, isPage: false, isChapter: true) },
+                                onDetail: { chapterGuideRatingDetail = true }
+                            )
                         }
+
+                        Divider().padding(.vertical, 8)
                     }
-                    .onChange(of: chapterChatMessages.count) { _, _ in
-                        withAnimation {
-                            proxy.scrollTo(chapterChatMessages.count - 1, anchor: .bottom)
-                        }
-                    }
+                    .padding(.horizontal)
+                } else {
+                    Text(chapterGuideError ?? "챕터 가이드를 불러올 수 없습니다.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 40)
+                        .padding(.horizontal)
                 }
-
-                Divider()
-
-                // Chat input
-                chatInputBar(text: $chapterChatInput, sending: chapterChatSending, onSend: sendChapterChat)
             }
             .navigationTitle("챕터 가이드")
             .navigationBarTitleDisplayMode(.inline)
@@ -640,7 +536,8 @@ struct PdfViewerView: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .interactiveDismissDisabled(!chapterChatMessages.isEmpty)
+        // 명시적 '닫기' 버튼으로만 닫는다 — 스와이프/바깥 탭 비활성화.
+        .interactiveDismissDisabled(true)
     }
 
     /// 챕터 가이드를 스크랩용 마크다운 텍스트로 직렬화

@@ -39,57 +39,30 @@ struct SessionChatSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            if let headerDisplay {
-                                chatBubble(role: "assistant", content: headerDisplay,
-                                           serverId: headerServerId, message: nil)
-                                    .id("header")
-                            }
-
-                            ForEach(messages) { msg in
-                                chatBubble(role: msg.role, content: msg.content,
-                                           serverId: msg.serverMessageId, message: msg)
-                                    .id(msg.id)
-                            }
-
-                            if sending {
-                                HStack {
-                                    ProgressView().padding(.leading, 16)
-                                    Spacer()
-                                }
-                                .id("loading")
-                            }
-                        }
-                        .padding()
+            ChatThreadView(
+                turns: messages.map {
+                    ChatTurn(id: $0.id, role: $0.role, content: $0.content,
+                             serverId: $0.serverMessageId, rating: $0.userRating)
+                },
+                input: $input,
+                sending: sending,
+                onSend: sendMessage,
+                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); dismiss() } : nil,
+                onRate: { turn, r in
+                    if let msg = messages.first(where: { $0.id == turn.id }) {
+                        submitMessageRating(message: msg, rating: r, reasonTags: [], comment: nil)
                     }
-                    .onChange(of: messages.count) { _, _ in
-                        withAnimation {
-                            proxy.scrollTo(messages.last?.id ?? "header", anchor: .bottom)
-                        }
-                    }
+                },
+                onDetail: { turn in pushedRatingMessageId = turn.id }
+            ) {
+                // 헤더 — 피드백 카드 본문(저장 안 된 원본)을 assistant 버블로.
+                if let headerDisplay {
+                    EquatableChatBubble(
+                        role: "assistant", content: headerDisplay, serverId: headerServerId,
+                        onScrap: onPin != nil ? { onPin?(headerDisplay, headerServerId); dismiss() } : nil
+                    )
+                    .equatable()
                 }
-
-                Divider()
-
-                HStack(spacing: 8) {
-                    TextField("질문을 입력하세요...", text: $input, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
-
-                    Button {
-                        sendMessage()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(input.isEmpty || sending ? .gray : .blue)
-                    }
-                    .disabled(input.isEmpty || sending)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             }
             .overlay(alignment: .top) {
                 if showScrapHint && !scrapHintDismissed {
@@ -130,6 +103,8 @@ struct SessionChatSheet: View {
                 }
             }
         }
+        // 채팅 모달은 명시적 '닫기' 버튼으로만 닫는다 — 스와이프/바깥 탭 제스처 비활성화.
+        .interactiveDismissDisabled(true)
     }
 
     /// 온보딩 스크랩 안내 카드 — 답변 아래 '스크랩' 버튼을 가리켜 "캔버스로 가져와 필기·피드백을
@@ -162,74 +137,6 @@ struct SessionChatSheet: View {
         .foregroundStyle(.white)
         .shadow(radius: 10)
         .padding(.horizontal, 16)
-    }
-
-    @ViewBuilder
-    private func chatBubble(role: String, content: String, serverId: String?, message: ChatMessageRecord?) -> some View {
-        let isUser = role == "user"
-        HStack {
-            if isUser { Spacer(minLength: 60) }
-
-            if isUser {
-                Text(content)
-                    .font(.system(size: 14))
-                    .padding(12)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    MarkdownContentView(content: content)
-
-                    Divider()
-                    HStack(spacing: 12) {
-                        if onPin != nil {
-                            Button {
-                                onPin?(content, serverId)
-                                dismiss()
-                            } label: {
-                                Label("스크랩", systemImage: "pin.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        if let msg = message {
-                            Button {
-                                submitMessageRating(message: msg, rating: 1, reasonTags: [], comment: nil)
-                            } label: {
-                                Image(systemName: msg.userRating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                    .foregroundStyle(msg.userRating == 1 ? Color.green : Color.secondary)
-                                    .font(.caption)
-                            }
-                            .disabled(serverId == nil)
-
-                            Button {
-                                submitMessageRating(message: msg, rating: -1, reasonTags: [], comment: nil)
-                            } label: {
-                                Image(systemName: msg.userRating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                    .foregroundStyle(msg.userRating == -1 ? Color.red : Color.secondary)
-                                    .font(.caption)
-                            }
-                            .disabled(serverId == nil)
-
-                            Button {
-                                pushedRatingMessageId = msg.id
-                            } label: {
-                                Text("자세히")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .disabled(serverId == nil)
-                        }
-                    }
-                }
-                .padding(12)
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-
-            if !isUser { Spacer(minLength: 60) }
-        }
     }
 
     private func loadMessages() {

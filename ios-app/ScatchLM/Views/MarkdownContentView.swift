@@ -32,9 +32,14 @@ enum MarkdownRender {
 struct MarkdownContentView: View {
     let content: String
     var fontSize: CGFloat = 14
+    /// 채팅 리스트처럼 **여러 버블이 ForEach로 쌓이는** 곳에선 true. MarkdownUI(중첩 ForEach)가
+    /// 리스트에 다수 있으면 텍스트 선택/업데이트 시 뷰리스트 재빌드로 메인 스레드가 2초+ 멈춰
+    /// (App Hang→워치독) 죽는다. true면 수식 유무와 무관하게 bake(이미지 1뷰)로 렌더해 리스트를
+    /// 가볍게 유지한다. 가이드 패널 등 단일 대형 콘텐츠는 false(MarkdownUI).
+    var preferBake: Bool = false
 
     var body: some View {
-        if MarkdownRender.shouldUseKaTeX(content) {
+        if preferBake || MarkdownRender.shouldUseKaTeX(content) {
             BakedMarkdownView(content: content, fontSize: fontSize)
         } else {
             Markdown(content)

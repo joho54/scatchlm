@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=__WIDTH__, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <link rel="stylesheet" href="katex/katex.min.css">
 <style>
   html, body {
@@ -70,6 +70,23 @@
       }
     }
 
+    // 스냅샷(굽기) 전용: 폰트 로드 + 2프레임 후 "렌더 완료"를 알린다. 핸들러가 없으면(일반 표시
+    // 경로) 무시되므로 기존 동작과 호환. 굽기 렌더러만 katexReady를 등록해 이 시점에 스냅샷한다.
+    function postReady() {
+      // body의 콘텐츠 높이. ※ scrollHeight/documentElement는 쓰지 말 것 — frame(20000px)나
+      //   overflow를 끌어와 거대 이미지 → 메모리 폭발/튕김을 유발한다. 마지막 줄 잘림은 Swift에서
+      //   고정 여유분(pad)으로 보정한다.
+      var h = Math.ceil(document.body.getBoundingClientRect().height);
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.katexReady) {
+        window.webkit.messageHandlers.katexReady.postMessage({
+          h: h, iw: window.innerWidth, sw: document.body.scrollWidth
+        });
+      }
+    }
+    function signalReady() {
+      requestAnimationFrame(function () { requestAnimationFrame(postReady); });
+    }
+
     function render() {
       var raw;
       try {
@@ -93,6 +110,9 @@
       postHeight();
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(postHeight);
+        document.fonts.ready.then(signalReady);   // 굽기: 폰트까지 끝난 뒤 스냅샷 신호.
+      } else {
+        signalReady();
       }
       if (window.ResizeObserver) {
         new ResizeObserver(postHeight).observe(document.body);

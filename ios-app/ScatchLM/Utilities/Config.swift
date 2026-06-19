@@ -45,7 +45,7 @@ enum Config {
 
     /// v1은 무료 단독 출시 — 구독(IAP) UI를 숨긴다(작동 안 하는 결제 UI = 리젝 사유, ASC 상품 미등록).
     /// App Store Connect에 구독 상품 등록 후 true로 전환(fast-follow).
-    static let subscriptionEnabled = false
+    static let subscriptionEnabled = true
 
     // MARK: - Sentry (에러/크래시 리포팅, O7)
     /// DSN 우선순위: UserDefaults `sentryDSN`(dev 임시) → Info.plist `SENTRY_DSN`(빌드설정 주입) → 빈 값.

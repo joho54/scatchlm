@@ -574,6 +574,16 @@
         }
       }
     },
+    "대화 내용은 ‘스크랩’으로 캔버스에 다시 가져올 수 있어요" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can ‘scrap’ chat content back onto the canvas"
+          }
+        }
+      }
+    },
     "데모 교재를 보고 손으로 답을 쓰면,\nAI가 그 교재 기준으로 피드백을 드려요.\n그 피드백으로 대화도 이어갈 수 있어요." : {
 
     },
@@ -973,6 +983,16 @@
         }
       }
     },
+    "스크랩한 내용 위에 다시 필기하고 ✨로 피드백을 이어가면 학습 루프가 완성돼요" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Write over the scrapped content and tap ✨ for more feedback — that completes the learning loop"
+          }
+        }
+      }
+    },
     "시작" : {
 
     },
@@ -1114,6 +1134,9 @@
         }
       }
     },
+    "완료 처리할 새 필기가 없어요." : {
+
+    },
     "요약" : {
       "localizations" : {
         "en" : {
@@ -1167,6 +1190,7 @@
 
     },
     "이 영역은 피드백이 완료됐습니다. 되돌리려면 카드의 ↩︎를 누르세요" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1249,6 +1273,9 @@
           }
         }
       }
+    },
+    "이전 피드백 영역에 쓴 필기는 전송하지 않아요. 새 영역에 써 주세요." : {
+
     },
     "인식 대기 중" : {
 
@@ -1381,6 +1408,7 @@
 
     },
     "질문을 입력하세요..." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1391,6 +1419,7 @@
       }
     },
     "질문하기..." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1577,31 +1606,20 @@
         }
       }
     },
+    "피드백 없이 완료" : {
+
+    },
+    "피드백 없이 완료 처리했어요." : {
+
+    },
+    "피드백 제외" : {
+
+    },
     "피드백 카드 아래 💬 ‘대화’ 버튼을 눌러보세요" : {
 
     },
     "피드백 카드의 ‘대화’ 버튼으로 AI와 대화를 이어갈 수 있어요" : {
 
-    },
-    "대화 내용은 ‘스크랩’으로 캔버스에 다시 가져올 수 있어요" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can ‘scrap’ chat content back onto the canvas"
-          }
-        }
-      }
-    },
-    "스크랩한 내용 위에 다시 필기하고 ✨로 피드백을 이어가면 학습 루프가 완성돼요" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Write over the scrapped content and tap ✨ for more feedback — that completes the learning loop"
-          }
-        }
-      }
     },
     "피드백 평가" : {
       "localizations" : {

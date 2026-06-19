@@ -69,6 +69,8 @@ struct ChapterDrawerView: View {
                 )
             }
         }
+        // 명시적 '닫기' 버튼으로만 닫는다 — 스와이프/바깥 탭 비활성화.
+        .interactiveDismissDisabled(true)
     }
 
     // MARK: - Row

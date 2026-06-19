@@ -20,6 +20,9 @@ struct PhoneNoteReaderView: View {
     @State private var showTextbook = false
     /// 페이지별 읽기 전용 캔버스 Coordinator 레지스트리(점프용). @State라 재렌더에도 동일 인스턴스 유지.
     @State private var canvasRegistry = ReaderCanvasRegistry()
+    /// 최초 1회만 load(). 교재 push→pop 시 onAppear가 재발화해 pageIndex를 currentPageIndex로
+    /// 리셋(=마지막 편집 페이지로 점프)하던 버그 차단 — 사용자가 보던 페이지를 보존한다.
+    @State private var didLoad = false
 
     private let db = DatabaseService.shared
 
@@ -137,7 +140,11 @@ struct PhoneNoteReaderView: View {
                 subject: note?.language
             )
         }
-        .onAppear { load() }
+        .onAppear {
+            guard !didLoad else { return }
+            didLoad = true
+            load()
+        }
     }
 
 

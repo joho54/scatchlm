@@ -56,8 +56,8 @@ targets:
         # → String Catalog 자동 채움(xcstringstool sync) 가능. 미설정 시 추출 안 됨.
         SWIFT_EMIT_LOC_STRINGS: YES
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
-        MARKETING_VERSION: "2.1.1"
-        CURRENT_PROJECT_VERSION: "8"
+        MARKETING_VERSION: "2.2.1"
+        CURRENT_PROJECT_VERSION: "10"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: true
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -98,3 +98,25 @@ targets:
       - target: ScatchLM
       - package: GRDB
         product: GRDB
+
+schemes:
+  ScatchLM:
+    build:
+      targets:
+        ScatchLM: all
+        ScatchLMTests: [test]
+    run:
+      config: Debug
+      # 로컬 StoreKit 테스트 설정 — 시뮬레이터에서 구독 상품/가격(₩9,900) 로드용.
+      # 심사 스크린샷·샌드박스 전 동작 확인(C-3). Release/TestFlight·기기 빌드엔 영향 없음.
+      storeKitConfiguration: ScatchLM.storekit
+    test:
+      config: Debug
+      targets:
+        - ScatchLMTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

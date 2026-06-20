@@ -416,4 +416,33 @@ final class PencilKitCanvasViewTests: XCTestCase {
     }
     // testResetToTopResetsHeightAndOffset 제거: resetToTop은 페이지 전환을 .id 리마운트로
     // 전환하며 더 이상 쓰이지 않아 코드에서 삭제됨(공유 캔버스 제거 커밋).
+
+    // MARK: - 카드 높이 (본문 잘림 회귀)
+
+    /// 여러 줄 본문이 카드 안에서 세로로 압축되지 않아야 한다 — 압축되면 마지막 줄이 잘린다.
+    /// 회귀 대상: cardHeight를 chrome 48로 잡아(실제 제약 합 56) 본문 UITextView가 8pt 눌리던 버그.
+    @MainActor
+    func testRenderCardDoesNotCompressBody() {
+        let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 800, height: 1200))
+        let coordinator = makeCoordinator()
+        // 확실히 여러 줄로 줄바꿈되는 긴 본문.
+        let longText = String(repeating: "이것은 피드백 카드 본문의 마지막 줄까지 보이는지 검증하기 위한 긴 문장입니다. ", count: 8)
+        coordinator.renderCard(on: canvas, feedback: makeFeedback(content: longText))
+
+        let card = canvas.subviews.first { $0.tag == 9999 }
+        XCTAssertNotNil(card)
+        card!.layoutIfNeeded()
+
+        // 본문 텍스트뷰(버튼바 제외) — label 경로의 UITextView.
+        guard let body = card!.subviews.compactMap({ $0 as? UITextView }).first else {
+            return XCTFail("카드 본문 UITextView를 찾지 못함")
+        }
+        let natural = body.sizeThatFits(
+            CGSize(width: body.frame.width, height: .greatestFiniteMagnitude)
+        ).height
+        XCTAssertGreaterThanOrEqual(body.frame.height, natural - 0.5,
+            "본문 텍스트뷰가 세로로 압축되면 안 됨(마지막 줄 잘림). frame.h=\(body.frame.height) natural=\(natural)")
+        XCTAssertGreaterThan(natural, body.font!.lineHeight * 2,
+            "테스트 전제: 본문이 최소 3줄 이상으로 줄바꿈돼야 압축 회귀를 잡을 수 있음")
+    }
 }

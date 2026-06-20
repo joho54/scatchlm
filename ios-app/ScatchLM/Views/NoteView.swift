@@ -1838,7 +1838,9 @@ struct PencilKitCanvasView: UIViewRepresentable {
             ])
 
             let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
-            let cardHeight = labelSize.height + 48
+            // chrome = top inset(12) + label↔button gap(8) + buttonBar(28) + bottom inset(8) = 56.
+            // 이전엔 48이라 본문 textView가 8pt 압축돼 마지막 줄이 잘렸다.
+            let cardHeight = ceil(labelSize.height) + 56
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
             container(canvasView).addSubview(card)

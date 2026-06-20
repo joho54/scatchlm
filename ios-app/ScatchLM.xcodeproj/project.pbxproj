@@ -57,7 +57,6 @@
 		A363BADAC46B647E4A5E59D3 /* ForgotPasswordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596BA4326DFC0203F244AE26 /* ForgotPasswordView.swift */; };
 		A5EC85307225CFA25BC44E60 /* Sentry.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */; };
 		A8AB3A69E583B419B2B22A4D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */; };
-		C4AD122764CE270EE9278AE0 /* KaTeXSnapshotRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D3EAB6631C0FD43996D3C0 /* KaTeXSnapshotRenderer.swift */; };
 		C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */; };
 		CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37AAE771009E3533316E278 /* PdfViewerView.swift */; };
 		CDF117CC3D7073BE8ECFA8FA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D7A77C93C22BFC716A884820 /* Localizable.xcstrings */; };
@@ -122,7 +121,6 @@
 		84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sentry.xcframework; path = Vendor/Sentry.xcframework; sourceTree = "<group>"; };
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		886DD8CD7AE3DA3F6477840E /* NoteTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTemplate.swift; sourceTree = "<group>"; };
-		92D3EAB6631C0FD43996D3C0 /* KaTeXSnapshotRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaTeXSnapshotRenderer.swift; sourceTree = "<group>"; };
 		947225FE2D686B29C56F4B97 /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = SOURCE_ROOT; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
 		9DC172E785A1151DEE61A85B /* FolderSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderSidebar.swift; sourceTree = "<group>"; };
@@ -288,7 +286,6 @@
 				9DC172E785A1151DEE61A85B /* FolderSidebar.swift */,
 				596BA4326DFC0203F244AE26 /* ForgotPasswordView.swift */,
 				2C56EBDAD48612F30CF2C40B /* HomeView.swift */,
-				92D3EAB6631C0FD43996D3C0 /* KaTeXSnapshotRenderer.swift */,
 				1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */,
 				0D98092EE50AD434DFF4782E /* LogoIntroView.swift */,
 				83513D52E0AEE8A1123D5420 /* MarkdownContentView.swift */,
@@ -454,7 +451,6 @@
 				95E15082217EB5770880C84B /* FolderSidebar.swift in Sources */,
 				A363BADAC46B647E4A5E59D3 /* ForgotPasswordView.swift in Sources */,
 				039F959CE948FF511E7CDE36 /* HomeView.swift in Sources */,
-				C4AD122764CE270EE9278AE0 /* KaTeXSnapshotRenderer.swift in Sources */,
 				6E5F523088581A9AF68C62BE /* LogService.swift in Sources */,
 				140E3D2A6BBC4C122DA48283 /* LoginView.swift in Sources */,
 				47EBC0D306131BAFA0B4BED2 /* LogoIntroView.swift in Sources */,

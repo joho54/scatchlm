@@ -60,7 +60,6 @@ struct ChatThreadView<Header: View>: View {
                         .id("loading")
                     }
                 }
-                .injectBakeWidth(inset: 24)
                 .padding()
             }
             // 스크롤 드래그로 키보드 내림(iMessage 패턴).

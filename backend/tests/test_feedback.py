@@ -286,3 +286,65 @@ async def test_feedback_chat_with_response_language(client: AsyncClient, auth_he
     assert system_block["cache_control"] == {"type": "ephemeral"}
     # output 상한(§11 L1)이 적용돼야 한다.
     assert call_kwargs["max_tokens"] == 2048
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_textbook_rules_prioritize_question_intent(
+    client: AsyncClient, auth_header: dict
+):
+    """교재 연결 채팅 system RULES 회귀 가드.
+
+    실증(prod ai_response_rating): 교재 챕터 전체가 system에 깔린 상태에서
+    '이거 번역해줘' 같은 생략·지시적 질문에 모델이 대화 화제가 아니라 교재
+    전체로 끌려가 전체를 번역/인용하는 맥락 오류가 반복됨. 수정은 RULES를
+    질문 의도 우선으로 재정렬한 것이므로, 그 핵심 지시가 system 텍스트에
+    실제로 주입되는지 가드한다.
+    """
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Lesson 32 The Relative Pronoun")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    upload_res = await client.post(
+        "/api/pdf/upload",
+        headers=auth_header,
+        files={"file": ("grammar.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        data={"note_id": "note-rules"},
+    )
+    textbook_id = upload_res.json()["id"]
+
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="ok")]
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "영어로 번역하면 어떤 느낌?",
+                "history": [],
+                "response_language": "Korean",
+                "textbook_id": textbook_id,
+                "current_page": 1,
+            },
+        )
+
+    assert res.status_code == 200
+    system_text = mock_client.messages.create.call_args.kwargs["system"][0]["text"]
+    # 교재 컨텍스트 분기를 실제로 탔는지 확인 (이게 빠지면 아래 가드가 무의미).
+    assert "TEXTBOOK REFERENCES" in system_text
+    # 질문 의도 우선 지시가 주입돼야 한다.
+    assert "ANSWER THE USER'S ACTUAL QUESTION FIRST" in system_text
+    # 생략·지시적 질문은 대화에서 지시 대상을 해소하라는 지시가 있어야 한다.
+    assert "elliptical or deictic" in system_text
+    # 무조건적 "always prefer textbook" 문구는 제거됐어야 한다 (과당김 원인).
+    assert "Always prefer textbook content" not in system_text

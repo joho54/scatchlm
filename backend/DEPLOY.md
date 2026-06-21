@@ -3,8 +3,11 @@
 ## 현재 운영 정보
 
 - **URL**: https://scatchlm.duckdns.org
-- **VM**: NCP `server-scatchlm-1` (Ubuntu 24.04, s2-g3a, 2vCPU/8GB, 10GB root disk)
-- **공인 IP**: `101.79.20.91`
+- **VM**: NCP **Micro** (Ubuntu 24.04, **1 vCPU / 1GB RAM, 10GB root disk**) + **1GB swapfile**(`/swapfile`, fstab 등록)
+  - pre-launch(활성 사용자 ~0)라 의도적으로 최소 사양. 2026-06-18 Standard(2vCPU/8GB)에서 마이그레이션 — 월 ~8만원 → ~1만원대.
+  - RAM 1GB는 postgres+app+caddy 3컨테이너에 빠듯하다 → **swap이 OOM 안전판**(상시 사용 X, 압력 시에만). 트래픽 늘면 swappiness/스왑 증설로 버티고, 본격화하면 Standard로 재마이그레이션.
+  - 디스크 9.8G 중 swap 1G + docker 이미지 ~1.8G(app 1.1G/pg 0.6G/caddy 0.09G) + OS → 평시 ~76% 사용. app 이미지 pull(1.1G) 여유 확보를 위해 swap을 2G→1G로 줄여둠.
+- **공인 IP**: `101.79.20.91` (마이그레이션 시 구 서버에서 분리해 신 서버에 재연결 — 반납 X)
 - **SSH alias**: `scatchlm` (`User=root`, `IdentityFile=~/.ssh/id_ed25519`)
 - **VPC/Subnet**: `scatchlm` / `scatchlm-subnet-public` (KR-1, Internet Gateway 전용)
 - **운영 파일 위치**: `/opt/scatchlm/` (`docker-compose.prod.yml`, `Caddyfile`, `init.sql`, `.env.prod`)
@@ -26,8 +29,11 @@
 ### 2. NCP 리소스
 - **VPC + Subnet (Public)**: `scatchlm-vpc` / `scatchlm-subnet-public` (KR-1)
   - Subnet은 **Internet Gateway 전용 = Y (Public)** 으로 만들어야 공인 IP 부여 가능
-- **Server (VM)**: Ubuntu 24.04, 2 vCPU/8GB
+- **Server (VM)**: Ubuntu 24.04, **Micro 1 vCPU/1GB** (pre-launch 최소 사양). 사용자 증가 시 Standard로 재마이그레이션
+  - **Micro는 RAM 1GB라 swap 필수** — 생성 후 아래 §VM 초기 셋업에서 swapfile 1G를 만든다(없으면 빌드/pull/피크 시 OOM)
+  - **사양 변경은 동일 세대/패밀리 내에서만 in-place** 가능. Standard↔Micro는 cross-family → **신 서버 생성 + 데이터 마이그레이션** 필요(공인 IP 분리·재연결, DB는 버킷 덤프로 복원)
 - **공인 IP**: Server 생성 후 **별도 신청 + 서버 연결**. Server 생성 마법사에서 같이 만들지 않으면 비공인 IP만 부여됨
+  - 보유 중인 IP를 새 서버에 붙이려면 **구 서버를 정지**해야 분리 가능. IP는 서버에 안 붙어도 보유 시 과금
 - **ACG(방화벽)**: 인바운드 룰 — **80/443은 반드시 0.0.0.0/0 으로 열어야 함**. 안 열면 Let's Encrypt 검증 실패
   - 권장: 22(본인 IP/32), 80(0.0.0.0/0), 443(0.0.0.0/0). 기본 3389(RDP)는 삭제
 - **Object Storage**: 콘솔 → Object Storage → 버킷 생성 (예: `scatchlm-prod`, KR, Private)
@@ -78,6 +84,21 @@ systemctl enable --now docker
 ```
 
 > Ubuntu 24.04 기본 저장소의 `docker.io`보다 공식 저장소가 compose v2 호환성이 좋다.
+
+#### 3-1. swapfile (Micro 1GB RAM 필수)
+
+클라우드 VM 이미지는 기본 swap이 0이다. RAM 1GB로 3컨테이너를 돌리면 피크/이미지 pull 시 OOM이 난다 → 1GB swapfile을 만든다.
+```bash
+ssh scatchlm
+fallocate -l 1G /swapfile        # 디스크 부족 시 dd로 대체
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab   # 재부팅 후 자동 활성
+swapon --show && free -h
+```
+> **크기 정하기**: 디스크 9.8G에 docker 이미지(~1.8G)+OS가 들어가야 하므로 swap은 1G가 상한. 2G로 잡으면 디스크가 87%까지 차 app 이미지 pull이 빠듯해진다.
+> **swapoff 주의**: 스왑을 줄이려고 `swapoff`를 치면 스왑의 anon 페이지를 전부 RAM으로 되돌린다 → `Swap used > Mem available`이면 그 도중 OOM. 줄이기 전 `free -h`로 확인하고, 트래픽 적은 시간대에 한다.
 
 ## 배포 순서
 

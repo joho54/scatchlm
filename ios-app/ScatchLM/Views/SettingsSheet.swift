@@ -13,6 +13,10 @@ struct SettingsSheet: View {
     @State private var showPaywall = false
     @State private var restoring = false
 
+    #if DEBUG
+    @State private var showLogoReplay = false
+    #endif
+
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
         let v = (info?["CFBundleShortVersionString"] as? String) ?? "?"
@@ -138,6 +142,12 @@ struct SettingsSheet: View {
                         Text(appVersion).foregroundStyle(.secondary)
                     }
                 }
+
+                #if DEBUG
+                Section("개발자") {
+                    Button("로고 인트로 녹화") { showLogoReplay = true }
+                }
+                #endif
             }
             .navigationTitle("설정")
             .navigationBarTitleDisplayMode(.inline)
@@ -169,6 +179,11 @@ struct SettingsSheet: View {
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
             }
+            #if DEBUG
+            .fullScreenCover(isPresented: $showLogoReplay) {
+                LogoIntroReplayView()
+            }
+            #endif
             .task { await store.refreshFromServer() }
         }
     }

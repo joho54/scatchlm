@@ -194,6 +194,73 @@ private struct Pen24: Shape {
     }
 }
 
+#if DEBUG
+/// 광고 아웃트로 녹화용 풀스크린 리플레이 하니스 (DEBUG 전용).
+///
+/// 사용: 설정 → "로고 인트로 녹화" → 이 화면을 QuickTime(맥, 아이패드 USB 연결,
+/// File → New Movie Recording → 카메라 드롭다운에서 아이패드 선택)으로 네이티브
+/// 해상도·아이패드 비율로 녹화. 화면 아무 데나 탭하면 모션이 다시 재생되고,
+/// 상태바는 숨겨 깨끗한 컷을 얻는다. 우상단 작은 닫기 버튼은 편집 때 크롭하면 됨.
+struct LogoIntroReplayView: View {
+    @Environment(\.dismiss) private var dismiss
+    /// 배경: true=검정(가로 광고용), false=흰색. 탭 외 영역 더블탭으로 토글하지 않고 버튼으로 전환.
+    @State private var dark = true
+    @State private var replayID = 0
+    @State private var nameIn = false
+
+    /// 워드마크 — 앱 브랜드 파란 그라데이션. 어두운 배경에선 흰색 단색이 더 선명.
+    private var wordmark: some View {
+        let brand = LinearGradient(
+            colors: [Color(red: 0.376, green: 0.647, blue: 0.980),
+                     Color(red: 0.145, green: 0.388, blue: 0.922)],
+            startPoint: .leading, endPoint: .trailing)
+        return Text("ScatchLM")
+            .font(.system(size: 64, weight: .bold, design: .rounded))
+            .kerning(0.5)
+            .foregroundStyle(dark ? AnyShapeStyle(.white) : AnyShapeStyle(brand))
+            .opacity(nameIn ? 1 : 0)
+            .offset(y: nameIn ? 0 : 12)
+    }
+
+    var body: some View {
+        ZStack {
+            (dark ? Color.black : Color.white).ignoresSafeArea()
+
+            VStack(spacing: 28) {
+                // 아이콘 — id 변경으로 뷰를 재생성해 모션을 리플레이. 모션 완료 시 이름 페이드인.
+                LogoIntroView(size: 320, onComplete: {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { nameIn = true }
+                })
+                .id(replayID)
+                wordmark
+            }
+
+            // 촬영용 컨트롤 — 편집 시 크롭될 우상단에 모아 둔다.
+            VStack {
+                HStack {
+                    Spacer()
+                    Button { dark.toggle() } label: {
+                        Image(systemName: dark ? "sun.max.fill" : "moon.fill")
+                    }
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                }
+                .font(.title2)
+                .foregroundStyle(.gray.opacity(0.6))
+                .padding()
+                Spacer()
+            }
+        }
+        // 화면 아무 데나(컨트롤 제외) 탭하면 재생.
+        .contentShape(Rectangle())
+        .onTapGesture { nameIn = false; replayID += 1 }
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+    }
+}
+#endif
+
 #Preview("Logo intro") {
     // 캔버스에서 탭하면 모션 재생. id 변경으로 뷰를 재생성해 리플레이.
     struct Replay: View {

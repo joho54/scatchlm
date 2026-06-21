@@ -19,6 +19,8 @@
 /check-prod-logs service=caddy    # Caddy 로그 (인증서/접근 로그)
 /check-prod-logs service=postgres # Postgres 로그
 /check-prod-logs follow           # 실시간 스트림 (Ctrl+C로 중단)
+/check-prod-logs swap             # 스왑 점유/활동(si·so)·컨테이너별 스왑 스냅샷 (Micro 1GB RAM)
+/check-prod-logs swap watch       # 스왑 활동 실시간 (vmstat 1) — thrash 감시, Ctrl+C로 중단
 /check-prod-logs users            # 최근 24h 사용자 수·세션·액션 통계 (별칭: stats)
 /check-prod-logs users 48h        # 윈도우 지정 (기본 24h)
 /check-prod-logs funnel           # 활성화 퍼널 + 리텐션 (별칭: cohort, 기본 30d)
@@ -235,6 +237,42 @@ FROM app_logs WHERE tag='funnel' AND ts > now()-interval '$WIN';"
 >   textbook_sources엔 있으나 app_logs엔 없는 유저), 06-04 걸친 유저의 `d0`가 **06-04로 clamp**되어
 >   설치일 코호트(D)가 왜곡된다. 06-04 직후 구간은 "진짜 신규"가 아닐 수 있으니 해석 주의.
 
+### 스왑 모니터링 (`swap`) — Micro 1GB RAM 안정성
+
+> Micro(1 vCPU/1GB)는 RAM이 빠듯해 swap이 OOM 안전판이다(§DEPLOY.md). 봐야 할 건 **점유량**이
+> 아니라 **활동률**이다: swap에 cold page가 *주차*된 건 무해, 페이지가 계속 오가는 *thrash*가
+> 위험(디스크 I/O로 지연·디스크 마모). `vmstat`의 `si`/`so`(초당 swap-in/out KB)가 0이면 무활동,
+> 지속적으로 >0이면 thrash 신호. `sysstat`(sar) 설치돼 있어 과거 이력도 가능.
+
+**스냅샷 (`swap`)** — 점유 + 짧은 활동 샘플 + 컨테이너별 분해:
+```bash
+ssh scatchlm 'echo "=== free ==="; free -h
+echo "=== vmstat 5x1s (si/so = 초당 swap-in/out KB; 첫 행은 부팅평균이라 무시) ==="; vmstat 1 5
+echo "=== 누적 swap 페이지 (pswpin/pswpout, 부팅 이후) ==="; grep -E "pswpin|pswpout" /proc/vmstat
+echo "=== 컨테이너별 swap 사용 (cgroup v2) ==="
+for c in $(docker ps --format "{{.Names}}"); do
+  id=$(docker inspect -f "{{.Id}}" "$c")
+  f=$(find /sys/fs/cgroup -name memory.swap.current -path "*$id*" 2>/dev/null | head -1)
+  [ -n "$f" ] && printf "%-28s %s bytes\n" "$c" "$(cat "$f")"
+done'
+```
+
+**과거 이력 (sar)** — 분 단위 swap-in/out·메모리 압력:
+```bash
+ssh scatchlm 'echo "=== sar -W (swap 페이지 in/out 이력) ==="; sar -W
+echo "=== sar -S (swap 공간 사용률 이력) ==="; sar -S'
+```
+
+**실시간 감시 (`swap watch`)** — thrash 의심 시 라이브로 si/so 관찰:
+```bash
+ssh scatchlm 'vmstat 1'
+```
+> 백그라운드(run_in_background=true)로 띄우고 si/so가 지속적으로 >0인지 본다. 0 근처면 정상.
+
+> **해석 가이드**: `Swap used` 높음 + `si`/`so` ≈ 0 → cold page 주차, **정상**. `si`/`so` 지속 >0 +
+> `Mem available` 낮음 → 메모리 압력으로 thrash, **위험 신호**(swappiness 조정/스왑 증설/Standard
+> 재마이그레이션 검토). `memory.events`의 `oom`/`oom_kill` 증가 = 이미 OOM kill 발생(컨테이너별).
+
 ### 실시간 스트림 (follow)
 ```bash
 ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f --no-color --tail=20 app'
@@ -246,6 +284,7 @@ ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --en
 - `$ARGUMENTS`: 필터 키워드 또는 옵션
   - 비어있음 → app 서비스 최근 50줄
   - `follow` → 실시간 스트림
+  - `swap` (+ 선택 `watch`) → 스왑 모니터링 (위 섹션). `swap`=스냅샷, `swap watch`=vmstat 1 라이브
   - `service=<name>` → 해당 서비스 로그
   - `users` / `stats` (+ 선택 윈도우, 예: `users 48h`) → 사용자 활동 분석 (위 섹션). 등장한
     user prefix를 `users` 테이블과 자동 join해 이메일까지 매칭(미가입/삭제 prefix는 명시)
@@ -262,6 +301,14 @@ if [ -z "$ARGUMENTS" ]; then
   eval "$SSH_BASE --tail=50 app'" | grep -v "GET /docs"
 elif [ "$ARGUMENTS" = "follow" ]; then
   eval "$SSH_BASE -f --tail=20 app'"
+elif echo "$ARGUMENTS" | grep -qE "^swap( |$)"; then
+  # 스왑 모니터링 — "스왑 모니터링" 섹션 참조. "swap watch"면 vmstat 1 라이브(run_in_background),
+  # 그냥 "swap"이면 free+vmstat 5x1s+pswpin/out+컨테이너별 cgroup 스냅샷.
+  if echo "$ARGUMENTS" | grep -q "watch"; then
+    ssh scatchlm 'vmstat 1'   # run_in_background 권장
+  else
+    : # → 위 "스냅샷 (swap)" 블록 실행
+  fi
 elif echo "$ARGUMENTS" | grep -qE "^(users|stats)( |$)"; then
   # 사용자 활동 분석 — "사용자 활동 분석" 섹션의 SQL 집계(app_logs)를 따른다.
   # 윈도우는 두 번째 토큰(예: "users 48h" → '48 hours'), 없으면 '24 hours'.

@@ -713,6 +713,21 @@ final class DatabaseService {
         }
     }
 
+    /// 노트와 무관하게 최신 피드백 N개. DMN 타이머 단어 추출용 — skip 센티넬·빈 본문은 제외.
+    func recentFeedbacks(limit: Int = 10) throws -> [FeedbackRecord] {
+        guard let uid = scopedUserId else { return [] }
+        return try dbQueue.read { db in
+            try FeedbackRecord
+                .filter(FeedbackRecord.Columns.userId == uid
+                        && FeedbackRecord.Columns.deleted == false
+                        && FeedbackRecord.Columns.content != FeedbackRecord.skipSentinel
+                        && FeedbackRecord.Columns.content != "")
+                .order(FeedbackRecord.Columns.createdAt.desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
     func saveFeedback(_ feedback: inout FeedbackRecord) throws {
         let uid = try requireUserId()
         feedback.userId = uid

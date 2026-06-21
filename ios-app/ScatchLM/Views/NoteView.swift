@@ -73,6 +73,9 @@ struct NoteView: View {
     @State private var simScrollMode: Bool = false
     @State private var pageNavOpen: Bool = false
     @State private var showChapterDrawer: Bool = false
+    // DMN 휴식 타이머 — 최근 피드백에서 뽑은 단어를 검은 화면에 슬라이드.
+    @State private var showDMNTimer: Bool = false
+    @State private var dmnWords: [String] = []
     @State private var canUndo: Bool = false
     @State private var canRedo: Bool = false
     // PDF/캔버스 분할 비율 (PDF 쪽 비율). 드래그 가능한 divider로 조정. 세션 휘발(영속 안 함).
@@ -285,8 +288,19 @@ struct NoteView: View {
         } message: {
             Text("카드가 사라지고 해당 영역에 다시 필기할 수 있게 됩니다. 필기 자체는 남습니다.")
         }
+        .fullScreenCover(isPresented: $showDMNTimer) {
+            DMNTimerView(words: dmnWords)
+        }
         .task { await loadNote() }
         .onDisappear { saveDrawing() }
+    }
+
+    /// DMN 휴식 시작 — 최근 피드백 본문에서 핵심 단어를 룰 베이스로 추출해 타이머에 넘긴다.
+    private func startBreak() {
+        let contents = (try? db.recentFeedbacks(limit: 10).map(\.content)) ?? []
+        dmnWords = WordExtractor.importantWords(from: contents)
+        appLog("dmn", "break started", ["words": "\(dmnWords.count)"])
+        showDMNTimer = true
     }
 
     // MARK: - Split Divider (PDF/캔버스 분할 리사이즈)
@@ -450,6 +464,19 @@ struct NoteView: View {
                     showChapterDrawer = true
                 } label: {
                     Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 36, height: 36)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                }
+
+                // DMN 휴식 타이머 — 공부 중 잠깐 멈추고 핵심 단어를 곱씹는 시간.
+                Button {
+                    startBreak()
+                } label: {
+                    Image(systemName: "brain.head.profile")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: 36, height: 36)

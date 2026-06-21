@@ -168,6 +168,9 @@ async def request_feedback(
 
     # 사용자 피드백 수집을 위한 레코드 적재
     response_content = result.data.get("content") or ""
+    # 손글씨 transcription은 응답 본문이 아니라 후속 채팅 컨텍스트용 — 별도 컬럼에 저장하고
+    # 클라이언트 응답(FeedbackResponse) spread에선 빼낸다.
+    handwriting_transcription = (result.data.pop("transcription", "") or "")[:PROMPT_CONTEXT_MAX_CHARS] or None
     record = AIResponse(
         user_id=user_id,
         note_id=note_id,
@@ -181,6 +184,7 @@ async def request_feedback(
         prompt_context_snippet=(textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
         previous_context=(previous_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
         response_content=response_content,
+        handwriting_transcription=handwriting_transcription,
         request_id=request_id,
     )
     db.add(record)
@@ -327,6 +331,23 @@ async def feedback_chat(
         except Exception:
             log.exception("Chat context extraction failed")
 
+    # 손글씨 원문 주입(best-effort). 채팅 시점엔 노트 이미지가 없어 "피드백 요청한 문장"의 실체가
+    # 프롬프트에 없던 틈을 메운다 — 세션을 연 source 피드백의 transcription을 조회해 라벨 블록으로 넣는다.
+    # 가이드 등 transcription이 없는 응답이면 그냥 건너뛴다.
+    handwriting = ""
+    if req.parent_feedback_id:
+        try:
+            handwriting = (await db.execute(
+                select(AIResponse.handwriting_transcription).where(
+                    AIResponse.id == req.parent_feedback_id,
+                    AIResponse.user_id == user_id,
+                )
+            )).scalar_one_or_none() or ""
+            if handwriting:
+                log.info("Chat context: handwriting transcription chars=%d", len(handwriting))
+        except Exception:
+            log.exception("Handwriting transcription lookup failed")
+
     # 시스템 프롬프트 구성
     subject_clause = f" {req.subject}" if req.subject else " their material"
     system_parts = [
@@ -340,6 +361,14 @@ async def feedback_chat(
         "and $$...$$ on their own lines for display math (matrices, fractions, aligned equations). "
         "Never use \\( \\) or \\[ \\] delimiters.",
     ]
+
+    if handwriting:
+        system_parts.append(
+            "\nTHE USER'S HANDWRITTEN WORK (what they wrote and asked for feedback on — this is the "
+            "subject of the conversation; when they say \"이 문장\"/\"피드백 요청한 문장\"/\"this sentence\" "
+            "they mean something in here, NOT the textbook):\n"
+            + handwriting
+        )
 
     if textbook_context:
         system_parts.append(

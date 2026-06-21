@@ -115,6 +115,30 @@ _estimate_cost = estimate_cost
 # 한도는 64K이므로 넉넉히 상향한다.
 FEEDBACK_MAX_TOKENS = 4096
 
+# 손글씨 피드백 structured output 스키마(§one-pass).
+# 같은 Vision 호출이 (a) 사용자가 손으로 쓴 원문 transcription과 (b) 피드백을 함께 반환하게 강제한다.
+# transcription은 후속 채팅 컨텍스트 주입에 쓰인다 — 채팅 시점엔 이미지가 없어 노트 원문을 알 길이 없던 틈을 메운다.
+# 주의: additionalProperties:false 필수, minLength 등 제약은 미지원(structured outputs 스키마 제한).
+FEEDBACK_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "transcription": {
+            "type": "string",
+            "description": (
+                "Verbatim transcription of the handwriting in the image, preserving the original "
+                "language(s) and line breaks. This is the user's OWN written work, not the textbook. "
+                "Empty string if the image has no legible handwriting."
+            ),
+        },
+        "feedback": {
+            "type": "string",
+            "description": "The tutor feedback itself, in markdown, written in the requested response language.",
+        },
+    },
+    "required": ["transcription", "feedback"],
+    "additionalProperties": False,
+}
+
 
 @dataclass
 class FeedbackResult:
@@ -201,6 +225,7 @@ async def get_feedback(
         max_tokens=FEEDBACK_MAX_TOKENS,
         system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None),
         messages=[{"role": "user", "content": user_content}],
+        output_config={"format": {"type": "json_schema", "schema": FEEDBACK_OUTPUT_SCHEMA}},
     )
     latency_ms = int((time.monotonic() - start) * 1000)
 
@@ -224,9 +249,22 @@ async def get_feedback(
             model, output_tokens, FEEDBACK_MAX_TOKENS,
         )
 
-    content = response.content[0].text.strip()
+    raw = response.content[0].text.strip()
 
-    data = {"type": "feedback", "content": content}
+    # structured output → {transcription, feedback}. 잘림(max_tokens)이나 예외적 비-JSON 응답이면
+    # best-effort 폴백: 원문을 그대로 피드백으로 쓰고 transcription은 비운다(채팅 주입은 단지 생략됨).
+    transcription = ""
+    try:
+        parsed = json.loads(raw)
+        content = (parsed.get("feedback") or "").strip()
+        transcription = (parsed.get("transcription") or "").strip()
+        if not content:
+            content = raw
+    except (json.JSONDecodeError, AttributeError):
+        log.warning("Feedback structured output parse failed (stop=%s); falling back to raw text", response.stop_reason)
+        content = raw
+
+    data = {"type": "feedback", "content": content, "transcription": transcription}
 
     return FeedbackResult(
         data=data,

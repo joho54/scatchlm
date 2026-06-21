@@ -348,3 +348,100 @@ async def test_feedback_chat_textbook_rules_prioritize_question_intent(
     assert "elliptical or deictic" in system_text
     # 무조건적 "always prefer textbook" 문구는 제거됐어야 한다 (과당김 원인).
     assert "Always prefer textbook content" not in system_text
+
+
+@pytest.mark.asyncio
+async def test_feedback_requests_handwriting_structured_output_and_stores_it(
+    client: AsyncClient, auth_header: dict, db_session
+):
+    """one-pass structured output 회귀 가드.
+
+    피드백 Vision 호출은 transcription을 강제하는 output_config를 걸어야 하고, 반환된
+    손글씨 원문은 ai_response.handwriting_transcription에 저장돼야 한다(채팅 주입의 원천).
+    """
+    from sqlalchemy import select
+    from app.models.feedback import AIResponse
+
+    result_with_transcription = FeedbackResult(
+        data={
+            "type": "feedback",
+            "content": "feedback body",
+            "transcription": "πιστὸς δὲ ὁ θεός",
+        },
+        model="claude-sonnet-4-6",
+        input_tokens=800, output_tokens=150, total_tokens=950,
+        cost_usd=0.0, latency_ms=10,
+    )
+
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=result_with_transcription,
+    ):
+        res = await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={"note_id": "note-hw", "language": "grc"},
+        )
+
+    assert res.status_code == 200
+    fid = res.json()["feedback_id"]
+    # transcription은 클라이언트 응답으로 새지 않는다(서버 전용 컨텍스트).
+    assert "transcription" not in res.json()
+    row = (await db_session.execute(
+        select(AIResponse).where(AIResponse.id == fid)
+    )).scalar_one()
+    assert row.handwriting_transcription == "πιστὸς δὲ ὁ θεός"
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_injects_handwriting_from_parent_feedback(
+    client: AsyncClient, auth_header: dict, db_session
+):
+    """채팅이 source 피드백의 손글씨 원문을 system에 주입하는지(틈 1 수정) 가드.
+
+    parent_feedback_id로 조회한 transcription이 system 블록에 라벨과 함께 들어가야,
+    "피드백 요청한 문장" 같은 지시가 노트 원문으로 해소된다.
+    """
+    from app.models.feedback import AIResponse
+
+    parent = AIResponse(
+        user_id="test-user-00000000-0000-0000-0000-000000000001",
+        note_id="note-hw",
+        task_type="feedback",
+        language="grc",
+        response_language="Korean",
+        model="claude-sonnet-4-6",
+        has_textbook_context=False,
+        response_content="feedback body",
+        handwriting_transcription="κρίνατε ὑμεῖς ὅ φημι",
+    )
+    db_session.add(parent)
+    await db_session.commit()
+
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="ok")]
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "피드백 요청한 문장 한국어로 무슨 뜻이야?",
+                "history": [],
+                "response_language": "Korean",
+                "parent_feedback_id": parent.id,
+            },
+        )
+
+    assert res.status_code == 200
+    system_text = mock_client.messages.create.call_args.kwargs["system"][0]["text"]
+    assert "HANDWRITTEN WORK" in system_text
+    assert "κρίνατε ὑμεῖς ὅ φημι" in system_text

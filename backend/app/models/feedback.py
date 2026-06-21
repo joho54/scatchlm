@@ -30,6 +30,9 @@ class AIResponse(Base):
     prompt_context_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     previous_context: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 손글씨 피드백(task_type='feedback')의 원문 transcription. one-pass structured output으로 채워진다.
+    # 후속 채팅이 노트 원문을 컨텍스트로 주입하는 데 쓴다(채팅 시점엔 이미지가 없음). 다른 task_type은 NULL.
+    handwriting_transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 

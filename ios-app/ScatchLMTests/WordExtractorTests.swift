@@ -1,65 +1,66 @@
 import XCTest
 @testable import ScatchLM
 
-/// DMN 타이머 단어 추출 회귀 테스트. UI(슬라이드 애니메이션)는 제외하고,
-/// 순수 함수인 `WordExtractor.importantWords`의 룰 베이스 동작만 검증한다.
+/// DMN 타이머 단서 추출 회귀 테스트. 중요도는 LLM의 볼드(**...**) 강조에서 가져오고,
+/// `WordExtractor`는 그 스팬을 기계적으로 추출하기만 한다. 그 추출 규칙을 검증한다.
 final class WordExtractorTests: XCTestCase {
 
-    func testStripsMarkdownMarkers() {
-        let words = WordExtractor.importantWords(from: ["**중요** `코드` # 제목"])
-        // 마크업 문자(*, `, #)가 단어에 섞여 나오면 안 됨
-        XCTAssertFalse(words.contains { $0.contains("*") || $0.contains("`") || $0.contains("#") })
+    func testExtractsBoldSpan() {
+        let words = WordExtractor.importantWords(from: ["**속격**은 소유를 나타냅니다"])
+        XCTAssertEqual(words, ["속격"])
     }
 
-    func testRemovesCodeBlocksAndLatex() {
-        let words = WordExtractor.importantWords(from: ["설명 ```let x = 99``` 수식 $E = mc^2$ 끝맺음"])
-        // 코드/수식 내부 토큰은 제외
-        XCTAssertFalse(words.contains("let"))
-        XCTAssertFalse(words.contains("mc"))
+    func testIgnoresNonBoldText() {
+        // 굵게 강조 안 된 본문에서는 아무것도 뽑지 않는다(빈도/불용어 추정 안 함)
+        let words = WordExtractor.importantWords(from: ["속격은 소유를 나타내고 여격은 간접목적어다"])
+        XCTAssertTrue(words.isEmpty)
     }
 
-    func testKeepsLinkDisplayTextDropsURL() {
-        let words = WordExtractor.importantWords(from: ["[문법설명](https://example.com/page) 참조"])
-        XCTAssertTrue(words.contains("문법설명"))
-        XCTAssertFalse(words.contains { $0.contains("example") || $0.contains("https") })
+    func testExtractsUnderscoreBold() {
+        let words = WordExtractor.importantWords(from: ["__탈격__ 참고"])
+        XCTAssertEqual(words, ["탈격"])
     }
 
-    func testFiltersStopwordsAndPureNumbers() {
-        let words = WordExtractor.importantWords(from: ["그리고 the 123 동사변화"])
-        XCTAssertFalse(words.contains("그리고"))
-        XCTAssertFalse(words.contains("the"))
-        XCTAssertFalse(words.contains("123"))
-        XCTAssertTrue(words.contains("동사변화"))
+    func testDropsLongBoldSentences() {
+        // 문장 통째로 굵게 친 것은 단서로 부적합 — 단어 수/길이 초과로 제외
+        let words = WordExtractor.importantWords(from: ["**이 부분은 매우 길고 여러 단어로 된 문장입니다**"])
+        XCTAssertTrue(words.isEmpty)
     }
 
-    func testStripsKoreanJosa() {
-        // "동사변화를" → 조사 "를" 제거 → "동사변화"
-        let words = WordExtractor.importantWords(from: ["동사변화를 동사변화는 동사변화"])
-        XCTAssertTrue(words.contains("동사변화"))
-        XCTAssertFalse(words.contains("동사변화를"))
+    func testAllowsShortMultiWordPhrase() {
+        let words = WordExtractor.importantWords(from: ["**부정 과거**는 중요하다"])
+        XCTAssertEqual(words, ["부정 과거"])
     }
 
-    func testRanksByFrequency() {
-        let contents = ["속격 속격 속격 여격", "탈격"]
-        let words = WordExtractor.importantWords(from: contents)
-        // 가장 빈번한 단어가 맨 앞
-        XCTAssertEqual(words.first, "속격")
+    func testStripsEdgePunctuation() {
+        let words = WordExtractor.importantWords(from: ["**속격.** 그리고 **여격,**"])
+        XCTAssertEqual(words, ["속격", "여격"])
+    }
+
+    func testDeduplicatesCaseInsensitively() {
+        let words = WordExtractor.importantWords(from: ["**Gen** ... **gen**", "**GEN**"])
+        XCTAssertEqual(words, ["Gen"])
+    }
+
+    func testPreservesRecencyOrderAcrossFeedbacks() {
+        // 입력은 최신 → 과거 순서. 최신 피드백 단서가 앞에.
+        let words = WordExtractor.importantWords(from: ["**여격**", "**속격**"])
+        XCTAssertEqual(words, ["여격", "속격"])
+    }
+
+    func testRejectsPureNumberBold() {
+        let words = WordExtractor.importantWords(from: ["**123** 그리고 **속격**"])
+        XCTAssertEqual(words, ["속격"])
     }
 
     func testRespectsLimit() {
-        let many = (0..<100).map { "단어\($0)koreanword" }.joined(separator: " ")
-        let words = WordExtractor.importantWords(from: [many], limit: 10)
-        XCTAssertLessThanOrEqual(words.count, 10)
+        let content = (0..<30).map { "**개념\($0)**" }.joined(separator: " ")
+        let words = WordExtractor.importantWords(from: [content], limit: 5)
+        XCTAssertEqual(words.count, 5)
     }
 
     func testEmptyInputReturnsEmpty() {
         XCTAssertTrue(WordExtractor.importantWords(from: []).isEmpty)
-        XCTAssertTrue(WordExtractor.importantWords(from: ["", "  ", "## ---"]).isEmpty)
-    }
-
-    func testDeduplicatesCaseInsensitively() {
-        let words = WordExtractor.importantWords(from: ["Genitive genitive GENITIVE 여격"])
-        let genitiveCount = words.filter { $0.lowercased() == "genitive" }.count
-        XCTAssertEqual(genitiveCount, 1)
+        XCTAssertTrue(WordExtractor.importantWords(from: ["", "강조 없는 본문"]).isEmpty)
     }
 }

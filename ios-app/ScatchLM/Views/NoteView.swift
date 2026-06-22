@@ -25,6 +25,13 @@ struct ChatSheetContext: Identifiable {
     var headerServerId: String?
 }
 
+/// DMN 휴식 타이머 표시 컨텍스트. `.fullScreenCover(item:)`가 요구하는 Identifiable —
+/// 단어 배열을 표시 시점에 함께 실어 보내 stale 캡처를 막는다.
+struct DMNBreakContext: Identifiable {
+    let id = UUID()
+    let words: [String]
+}
+
 /// PencilKit 기본 paste: 액션(시스템 클립보드 → 캔버스)을 억제한다. 그래야 길게누르기 시
 /// 시스템 "붙여넣기" 버블 대신 우리 커스텀 카드 붙여넣기 메뉴만 노출된다.
 final class NoteCanvasView: PKCanvasView {
@@ -74,8 +81,8 @@ struct NoteView: View {
     @State private var pageNavOpen: Bool = false
     @State private var showChapterDrawer: Bool = false
     // DMN 휴식 타이머 — 최근 피드백에서 뽑은 단어를 검은 화면에 슬라이드.
-    @State private var showDMNTimer: Bool = false
-    @State private var dmnWords: [String] = []
+    // item: 기반 — isPresented면 단어 갱신과 표시 트리거가 같은 틱이라 stale 빈배열이 캡처됨.
+    @State private var dmnBreak: DMNBreakContext?
     @State private var canUndo: Bool = false
     @State private var canRedo: Bool = false
     // PDF/캔버스 분할 비율 (PDF 쪽 비율). 드래그 가능한 divider로 조정. 세션 휘발(영속 안 함).
@@ -288,8 +295,8 @@ struct NoteView: View {
         } message: {
             Text("카드가 사라지고 해당 영역에 다시 필기할 수 있게 됩니다. 필기 자체는 남습니다.")
         }
-        .fullScreenCover(isPresented: $showDMNTimer) {
-            DMNTimerView(words: dmnWords)
+        .fullScreenCover(item: $dmnBreak) { ctx in
+            DMNTimerView(words: ctx.words)
         }
         .task { await loadNote() }
         .onDisappear { saveDrawing() }
@@ -297,10 +304,10 @@ struct NoteView: View {
 
     /// DMN 휴식 시작 — 최근 피드백 본문에서 핵심 단어를 룰 베이스로 추출해 타이머에 넘긴다.
     private func startBreak() {
-        let contents = (try? db.recentFeedbacks(limit: 10).map(\.content)) ?? []
-        dmnWords = WordExtractor.importantWords(from: contents)
-        appLog("dmn", "break started", ["words": "\(dmnWords.count)"])
-        showDMNTimer = true
+        let feedbacks = (try? db.recentFeedbacks(limit: 10)) ?? []
+        let words = WordExtractor.importantWords(from: feedbacks.map(\.content))
+        appLog("dmn", "break started", ["feedbacks": "\(feedbacks.count)", "words": "\(words.count)"])
+        dmnBreak = DMNBreakContext(words: words)
     }
 
     // MARK: - Split Divider (PDF/캔버스 분할 리사이즈)

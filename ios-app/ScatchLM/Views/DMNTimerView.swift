@@ -19,13 +19,13 @@ struct DMNTimerView: View {
     @State private var totalSeconds: Int = 0
     @State private var remaining: Int = 0
     @State private var wordIndex: Int = 0
-    /// 단어 슬라이드 순서(셔플) — 매번 같은 순서가 아니도록.
-    @State private var shuffled: [String] = []
+    /// 표시할 단서 — 최신 피드백 개념이 앞. 셔플하지 않는다(주변 단서는 차분한 게 목적).
+    @State private var cues: [String] = []
 
     /// 프리셋(분). DMN 휴식은 짧게 — 3·5·10분.
     private let presets: [Int] = [3, 5, 10]
-    /// 단어 교체 간격(초).
-    private let wordInterval = 5
+    /// 단서 교체 간격(초). 주변 단서형 — 화면이 거의 안 변해야 초점주의를 안 끈다.
+    private let wordInterval = 25
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -101,10 +101,10 @@ struct DMNTimerView: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 1), value: progress)
 
-                // 가운데 단어 — 교차 페이드
+                // 가운데 단서 — 저대비, 느린 교차 페이드(주변 단서형: 읽게 만들지 않는다)
                 Text(currentWord)
-                    .font(.system(size: 30, weight: .light, design: .serif))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 26, weight: .light, design: .serif))
+                    .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                     .minimumScaleFactor(0.5)
@@ -166,15 +166,15 @@ struct DMNTimerView: View {
     }
 
     private var currentWord: String {
-        guard !shuffled.isEmpty else { return "…" }
-        return shuffled[wordIndex % shuffled.count]
+        guard !cues.isEmpty else { return "" }
+        return cues[wordIndex % cues.count]
     }
 
     private func start(minutes: Int) {
         totalSeconds = minutes * 60
         remaining = totalSeconds
         wordIndex = 0
-        shuffled = words.shuffled()
+        cues = words
         phase = .running
     }
 
@@ -187,9 +187,9 @@ struct DMNTimerView: View {
         }
         remaining -= 1
         let elapsed = totalSeconds - remaining
-        if elapsed % wordInterval == 0, !shuffled.isEmpty {
-            withAnimation(.easeInOut(duration: 0.8)) {
-                wordIndex = (wordIndex + 1) % shuffled.count
+        if elapsed % wordInterval == 0, !cues.isEmpty {
+            withAnimation(.easeInOut(duration: 1.5)) {
+                wordIndex = (wordIndex + 1) % cues.count
             }
         }
     }

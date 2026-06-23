@@ -7,6 +7,8 @@ struct ChatTurn: Identifiable {
     let content: String
     var serverId: String? = nil
     var rating: Int? = nil
+    /// 전송 실패한 user 메시지 — 말풍선에 실패 표시 + 롱홀드 재시도/수정 메뉴를 띄운다.
+    var failed: Bool = false
 }
 
 /// **통일 채팅 스레드** — 피드백·가이드·챕터 챗이 공유하는 단일 컴포넌트.
@@ -25,6 +27,10 @@ struct ChatThreadView<Header: View>: View {
     var onScrap: ((ChatTurn) -> Void)? = nil
     var onRate: ((ChatTurn, Int) -> Void)? = nil
     var onDetail: ((ChatTurn) -> Void)? = nil
+    /// 실패한 user 메시지 롱홀드 → 같은 내용으로 재전송.
+    var onRetry: ((ChatTurn) -> Void)? = nil
+    /// 실패한 user 메시지 롱홀드 → 내용을 입력창으로 되돌리고 실패 버블 제거(수정 후 재전송).
+    var onEdit: ((ChatTurn) -> Void)? = nil
 
     /// 리스트 최상단 헤더(피드백 카드 본문 / 가이드 설명 + 평가 등). 없으면 EmptyView.
     @ViewBuilder var header: () -> Header
@@ -44,9 +50,12 @@ struct ChatThreadView<Header: View>: View {
                             content: turn.content,
                             serverId: turn.serverId,
                             rating: turn.rating,
+                            failed: turn.failed,
                             onScrap: onScrap.map { f in { f(turn) } },
                             onRate: turn.role == "user" ? nil : onRate.map { f in { r in f(turn, r) } },
-                            onDetail: turn.role == "user" ? nil : onDetail.map { f in { f(turn) } }
+                            onDetail: turn.role == "user" ? nil : onDetail.map { f in { f(turn) } },
+                            onRetry: turn.role == "user" ? onRetry.map { f in { f(turn) } } : nil,
+                            onEdit: turn.role == "user" ? onEdit.map { f in { f(turn) } } : nil
                         )
                         .equatable()
                         .id(turn.id)
@@ -106,9 +115,12 @@ extension ChatThreadView where Header == EmptyView {
          onSend: @escaping () -> Void,
          onScrap: ((ChatTurn) -> Void)? = nil,
          onRate: ((ChatTurn, Int) -> Void)? = nil,
-         onDetail: ((ChatTurn) -> Void)? = nil) {
+         onDetail: ((ChatTurn) -> Void)? = nil,
+         onRetry: ((ChatTurn) -> Void)? = nil,
+         onEdit: ((ChatTurn) -> Void)? = nil) {
         self.init(turns: turns, input: input, sending: sending, placeholder: placeholder,
                   onSend: onSend, onScrap: onScrap, onRate: onRate, onDetail: onDetail,
+                  onRetry: onRetry, onEdit: onEdit,
                   header: { EmptyView() })
     }
 }

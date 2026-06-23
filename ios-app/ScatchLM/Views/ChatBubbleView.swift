@@ -51,17 +51,26 @@ struct EquatableChatBubble: View, Equatable {
     let content: String
     var serverId: String? = nil
     var rating: Int? = nil
+    /// 전송 실패한 user 메시지 — 실패 캡션 + 롱홀드 재시도/수정 메뉴.
+    var failed: Bool = false
     var onScrap: (() -> Void)? = nil
     var onRate: ((Int) -> Void)? = nil
     var onDetail: (() -> Void)? = nil
+    var onRetry: (() -> Void)? = nil
+    var onEdit: (() -> Void)? = nil
 
     static func == (l: EquatableChatBubble, r: EquatableChatBubble) -> Bool {
-        l.role == r.role && l.content == r.content && l.serverId == r.serverId && l.rating == r.rating
+        l.role == r.role && l.content == r.content && l.serverId == r.serverId
+            && l.rating == r.rating && l.failed == r.failed
     }
 
     var body: some View {
         if role == "user" {
-            ChatBubbleView(role: role, content: content)
+            if failed {
+                failedUserBubble
+            } else {
+                ChatBubbleView(role: role, content: content)
+            }
         } else {
             ChatBubbleView(role: role, content: content) {
                 if let onScrap {
@@ -86,6 +95,31 @@ struct EquatableChatBubble: View, Equatable {
                     }.disabled(serverId == nil)
                 }
             }
+        }
+    }
+
+    /// 전송 실패한 user 말풍선 — 우측 정렬 버블 + 빨간 실패 캡션. 버블을 길게 누르면(contextMenu)
+    /// 재시도/수정 메뉴가 뜬다(롱홀드 = SwiftUI 표준 long-press 메뉴).
+    private var failedUserBubble: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            ChatBubbleView(role: role, content: content)
+                .contextMenu {
+                    if let onRetry {
+                        Button { onRetry() } label: { Label("재시도", systemImage: "arrow.clockwise") }
+                    }
+                    if let onEdit {
+                        Button { onEdit() } label: { Label("수정", systemImage: "pencil") }
+                    }
+                }
+            Button { onRetry?() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                    Text(String(localized: "전송 실패 · 길게 눌러 재시도"))
+                }
+                .font(.caption2)
+                .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
         }
     }
 }

@@ -1041,6 +1041,19 @@ final class DatabaseService {
         notifyWrite()
     }
 
+    /// 채팅 메시지 soft-delete — 전송 실패한 user 메시지를 '수정'으로 입력창에 되돌릴 때
+    /// 실패 버블을 제거한다. deleted+dirty로 표시해 sync가 삭제를 전파(messages 쿼리는 deleted=false만 로드).
+    func softDeleteChatMessage(id: String) throws {
+        let uid = try requireUserId()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE feedback_chats SET deleted = 1, dirty = 1, updated_at = ? WHERE id = ? AND user_id = ?",
+                arguments: [Date(), id, uid]
+            )
+        }
+        notifyWrite()
+    }
+
     func updateChatMessageRating(id: String, rating: Int, syncedAt: Date?) throws {
         let uid = try requireUserId()
         try dbQueue.write { db in

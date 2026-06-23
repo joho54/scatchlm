@@ -268,6 +268,10 @@ struct PdfViewerView: View {
         let content: String
         var serverId: String?
         var rating: Int?
+        /// 전송 실패한 user 메시지 — 버블에 실패 표시 + 롱홀드 재시도/수정.
+        var failed = false
+        /// feedback_chats에 영속된 row id(수정 시 soft-delete용). 미영속이면 nil.
+        var persistedId: String? = nil
     }
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
@@ -290,7 +294,7 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: guideChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
                 },
                 input: $guideChatInput,
                 sending: guideChatSending,
@@ -302,7 +306,9 @@ struct PdfViewerView: View {
                         guideChatMessages[i].rating = r
                     }
                     submitGuideRating(serverId: turn.serverId, rating: r, isPage: false)
-                }
+                },
+                onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: false) },
+                onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: false) }
             ) {
                 // 헤더 — 페이지 가이드 설명 + 스크랩/평가
                 if guideLoading {
@@ -376,10 +382,8 @@ struct PdfViewerView: View {
         let text = guideChatInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guideChatInput = ""
-        guideChatSending = true
 
-        guideChatMessages.append(GuideChatMessage(role: "user", content: text))
-
+        var userMsg = GuideChatMessage(role: "user", content: text)
         // 세션 보장 + user 메시지 영속화 (§4.6). 가이드 본문은 세션 첫 assistant 메시지로 저장된다.
         let guideBody = pageGuide.map { $0.content ?? $0.topic }
         let sid = ensureGuideSession(kind: .pageGuide, anchorPage: currentPage,
@@ -387,18 +391,38 @@ struct PdfViewerView: View {
                                      bodyServerId: pageGuide?.feedbackId)
         if let sid {
             try? db.setSessionTitleIfEmpty(sessionId: sid, title: text)
-            persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
+            userMsg.persistedId = persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
         }
+        guideChatMessages.append(userMsg)
+        deliverGuideChat(turnId: userMsg.id, isChapter: false)
+    }
 
-        // Build history: guide content as first assistant message
+    /// 페이지/챕터 가이드 채팅 공용 전송 경로(첫 전송·재시도). 실패 시 일시 장애(502/500/529 등)는
+    /// 해당 user 버블을 failed로 표시해 롱홀드 재시도/수정을 노출하고, quota 초과는 Paywall로 안내.
+    private func deliverGuideChat(turnId: UUID, isChapter: Bool) {
+        let msgs = isChapter ? chapterChatMessages : guideChatMessages
+        guard let userMsg = msgs.first(where: { $0.id == turnId }) else { return }
+        setGuideSending(isChapter, true)
+        setGuideFailed(isChapter, turnId: turnId, false)
+
+        // history: 가이드 본문(헤더) + 이 메시지 '이전'의 전달된 메시지. 실패 메시지는 컨텍스트에서 제외.
         var history: [[String: String]] = []
-        if let guide = pageGuide {
-            let guideText = guide.content ?? guide.topic
-            history.append(["role": "assistant", "content": guideText])
+        if isChapter {
+            if let g = chapterGuide { history.append(["role": "assistant", "content": chapterGuideText(g)]) }
+        } else {
+            if let g = pageGuide { history.append(["role": "assistant", "content": g.content ?? g.topic]) }
         }
-        for msg in guideChatMessages.dropLast() {
+        for msg in msgs {
+            if msg.id == turnId { break }
+            if msg.failed { continue }
             history.append(["role": msg.role, "content": msg.content])
         }
+
+        let sid = isChapter ? chapterSessionId : guideSessionId
+        let pageParam = isChapter ? chapterGuide?.pageStart : currentPage
+        let parentId = isChapter ? chapterGuide?.feedbackId : pageGuide?.feedbackId
+        let tag = isChapter ? "chapter-chat" : "guide-chat"
+        let messageText = userMsg.content
 
         Task {
             do {
@@ -416,26 +440,75 @@ struct PdfViewerView: View {
                 }
 
                 let reqBody = ChatReq(
-                    message: text,
+                    message: messageText,
                     history: history,
                     response_language: Config.responseLanguage,
                     textbook_id: textbookId,
-                    current_page: currentPage,
-                    parent_feedback_id: pageGuide?.feedbackId
+                    current_page: pageParam,
+                    parent_feedback_id: parentId
                 )
 
                 let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
 
                 await MainActor.run {
-                    guideChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
+                    appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id)
                     if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
-                    guideChatSending = false
+                    setGuideSending(isChapter, false)
                 }
             } catch {
-                appLogError("guide-chat", "send failed", ["error": "\(error)"])
-                await MainActor.run { guideChatSending = false }
+                appLogError(tag, "send failed", ["error": "\(error)"])
+                await MainActor.run {
+                    if case APIError.quotaExceeded = error {
+                        // 재시도해도 quota는 안 풀림 — 비-pro는 Paywall, pro는 시트 유지.
+                        _ = quotaGuideMessage { if isChapter { showChapterGuide = false } else { showGuide = false } }
+                    } else {
+                        setGuideFailed(isChapter, turnId: turnId, true)
+                    }
+                    setGuideSending(isChapter, false)
+                }
             }
         }
+    }
+
+    /// 실패한 가이드 채팅 메시지를 같은 내용으로 재전송.
+    private func retryGuideChat(turnId: String, isChapter: Bool) {
+        let msgs = isChapter ? chapterChatMessages : guideChatMessages
+        guard let m = msgs.first(where: { $0.id.uuidString == turnId }) else { return }
+        appLog(isChapter ? "chapter-chat" : "guide-chat", "retry failed message")
+        deliverGuideChat(turnId: m.id, isChapter: isChapter)
+    }
+
+    /// 실패한 가이드 채팅 메시지를 입력창으로 되돌리고 버블 제거(영속분은 soft-delete) — 수정 후 재전송.
+    private func editGuideChat(turnId: String, isChapter: Bool) {
+        let msgs = isChapter ? chapterChatMessages : guideChatMessages
+        guard let m = msgs.first(where: { $0.id.uuidString == turnId }) else { return }
+        if isChapter {
+            chapterChatInput = m.content
+            chapterChatMessages.removeAll { $0.id == m.id }
+        } else {
+            guideChatInput = m.content
+            guideChatMessages.removeAll { $0.id == m.id }
+        }
+        if let pid = m.persistedId { try? db.softDeleteChatMessage(id: pid) }
+        appLog(isChapter ? "chapter-chat" : "guide-chat", "edit failed message")
+    }
+
+    // 가이드 채팅 @State 접근 헬퍼(page/chapter 분기) — deliver/retry/edit 공용.
+    private func setGuideSending(_ isChapter: Bool, _ value: Bool) {
+        if isChapter { chapterChatSending = value } else { guideChatSending = value }
+    }
+
+    private func setGuideFailed(_ isChapter: Bool, turnId: UUID, _ value: Bool) {
+        if isChapter {
+            if let i = chapterChatMessages.firstIndex(where: { $0.id == turnId }) { chapterChatMessages[i].failed = value }
+        } else {
+            if let i = guideChatMessages.firstIndex(where: { $0.id == turnId }) { guideChatMessages[i].failed = value }
+        }
+    }
+
+    private func appendGuideAssistant(_ isChapter: Bool, content: String, serverId: String?) {
+        let msg = GuideChatMessage(role: "assistant", content: content, serverId: serverId)
+        if isChapter { chapterChatMessages.append(msg) } else { guideChatMessages.append(msg) }
     }
 
     // MARK: - Chapter Guide Sheet
@@ -445,7 +518,7 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: chapterChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
                 },
                 input: $chapterChatInput,
                 sending: chapterChatSending,
@@ -457,7 +530,9 @@ struct PdfViewerView: View {
                         chapterChatMessages[i].rating = r
                     }
                     submitGuideRating(serverId: turn.serverId, rating: r, isPage: false)
-                }
+                },
+                onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: true) },
+                onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: true) }
             ) {
                 // 헤더 — 챕터 가이드 요약 + 스크랩/평가
                 if chapterGuideLoading {
@@ -566,10 +641,8 @@ struct PdfViewerView: View {
         let text = chapterChatInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         chapterChatInput = ""
-        chapterChatSending = true
 
-        chapterChatMessages.append(GuideChatMessage(role: "user", content: text))
-
+        var userMsg = GuideChatMessage(role: "user", content: text)
         // 세션 보장 + user 메시지 영속화 (§4.6). 챕터 본문은 세션 첫 assistant 메시지로 저장된다.
         let chapterBody = chapterGuide.map { chapterGuideText($0) }
         let sid = ensureGuideSession(kind: .chapterGuide, anchorPage: chapterGuide?.pageStart ?? currentPage,
@@ -577,54 +650,10 @@ struct PdfViewerView: View {
                                      bodyServerId: chapterGuide?.feedbackId)
         if let sid {
             try? db.setSessionTitleIfEmpty(sessionId: sid, title: text)
-            persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
+            userMsg.persistedId = persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
         }
-
-        // Build history: chapter guide content as first assistant message
-        var history: [[String: String]] = []
-        if let guide = chapterGuide {
-            history.append(["role": "assistant", "content": chapterGuideText(guide)])
-        }
-        for msg in chapterChatMessages.dropLast() {
-            history.append(["role": msg.role, "content": msg.content])
-        }
-
-        Task {
-            do {
-                struct ChatReq: Encodable {
-                    let message: String
-                    let history: [[String: String]]
-                    let response_language: String
-                    let textbook_id: String?
-                    let current_page: Int?
-                    let parent_feedback_id: String?
-                }
-                struct ChatRes: Decodable {
-                    let content: String
-                    let feedback_id: String?
-                }
-
-                let reqBody = ChatReq(
-                    message: text,
-                    history: history,
-                    response_language: Config.responseLanguage,
-                    textbook_id: textbookId,
-                    current_page: chapterGuide?.pageStart,
-                    parent_feedback_id: chapterGuide?.feedbackId
-                )
-
-                let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
-
-                await MainActor.run {
-                    chapterChatMessages.append(GuideChatMessage(role: "assistant", content: res.content, serverId: res.feedback_id))
-                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
-                    chapterChatSending = false
-                }
-            } catch {
-                appLogError("chapter-chat", "send failed", ["error": "\(error)"])
-                await MainActor.run { chapterChatSending = false }
-            }
-        }
+        chapterChatMessages.append(userMsg)
+        deliverGuideChat(turnId: userMsg.id, isChapter: true)
     }
 
     // MARK: - PDF Content
@@ -755,13 +784,14 @@ struct PdfViewerView: View {
         return session.id
     }
 
-    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?) {
+    @discardableResult
+    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?) -> String? {
         var msg = ChatMessageRecord(
             id: UUID().uuidString, sessionId: sessionId, role: role, content: content,
             createdAt: Date(), serverMessageId: serverId
         )
-        do { try db.saveChatMessage(&msg) }
-        catch { appLogError("guide-chat", "persist message failed", ["error": "\(error)"]) }
+        do { try db.saveChatMessage(&msg); return msg.id }
+        catch { appLogError("guide-chat", "persist message failed", ["error": "\(error)"]); return nil }
     }
 
     private func loadToc() {

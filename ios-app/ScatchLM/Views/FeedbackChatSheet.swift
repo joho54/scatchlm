@@ -24,6 +24,10 @@ struct SessionChatSheet: View {
     @State private var pushedRatingMessageId: String?
     @State private var errorMessage: String?
     @State private var scrapHintDismissed = false   // 온보딩 스크랩 안내 카드 닫힘.
+    /// 전송 실패한 user 메시지 id(세션 한정 in-memory). 일시적 업스트림 장애(502/500/529 등)에
+    /// 한해 채워지고, 해당 버블에 실패 표시 + 롱홀드 재시도/수정 메뉴를 띄운다. quota 초과는
+    /// 재시도가 무의미하므로 여기 넣지 않고 alert로 안내한다.
+    @State private var failedMessageIds: Set<String> = []
 
     private let db = DatabaseService.shared
 
@@ -42,7 +46,8 @@ struct SessionChatSheet: View {
             ChatThreadView(
                 turns: messages.map {
                     ChatTurn(id: $0.id, role: $0.role, content: $0.content,
-                             serverId: $0.serverMessageId, rating: $0.userRating)
+                             serverId: $0.serverMessageId, rating: $0.userRating,
+                             failed: failedMessageIds.contains($0.id))
                 },
                 input: $input,
                 sending: sending,
@@ -53,7 +58,9 @@ struct SessionChatSheet: View {
                         submitMessageRating(message: msg, rating: r, reasonTags: [], comment: nil)
                     }
                 },
-                onDetail: { turn in pushedRatingMessageId = turn.id }
+                onDetail: { turn in pushedRatingMessageId = turn.id },
+                onRetry: { turn in retryFailed(turnId: turn.id) },
+                onEdit: { turn in editFailed(turnId: turn.id) }
             ) {
                 // 헤더 — 피드백 카드 본문(저장 안 된 원본)을 assistant 버블로.
                 if let headerDisplay {
@@ -175,7 +182,6 @@ struct SessionChatSheet: View {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         input = ""
-        sending = true
 
         var userMsg = ChatMessageRecord(
             id: UUID().uuidString,
@@ -191,17 +197,49 @@ struct SessionChatSheet: View {
         } catch {
             appLogError("chat", "saveChatMessage(user) failed", ["error": "\(error)"])
             errorMessage = String(localized: "메시지를 저장하지 못했어요.")
-            sending = false
             return
         }
         messages.append(userMsg)
+        deliver(userMessage: userMsg)
+    }
 
-        // history: 헤더 본문(있으면) + 세션 메시지. 가이드 세션은 본문이 messages[0]에 이미 있음.
+    /// 실패한 user 메시지를 같은 내용으로 재전송. 실패 표시를 지우고 다시 deliver.
+    private func retryFailed(turnId: String) {
+        guard let msg = messages.first(where: { $0.id == turnId }) else { return }
+        appLog("chat", "retry failed message", ["sessionId": session.id])
+        deliver(userMessage: msg)
+    }
+
+    /// 실패한 user 메시지를 입력창으로 되돌리고 실패 버블을 제거(soft-delete) — 수정 후 재전송.
+    private func editFailed(turnId: String) {
+        guard let msg = messages.first(where: { $0.id == turnId }) else { return }
+        input = msg.content
+        failedMessageIds.remove(turnId)
+        messages.removeAll { $0.id == turnId }
+        do {
+            try db.softDeleteChatMessage(id: turnId)
+        } catch {
+            appLogError("chat", "softDeleteChatMessage failed", ["error": "\(error)"])
+        }
+        appLog("chat", "edit failed message", ["sessionId": session.id])
+    }
+
+    /// user 메시지를 서버로 전송하고 응답을 스레드에 추가한다. 첫 전송·재시도 공용 경로.
+    /// 실패 시 일시 장애(502/500/529 등)는 해당 버블을 failed로 표시해 롱홀드 재시도/수정을
+    /// 노출하고, quota 초과는 재시도가 무의미하므로 alert로만 안내한다.
+    private func deliver(userMessage: ChatMessageRecord) {
+        sending = true
+        failedMessageIds.remove(userMessage.id)
+
+        // history: 헤더 본문(있으면) + 이 메시지 '이전'의 전달된 메시지들. 실패한 user 메시지는
+        // 컨텍스트에서 제외(전달 안 됐으므로), 대상 메시지 자체는 message 필드로 따로 보낸다.
         var history: [[String: String]] = []
         if let headerDisplay {
             history.append(["role": "assistant", "content": headerDisplay])
         }
         for msg in messages {
+            if msg.id == userMessage.id { break }
+            if failedMessageIds.contains(msg.id) { continue }
             history.append(["role": msg.role, "content": msg.content])
         }
 
@@ -223,8 +261,8 @@ struct SessionChatSheet: View {
                 }
 
                 let reqBody = ChatReq(
-                    message: text,
-                    history: history.dropLast().map { $0 },
+                    message: userMessage.content,
+                    history: history,
                     response_language: Config.responseLanguage,
                     subject: subject,
                     textbook_id: textbookId,
@@ -257,9 +295,11 @@ struct SessionChatSheet: View {
                 appLogError("chat", "send failed", ["error": "\(error)"])
                 await MainActor.run {
                     if case APIError.quotaExceeded = error {
+                        // 재시도해도 quota는 안 풀리므로 실패 표시 대신 안내만.
                         errorMessage = String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
                     } else {
-                        errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.")
+                        // 일시 장애 — 버블에 실패 표시 + 롱홀드 재시도/수정 노출.
+                        failedMessageIds.insert(userMessage.id)
                     }
                     sending = false
                 }

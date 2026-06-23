@@ -22,6 +22,7 @@ from app.services.feedback_service import (
     estimate_cost_from_usage,
     get_feedback,
     get_recognition,
+    RECOGNITION_MODEL,
 )
 from app.services.pdf_service import extract_text as extract_pdf_text, extract_text_async
 from app.services.retrieval_service import search_relevant_chunks, format_chunks_as_context
@@ -122,9 +123,16 @@ async def request_feedback(
     # RAG 자동 검색 — 챕터 전체 텍스트가 없는 경우에만 실행
     if textbook_id and not context_parts:
         try:
-            recognized = await get_recognition(image_bytes, language)
+            recognized, rec_usage = await get_recognition(image_bytes, language)
+            if rec_usage is not None:
+                await log_llm_usage(
+                    db, user_id=user_id, model=RECOGNITION_MODEL,
+                    input_tokens=rec_usage.input_tokens, output_tokens=rec_usage.output_tokens,
+                    cost_usd=estimate_cost_from_usage(RECOGNITION_MODEL, rec_usage), latency_ms=0,
+                    task_type="recognition", language=language, billable=False,
+                )
             if recognized:
-                chunks = await search_relevant_chunks(db, textbook_id, recognized)
+                chunks = await search_relevant_chunks(db, textbook_id, recognized, user_id=user_id)
                 if chunks:
                     rag_context = format_chunks_as_context(chunks)
                     context_parts.append(f"[관련 교재 내용]\n{rag_context}")

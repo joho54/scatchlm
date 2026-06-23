@@ -30,8 +30,8 @@ def _page_guide_prompt(response_language: str) -> str:
     )
 
 
-async def generate_page_guide(page_text: str, response_language: str = "Korean") -> dict:
-    """페이지 텍스트를 기반으로 학습 가이드를 생성한다."""
+async def generate_page_guide(page_text: str, response_language: str = "Korean") -> tuple[dict, object]:
+    """페이지 텍스트를 기반으로 학습 가이드를 생성한다. (data, usage)를 반환한다."""
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     response = await client.messages.create(
@@ -50,7 +50,7 @@ async def generate_page_guide(page_text: str, response_language: str = "Korean")
         response.usage.input_tokens,
         response.usage.output_tokens,
     )
-    return {"topic": "", "content": content}
+    return {"topic": "", "content": content}, response.usage
 
 
 def _chapter_guide_prompt(response_language: str) -> str:
@@ -66,8 +66,8 @@ def _chapter_guide_prompt(response_language: str) -> str:
 Respond ONLY with valid JSON. No markdown, no explanation."""
 
 
-async def generate_chapter_guide(chapter_text: str, response_language: str = "Korean") -> dict:
-    """챕터 전체 텍스트를 기반으로 챕터 가이드를 생성한다."""
+async def generate_chapter_guide(chapter_text: str, response_language: str = "Korean") -> tuple[dict, object]:
+    """챕터 전체 텍스트를 기반으로 챕터 가이드를 생성한다. (data, usage)를 반환한다."""
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     response = await client.messages.create(
@@ -90,4 +90,4 @@ async def generate_chapter_guide(chapter_text: str, response_language: str = "Ko
         response.usage.input_tokens,
         response.usage.output_tokens,
     )
-    return data
+    return data, response.usage

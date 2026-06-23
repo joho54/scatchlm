@@ -16,12 +16,15 @@ log = logging.getLogger(__name__)
 DEFAULT_TOP_K = 3
 
 
+REWRITE_MODEL = "claude-haiku-4-5-20251001"
+
+
 async def rewrite_query_for_search(
     user_query: str,
     db: AsyncSession | None = None,
     textbook_id: str | None = None,
-) -> str:
-    """LLM으로 사용자 질문을 검색에 최적화된 쿼리로 변환한다. (Haiku, 저비용)"""
+) -> tuple[str, object | None]:
+    """LLM으로 사용자 질문을 검색에 최적화된 쿼리로 변환한다. (Haiku, 저비용). (query, usage)를 반환."""
     try:
         # 교재 목차를 컨텍스트로 제공
         toc_context = ""
@@ -55,10 +58,10 @@ async def rewrite_query_for_search(
         )
         rewritten = response.content[0].text.strip()
         log.info("Query rewrite: %s → %s", loglen(user_query), loglen(rewritten))
-        return rewritten
+        return rewritten, response.usage
     except Exception:
         log.exception("Query rewrite failed, using original")
-        return user_query
+        return user_query, None
 
 
 def _detect_chapter_reference(query: str) -> str | None:
@@ -216,10 +219,25 @@ async def search_relevant_chunks(
     textbook_id: str,
     query_text: str,
     top_k: int = DEFAULT_TOP_K,
+    *,
+    user_id: str | None = None,
 ) -> list[DocumentChunk]:
-    """하이브리드 검색: 챕터 → 페이지/섹션 → 의미 유사도."""
+    """하이브리드 검색: 챕터 → 페이지/섹션 → 의미 유사도.
+
+    user_id가 주어지면 쿼리 리라이트(Haiku) 비용을 llm_usage에 기록한다(billable=False —
+    quota 미차감, 관측 전용). RAG fallback 경로라 정상 UX에선 거의 도달하지 않는다.
+    """
     # LLM 쿼리 리라이트 (목차 컨텍스트 포함) + 의미 유사도 검색
-    rewritten = await rewrite_query_for_search(query_text, db=db, textbook_id=textbook_id)
+    rewritten, rewrite_usage = await rewrite_query_for_search(query_text, db=db, textbook_id=textbook_id)
+    if user_id and rewrite_usage is not None:
+        from app.services.feedback_service import estimate_cost_from_usage
+        from app.services.usage_service import log_llm_usage
+        await log_llm_usage(
+            db, user_id=user_id, model=REWRITE_MODEL,
+            input_tokens=rewrite_usage.input_tokens, output_tokens=rewrite_usage.output_tokens,
+            cost_usd=estimate_cost_from_usage(REWRITE_MODEL, rewrite_usage), latency_ms=0,
+            task_type="query_rewrite", billable=False,
+        )
     query_embedding = await embed_query(rewritten)
 
     result = await db.execute(

@@ -30,15 +30,18 @@ Rules:
 - Skip preface, table of contents, index pages if identifiable"""
 
 
-async def detect_chapters(server_path: str, headers: list[dict] | None = None) -> list[dict]:
-    """LLM을 사용하여 PDF의 챕터 구조를 감지한다.
+async def detect_chapters(
+    server_path: str, headers: list[dict] | None = None
+) -> tuple[list[dict], object | None]:
+    """LLM을 사용하여 PDF의 챕터 구조를 감지한다. (chapters, usage|None)를 반환한다.
 
     headers가 주어지면(스캔본 OCR 경로) 그것을 사용하고, 없으면 텍스트 레이어에서 추출한다.
+    LLM 호출이 없었던 경우(헤더 없음) usage는 None.
     """
     if headers is None:
         headers = extract_page_headers(server_path)
     if not headers:
-        return []
+        return [], None
 
     # 페이지 헤더를 텍스트로 조합
     input_text = "\n".join(
@@ -67,4 +70,4 @@ async def detect_chapters(server_path: str, headers: list[dict] | None = None) -
         response.usage.output_tokens,
         len(chapters),
     )
-    return chapters
+    return chapters, response.usage

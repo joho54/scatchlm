@@ -67,6 +67,27 @@ async def test_quota_acquires_per_user_advisory_lock(monkeypatch):
     assert "pg_advisory_xact_lock" in sql
 
 
+async def test_quota_daily_sum_excludes_non_billable(monkeypatch):
+    """일일 비용 합산이 billable=True 행만 센다 (regression).
+
+    이 필터가 빠지면 면제 대상(chapter_detect/recognition/query_rewrite/ocr)이 사용자
+    일일 quota를 갉아먹는다. 합계 쿼리의 WHERE에 billable 조건이 있는지로 가드.
+    """
+    from app.core import quota
+
+    monkeypatch.setattr(quota.settings, "DAILY_COST_LIMIT_NORMAL_USD", 1.0)
+
+    db = AsyncMock()
+    db.execute = AsyncMock()
+    db.scalar = AsyncMock(return_value=0.0)
+
+    await check_daily_quota("u1", "normal", db)
+
+    db.scalar.assert_awaited_once()
+    sum_query = str(db.scalar.await_args.args[0])
+    assert "billable" in sum_query
+
+
 async def test_quota_unlimited_tier_skips_lock(monkeypatch):
     """한도 0(무제한)이면 lock·집계 쿼리 모두 생략(오버헤드 회피)."""
     from app.core import quota

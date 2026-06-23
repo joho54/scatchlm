@@ -22,10 +22,14 @@ async def log_llm_usage(
     task_type: str,
     language: str = "",
     has_textbook_context: bool = False,
+    billable: bool = True,
     error: str | None = None,
     commit: bool = False,
 ) -> None:
-    """LLMUsage 행을 세션에 추가한다. commit=True면 즉시 커밋(백그라운드 잡 페이지별 적재용)."""
+    """LLMUsage 행을 세션에 추가한다. commit=True면 즉시 커밋(백그라운드 잡 페이지별 적재용).
+
+    billable=False면 비용은 기록하되 일일 quota(quota.py) 합산에선 제외된다.
+    """
     db.add(LLMUsage(
         user_id=user_id,
         model=model,
@@ -37,6 +41,7 @@ async def log_llm_usage(
         task_type=task_type,
         language=language,
         has_textbook_context=has_textbook_context,
+        billable=billable,
         error=error,
     ))
     if commit:

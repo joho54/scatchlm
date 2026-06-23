@@ -84,6 +84,7 @@ async def check_daily_quota(user_id: str, tier: str, db: AsyncSession, *, is_adm
         select(func.coalesce(func.sum(LLMUsage.cost_usd), 0.0)).where(
             LLMUsage.user_id == user_id,
             LLMUsage.created_at >= since,
+            LLMUsage.billable.is_(True),
         )
     )
     used = float(used or 0.0)

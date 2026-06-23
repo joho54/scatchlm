@@ -33,10 +33,11 @@ from app.services.pdf_service import (
     _open_pdf,
 )
 from app.services.indexing_service import index_textbook
-from app.services.guide_service import generate_page_guide, generate_chapter_guide
-from app.services.chapter_service import detect_chapters
+from app.services.guide_service import generate_page_guide, generate_chapter_guide, GUIDE_MODEL
+from app.services.chapter_service import detect_chapters, CHAPTER_MODEL
 from app.services.ocr_service import render_page, ocr_page
 from app.services.usage_service import log_llm_usage
+from app.services.feedback_service import estimate_cost_from_usage
 from app.services.storage import storage
 
 log = logging.getLogger(__name__)
@@ -72,19 +73,32 @@ def _save_detected_chapters(db, textbook_id: str, entries: list[dict], total_pag
         ))
 
 
-async def _background_detect_chapters(textbook_id: str, server_path: str, total_pages: int):
+async def _log_chapter_detect_usage(db, user_id: str | None, usage) -> None:
+    """챕터 감지(Haiku) 비용을 기록한다. billable=False — 업로드 자동이라 quota 미차감."""
+    if not user_id or usage is None:
+        return
+    await log_llm_usage(
+        db, user_id=user_id, model=CHAPTER_MODEL,
+        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+        cost_usd=estimate_cost_from_usage(CHAPTER_MODEL, usage), latency_ms=0,
+        task_type="chapter_detect", billable=False,
+    )
+
+
+async def _background_detect_chapters(textbook_id: str, user_id: str, server_path: str, total_pages: int):
     """TOC가 없을 때 LLM으로 챕터 구조를 감지한다(텍스트 레이어 PDF)."""
     async with async_session() as db:
         try:
-            entries = await detect_chapters(server_path)
+            entries, usage = await detect_chapters(server_path)
             _save_detected_chapters(db, textbook_id, entries, total_pages)
+            await _log_chapter_detect_usage(db, user_id, usage)
             await db.commit()
             log.info("Background chapter detection done: textbook=%s chapters=%d", textbook_id, len(entries))
         except Exception:
             log.exception("Background chapter detection failed: textbook=%s", textbook_id)
 
 
-async def _detect_chapters_from_ocr(db, textbook_id: str, server_path: str, total_pages: int) -> None:
+async def _detect_chapters_from_ocr(db, textbook_id: str, user_id: str, server_path: str, total_pages: int) -> None:
     """OCR된 페이지 텍스트에서 챕터 구조를 감지해 저장한다(스캔본). 이미 챕터가 있으면 호출되지 않음."""
     rows = (await db.execute(
         select(OcrPageText).where(OcrPageText.textbook_id == textbook_id).order_by(OcrPageText.page)
@@ -92,8 +106,9 @@ async def _detect_chapters_from_ocr(db, textbook_id: str, server_path: str, tota
     headers = headers_from_ocr_rows(rows)
     if not headers:
         return
-    entries = await detect_chapters(server_path, headers=headers)
+    entries, usage = await detect_chapters(server_path, headers=headers)
     _save_detected_chapters(db, textbook_id, entries, total_pages)
+    await _log_chapter_detect_usage(db, user_id, usage)
     await db.commit()
     log.info("OCR chapter detection done: textbook=%s chapters=%d", textbook_id, len(entries))
 
@@ -192,6 +207,10 @@ async def _background_ocr(textbook_id: str, user_id: str):
                             input_tokens=result.input_tokens, output_tokens=result.output_tokens,
                             cost_usd=result.cost_usd, latency_ms=result.latency_ms,
                             task_type="ocr",
+                            # OCR은 자체 트랙(월 파일수 + check_ocr_quota 일일 백스톱)으로 게이트하므로
+                            # 일일 비용 quota엔 차감하지 않는다(이중 카운트 방지). check_ocr_quota는
+                            # task_type='ocr'를 직접 합산하므로 billable과 무관하게 동작.
+                            billable=False,
                         )
                     await db.commit()  # 매 페이지 즉시 커밋 → 손실 0 / 재개
             finally:
@@ -209,7 +228,7 @@ async def _background_ocr(textbook_id: str, user_id: str):
                     select(func.count()).select_from(Chapter).where(Chapter.textbook_id == textbook_id)
                 )
                 if not existing:
-                    await _detect_chapters_from_ocr(db, textbook_id, source.server_path, source.total_pages)
+                    await _detect_chapters_from_ocr(db, textbook_id, user_id, source.server_path, source.total_pages)
         except Exception:
             log.exception("Background OCR failed: textbook=%s", textbook_id)
             try:
@@ -408,7 +427,7 @@ async def upload_pdf(
     elif not is_scanned:
         # TOC 없는 텍스트 PDF → LLM으로 백그라운드 감지.
         # 스캔본은 텍스트 레이어가 비어 있으므로 OCR 잡 완료 후에 감지(_background_ocr 참고).
-        background_tasks.add_task(_background_detect_chapters, source.id, server_path, total_pages)
+        background_tasks.add_task(_background_detect_chapters, source.id, user_id, server_path, total_pages)
 
     # 스캔본 OCR은 자동 시작하지 않는다 — 유저가 POST /{id}/ocr/start로 명시적 시작(쿼터 동의).
     background_tasks.add_task(_background_index, source.id, user_id, server_path)
@@ -770,9 +789,17 @@ async def get_page_guide(
     if not page_text.strip():
         raise HTTPException(status_code=400, detail="Page has no extractable text")
 
-    data = await generate_page_guide(page_text, response_language=response_language)
+    data, usage = await generate_page_guide(page_text, response_language=response_language)
     if isinstance(data.get("connections"), dict):
         data["connections"] = json.dumps(data["connections"], ensure_ascii=False)
+
+    # usage 기록 — 사용자가 직접 요청하는 재량 액션이라 일일 quota에 차감(billable=True).
+    await log_llm_usage(
+        db, user_id=user_id, model=GUIDE_MODEL,
+        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+        cost_usd=estimate_cost_from_usage(GUIDE_MODEL, usage), latency_ms=0,
+        task_type="page_guide", has_textbook_context=True, billable=True,
+    )
 
     # AIResponse 적재 — 평가 대상
     ai_resp = AIResponse(
@@ -894,7 +921,15 @@ async def get_chapter_guide(
     if not chapter_text.strip():
         raise HTTPException(status_code=400, detail="Chapter has no extractable text")
 
-    data = await generate_chapter_guide(chapter_text, response_language=response_language)
+    data, usage = await generate_chapter_guide(chapter_text, response_language=response_language)
+
+    # usage 기록 — 사용자가 직접 요청하는 재량 액션이라 일일 quota에 차감(billable=True).
+    await log_llm_usage(
+        db, user_id=user_id, model=GUIDE_MODEL,
+        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+        cost_usd=estimate_cost_from_usage(GUIDE_MODEL, usage), latency_ms=0,
+        task_type="chapter_guide", has_textbook_context=True, billable=True,
+    )
 
     # AIResponse 적재
     ai_resp = AIResponse(

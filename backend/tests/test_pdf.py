@@ -1,4 +1,5 @@
 import io
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from urllib.parse import quote
 
@@ -134,6 +135,8 @@ async def test_serve_pdf_file_non_ascii_filename_streaming(
 
 
 MOCK_PAGE_GUIDE = {"topic": "테스트 주제", "content": "테스트 가이드 본문"}
+# 가이드/챕터 생성 함수는 이제 (data, usage) 튜플을 반환한다. usage는 llm_usage 적재용.
+MOCK_USAGE = SimpleNamespace(input_tokens=100, output_tokens=200)
 
 
 async def _upload_test_pdf(client: AsyncClient, auth_header: dict) -> str:
@@ -160,7 +163,7 @@ async def test_page_guide_returns_feedback_id_cache_miss_then_hit(
     with patch(
         "app.routers.pdf.generate_page_guide",
         new_callable=AsyncMock,
-        return_value=MOCK_PAGE_GUIDE,
+        return_value=(MOCK_PAGE_GUIDE, MOCK_USAGE),
     ):
         miss = await client.get(
             f"/api/pdf/{textbook_id}/guide",
@@ -203,7 +206,7 @@ async def test_page_guide_cache_keyed_by_response_language(
     with patch(
         "app.routers.pdf.generate_page_guide",
         new_callable=AsyncMock,
-        return_value=MOCK_PAGE_GUIDE,
+        return_value=(MOCK_PAGE_GUIDE, MOCK_USAGE),
     ) as gen:
         # Korean 최초 → 생성(miss)
         ko_miss = await client.get(
@@ -269,7 +272,7 @@ async def test_chapter_guide_returns_feedback_id_cache_miss_then_hit(
     with patch(
         "app.routers.pdf.generate_chapter_guide",
         new_callable=AsyncMock,
-        return_value=MOCK_CHAPTER_GUIDE,
+        return_value=(MOCK_CHAPTER_GUIDE, MOCK_USAGE),
     ):
         miss = await client.get(
             f"/api/pdf/{textbook_id}/chapter-guide",

@@ -1,5 +1,6 @@
 """RAG 인덱싱 + 검색 테스트."""
 import io
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -113,7 +114,7 @@ async def test_feedback_with_rag_auto_search(client: AsyncClient, auth_header: d
     with patch(
         "app.routers.feedback.get_recognition",
         new_callable=AsyncMock,
-        return_value="vocabulary test",
+        return_value=("vocabulary test", SimpleNamespace(input_tokens=50, output_tokens=10)),
     ), patch(
         "app.routers.feedback.search_relevant_chunks",
         new_callable=AsyncMock,

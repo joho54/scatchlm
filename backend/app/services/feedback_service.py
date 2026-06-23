@@ -151,8 +151,13 @@ class FeedbackResult:
     latency_ms: int
 
 
-async def get_recognition(image_bytes: bytes, language: str = DEFAULT_SUBJECT) -> str | None:
-    """손글씨 이미지에서 텍스트만 인식한다 (RAG 쿼리용, 저비용 Haiku)."""
+RECOGNITION_MODEL = "claude-haiku-4-5-20251001"
+
+
+async def get_recognition(
+    image_bytes: bytes, language: str = DEFAULT_SUBJECT
+) -> tuple[str | None, object | None]:
+    """손글씨 이미지에서 텍스트만 인식한다 (RAG 쿼리용, 저비용 Haiku). (text, usage)를 반환한다."""
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     try:
         response = await client.messages.create(
@@ -177,10 +182,10 @@ async def get_recognition(image_bytes: bytes, language: str = DEFAULT_SUBJECT) -
         )
         text = response.content[0].text.strip()
         log.info("Recognition (Haiku): %s", loglen(text))
-        return text
+        return text, response.usage
     except Exception as e:
         log.exception("Recognition failed: error=%s", classify_anthropic_error(e))
-        return None
+        return None, None
 
 
 async def get_feedback(

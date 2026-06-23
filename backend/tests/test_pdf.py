@@ -197,6 +197,48 @@ async def test_page_guide_returns_feedback_id_cache_miss_then_hit(
 
 
 @pytest.mark.asyncio
+async def test_page_guide_records_billable_llm_usage(
+    client: AsyncClient, auth_header: dict, db_session
+):
+    """회귀: 페이지 가이드 캐시 미스가 llm_usage에 billable=True로 적재된다.
+
+    과거엔 guide 경로가 llm_usage에 전혀 안 잡혀 비용 회계가 과소집계되고 quota를
+    우회했다. 캐시 히트(LLM 호출 없음)는 적재하지 않아야 하므로 미스 1회 = 행 1개.
+    """
+    from sqlalchemy import select
+    from app.models.usage import LLMUsage
+    from tests.conftest import TEST_USER_ID
+
+    textbook_id = await _upload_test_pdf(client, auth_header)
+
+    with patch(
+        "app.routers.pdf.generate_page_guide",
+        new_callable=AsyncMock,
+        return_value=(MOCK_PAGE_GUIDE, MOCK_USAGE),
+    ):
+        miss = await client.get(
+            f"/api/pdf/{textbook_id}/guide", headers=auth_header,
+            params={"page": 1, "response_language": "Korean"},
+        )
+        # 캐시 히트는 LLM 호출 없음 → 적재도 없어야 함
+        await client.get(
+            f"/api/pdf/{textbook_id}/guide", headers=auth_header,
+            params={"page": 1, "response_language": "Korean"},
+        )
+    assert miss.status_code == 200
+
+    rows = (await db_session.execute(
+        select(LLMUsage).where(
+            LLMUsage.user_id == TEST_USER_ID,
+            LLMUsage.task_type == "page_guide",
+        )
+    )).scalars().all()
+    assert len(rows) == 1  # 미스 1회만 적재(히트는 미적재)
+    assert rows[0].billable is True
+    assert rows[0].input_tokens == 100
+
+
+@pytest.mark.asyncio
 async def test_page_guide_cache_keyed_by_response_language(
     client: AsyncClient, auth_header: dict
 ):

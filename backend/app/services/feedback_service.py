@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import json
 import logging
+import random
 import time
 from dataclasses import dataclass
 
@@ -28,7 +30,54 @@ def classify_anthropic_error(exc: Exception) -> str:
         return "connection"
     return "unknown"
 
-client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+# 일시적 업스트림 장애로 간주해 재시도하는 HTTP 상태(529=Overloaded, 5xx=내부/게이트웨이 오류).
+# 429(RateLimit)는 제외 — quota/paywall 경로에서 별도로 다루며, 무지성 재시도는 압박만 키운다.
+_RETRYABLE_STATUS = {500, 502, 503, 504, 529}
+
+
+def _is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, (anthropic.APITimeoutError, anthropic.APIConnectionError)):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        return getattr(exc, "status_code", None) in _RETRYABLE_STATUS
+    return False
+
+
+async def create_message_with_retry(
+    client: "anthropic.AsyncAnthropic",
+    *,
+    max_attempts: int = 4,
+    base_delay: float = 0.5,
+    **kwargs,
+):
+    """`client.messages.create`를 일시적 업스트림 장애에 한해 지수 백오프로 재시도한다.
+
+    재시도 대상: 529(Overloaded)·5xx·timeout·connection. 429/4xx 등 비일시적 에러는 즉시 raise해
+    기존 except 핸들러(분류·502/Paywall)가 그대로 동작한다. 최종 시도까지 실패하면 마지막 예외를 raise.
+
+    호출하는 client는 `max_retries=0`으로 생성해 SDK 내부 재시도와 증폭되지 않게 한다
+    (이 헬퍼가 단일 재시도 주체). 백오프는 ~0.5/1/2초 + 지터로 최악 ~6초 추가에 그친다 —
+    짧은 과부하 블립을 흡수하는 게 목적이고, 장시간 장애는 어차피 사용자에게 에러로 노출된다.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return await client.messages.create(**kwargs)
+        except Exception as exc:
+            if not _is_retryable(exc) or attempt == max_attempts - 1:
+                raise
+            last_exc = exc
+            delay = base_delay * (2 ** attempt) + random.uniform(0, base_delay)
+            log.warning(
+                "Anthropic transient error (%s), retry %d/%d in %.2fs",
+                classify_anthropic_error(exc), attempt + 1, max_attempts - 1, delay,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc  # pragma: no cover — 루프가 마지막 시도에서 raise함
+
+
+client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
 def _build_system_prompt(subject: str, response_language: str, has_textbook: bool = False) -> str:
     # 주제가 비면(즉시 생성 노트 등) 분야 중립 튜터로 동작 — chat 경로와 동일한 처리.
@@ -160,7 +209,8 @@ async def get_recognition(
     """손글씨 이미지에서 텍스트만 인식한다 (RAG 쿼리용, 저비용 Haiku). (text, usage)를 반환한다."""
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     try:
-        response = await client.messages.create(
+        response = await create_message_with_retry(
+            client,
             model="claude-haiku-4-5-20251001",
             max_tokens=256,
             messages=[{
@@ -225,7 +275,8 @@ async def get_feedback(
     user_content.append({"type": "text", "text": "\n".join(prompt_parts)})
 
     start = time.monotonic()
-    response = await client.messages.create(
+    response = await create_message_with_retry(
+        client,
         model=model,
         max_tokens=FEEDBACK_MAX_TOKENS,
         system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None),

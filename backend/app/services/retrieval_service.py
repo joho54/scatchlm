@@ -10,6 +10,7 @@ from app.core.log_sanitize import loglen
 from app.models.document import DocumentChunk
 from app.models.chapter import Chapter
 from app.services.embedding_service import embed_query
+from app.services.feedback_service import create_message_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ async def rewrite_query_for_search(
                 toc_lines = [f"- {ch.title} (p.{ch.page_start}-{ch.page_end or '?'})" for ch in chapters]
                 toc_context = "TEXTBOOK TABLE OF CONTENTS:\n" + "\n".join(toc_lines)
 
-        client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
         system_prompt = (
             "Rewrite the user's question into an optimal search query for finding relevant sections "
             "in a textbook. Output ONLY the search query, nothing else.\n"
@@ -50,7 +51,8 @@ async def rewrite_query_for_search(
         if toc_context:
             system_prompt += "\n\n" + toc_context
 
-        response = await client.messages.create(
+        response = await create_message_with_retry(
+            client,
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
             system=system_prompt,

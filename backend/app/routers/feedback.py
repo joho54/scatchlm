@@ -19,6 +19,7 @@ from app.models.textbook import TextbookSource
 from app.core.log_sanitize import loglen
 from app.services.feedback_service import (
     classify_anthropic_error,
+    create_message_with_retry,
     estimate_cost_from_usage,
     get_feedback,
     get_recognition,
@@ -405,7 +406,7 @@ async def feedback_chat(
             "No textbook is connected. Answer based on your general knowledge."
         )
 
-    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
     messages = []
     for msg in req.history:
@@ -422,7 +423,8 @@ async def feedback_chat(
     }]
 
     try:
-        response = await client.messages.create(
+        response = await create_message_with_retry(
+            client,
             model="claude-sonnet-4-6",
             max_tokens=2048,  # §11 L1: chat output 상한(설명형이라 피드백보다 넉넉히)
             system=system_blocks,

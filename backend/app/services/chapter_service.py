@@ -5,6 +5,7 @@ import re
 from anthropic import AsyncAnthropic
 
 from app.core.config import settings
+from app.services.feedback_service import create_message_with_retry
 from app.services.pdf_service import extract_page_headers
 
 log = logging.getLogger(__name__)
@@ -48,8 +49,9 @@ async def detect_chapters(
         f"[p.{h['page']}] {h['header']}" for h in headers
     )
 
-    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    response = await client.messages.create(
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
+    response = await create_message_with_retry(
+        client,
         model=CHAPTER_MODEL,
         max_tokens=2048,
         system=SYSTEM_PROMPT,

@@ -5,6 +5,7 @@ import re
 from anthropic import AsyncAnthropic
 
 from app.core.config import settings
+from app.services.feedback_service import create_message_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -32,9 +33,10 @@ def _page_guide_prompt(response_language: str) -> str:
 
 async def generate_page_guide(page_text: str, response_language: str = "Korean") -> tuple[dict, object]:
     """페이지 텍스트를 기반으로 학습 가이드를 생성한다. (data, usage)를 반환한다."""
-    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
-    response = await client.messages.create(
+    response = await create_message_with_retry(
+        client,
         model=GUIDE_MODEL,
         max_tokens=4096,
         system=_page_guide_prompt(response_language),
@@ -68,9 +70,10 @@ Respond ONLY with valid JSON. No markdown, no explanation."""
 
 async def generate_chapter_guide(chapter_text: str, response_language: str = "Korean") -> tuple[dict, object]:
     """챕터 전체 텍스트를 기반으로 챕터 가이드를 생성한다. (data, usage)를 반환한다."""
-    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
-    response = await client.messages.create(
+    response = await create_message_with_retry(
+        client,
         model=GUIDE_MODEL,
         max_tokens=2048,
         system=_chapter_guide_prompt(response_language),

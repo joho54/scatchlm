@@ -36,6 +36,7 @@ struct PdfViewerView: View {
     @State private var ocrError: String?   // OCR 시작 실패(월 건수 초과 등) 사용자 안내
     @State private var guideError: String?
     @State private var chapterGuideError: String?
+    @State private var showPaywall = false   // 가이드 quota(429) 도달 시 비-pro 업그레이드 유도
     /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
     @Binding var inkMode: Bool
 
@@ -109,6 +110,9 @@ struct PdfViewerView: View {
         .sheet(isPresented: $showToc) { tocSheet }
         .sheet(isPresented: $showGuide) { guideSheet }
         .sheet(isPresented: $showChapterGuide) { chapterGuideSheet }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(reason: String(localized: "오늘 무료 사용량을 모두 사용했어요. Pro로 업그레이드하면 더 많은 학습 가이드를 받을 수 있어요."))
+        }
         .alert("이미지 인식 시작", isPresented: $showOcrStartAlert) {
             Button("취소", role: .cancel) {}
             Button("시작") { startOcr() }
@@ -772,6 +776,18 @@ struct PdfViewerView: View {
         }
     }
 
+    /// 가이드 quota(429) 도달 시 공통 처리. 비-pro(구독 활성)면 가이드 시트를 닫고 Paywall을
+    /// 올린다(시트 동시 표시 충돌 회피 위해 닫힘 애니메이션 후 제시) — feedback 경로와 동작 일치.
+    /// 어느 경우든 친화 문구를 반환해 시트가 닫히기 전/pro 유저에게 표시되도록 한다.
+    private func quotaGuideMessage(dismissSheet: @escaping () -> Void) -> String {
+        let message = String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")
+        if Config.subscriptionEnabled, !StoreKitService.shared.isPro {
+            dismissSheet()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showPaywall = true }
+        }
+        return message
+    }
+
     private func loadPageGuide() {
         showGuide = true
         guideLoading = true
@@ -795,6 +811,9 @@ struct PdfViewerView: View {
             } catch let APIError.ocrIncomplete(info) {
                 appLog("pdf", "loadGuide ocr_incomplete", ["capped": "\(info.capped)"])
                 guideError = APIError.ocrIncomplete(info).errorDescription
+            } catch APIError.quotaExceeded(_) {
+                appLog("pdf", "loadGuide quota_exceeded", [:])
+                guideError = quotaGuideMessage(dismissSheet: { showGuide = false })
             } catch {
                 appLogError("pdf", "loadGuide failed", ["error": "\(error)"])
             }
@@ -822,6 +841,9 @@ struct PdfViewerView: View {
             } catch let APIError.ocrIncomplete(info) {
                 appLog("pdf", "loadChapterGuide ocr_incomplete", ["capped": "\(info.capped)"])
                 chapterGuideError = APIError.ocrIncomplete(info).errorDescription
+            } catch APIError.quotaExceeded(_) {
+                appLog("pdf", "loadChapterGuide quota_exceeded", [:])
+                chapterGuideError = quotaGuideMessage(dismissSheet: { showChapterGuide = false })
             } catch {
                 appLogError("pdf", "loadChapterGuide failed", ["error": "\(error)"])
             }

@@ -33,15 +33,18 @@ struct ChatThreadView<Header: View>: View {
     var onEdit: ((ChatTurn) -> Void)? = nil
 
     /// 리스트 최상단 헤더(피드백 카드 본문 / 가이드 설명 + 평가 등). 없으면 EmptyView.
-    @ViewBuilder var header: () -> Header
+    /// 현재 글자 크기(`fontSize`)를 받아 헤더 본문도 함께 키울 수 있게 한다.
+    @ViewBuilder var header: (CGFloat) -> Header
 
     @FocusState private var focused: Bool
+    /// 말풍선 글자 크기. 입력바의 글자 크기 메뉴로 조절하며 `Config.chatFontSize`에 영속화한다.
+    @State private var fontSize: CGFloat = Config.chatFontSize
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    header()
+                    header(fontSize)
                         .id("header")
 
                     ForEach(turns) { turn in
@@ -51,6 +54,7 @@ struct ChatThreadView<Header: View>: View {
                             serverId: turn.serverId,
                             rating: turn.rating,
                             failed: turn.failed,
+                            fontSize: fontSize,
                             onScrap: onScrap.map { f in { f(turn) } },
                             onRate: turn.role == "user" ? nil : onRate.map { f in { r in f(turn, r) } },
                             onDetail: turn.role == "user" ? nil : onDetail.map { f in { f(turn) } },
@@ -85,6 +89,8 @@ struct ChatThreadView<Header: View>: View {
                 VStack(spacing: 0) {
                     Divider()
                     HStack(spacing: 8) {
+                        fontSizeMenu
+
                         TextField(placeholder, text: $input, axis: .vertical)
                             .textFieldStyle(.roundedBorder)
                             .lineLimit(1...4)
@@ -107,6 +113,30 @@ struct ChatThreadView<Header: View>: View {
             }
         }
     }
+
+    /// 입력바 좌측 글자 크기 메뉴 — 작게/보통/크게/더 크게/아주 크게 프리셋.
+    /// 선택 시 즉시 말풍선·헤더에 반영(@State fontSize)하고 `Config.chatFontSize`에 영속화한다.
+    private var fontSizeMenu: some View {
+        Menu {
+            Picker(selection: Binding(
+                get: { fontSize },
+                set: { fontSize = $0; Config.chatFontSize = $0 }
+            )) {
+                Text("작게").tag(CGFloat(14))
+                Text("보통").tag(CGFloat(16))
+                Text("크게").tag(CGFloat(18))
+                Text("더 크게").tag(CGFloat(20))
+                Text("아주 크게").tag(CGFloat(22))
+            } label: {
+                Text("글자 크기")
+            }
+        } label: {
+            Image(systemName: "textformat.size")
+                .font(.system(size: 20))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+        }
+    }
 }
 
 extension ChatThreadView where Header == EmptyView {
@@ -121,6 +151,6 @@ extension ChatThreadView where Header == EmptyView {
         self.init(turns: turns, input: input, sending: sending, placeholder: placeholder,
                   onSend: onSend, onScrap: onScrap, onRate: onRate, onDetail: onDetail,
                   onRetry: onRetry, onEdit: onEdit,
-                  header: { EmptyView() })
+                  header: { _ in EmptyView() })
     }
 }

@@ -7,6 +7,7 @@ import SwiftUI
 struct ChatBubbleView<Actions: View>: View {
     let role: String
     let content: String
+    var fontSize: CGFloat = 14
     @ViewBuilder var actions: () -> Actions
 
     private var isUser: Bool { role == "user" }
@@ -16,7 +17,7 @@ struct ChatBubbleView<Actions: View>: View {
             HStack {
                 Spacer(minLength: 60)
                 Text(content)
-                    .font(.system(size: 14))
+                    .font(.system(size: fontSize))
                     .padding(12)
                     .background(Color.blue.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -24,7 +25,7 @@ struct ChatBubbleView<Actions: View>: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 // preferBake: 채팅 리스트에선 MarkdownUI(중첩 ForEach) 대신 bake 이미지로 — App Hang 방지.
-                MarkdownContentView(content: content, preferBake: true)
+                MarkdownContentView(content: content, fontSize: fontSize, preferBake: true)
                 Divider()
                 HStack(spacing: 12) { actions() }
             }
@@ -38,8 +39,8 @@ struct ChatBubbleView<Actions: View>: View {
 
 extension ChatBubbleView where Actions == EmptyView {
     /// 액션 없는 말풍선(user 메시지 등). user는 actions를 쓰지 않는다.
-    init(role: String, content: String) {
-        self.init(role: role, content: content, actions: { EmptyView() })
+    init(role: String, content: String, fontSize: CGFloat = 14) {
+        self.init(role: role, content: content, fontSize: fontSize, actions: { EmptyView() })
     }
 }
 
@@ -53,6 +54,8 @@ struct EquatableChatBubble: View, Equatable {
     var rating: Int? = nil
     /// 전송 실패한 user 메시지 — 실패 캡션 + 롱홀드 재시도/수정 메뉴.
     var failed: Bool = false
+    /// 말풍선 글자 크기. ==에 포함해 사용자가 크기를 바꾸면 버블이 재평가되도록 한다.
+    var fontSize: CGFloat = 14
     var onScrap: (() -> Void)? = nil
     var onRate: ((Int) -> Void)? = nil
     var onDetail: (() -> Void)? = nil
@@ -61,7 +64,7 @@ struct EquatableChatBubble: View, Equatable {
 
     static func == (l: EquatableChatBubble, r: EquatableChatBubble) -> Bool {
         l.role == r.role && l.content == r.content && l.serverId == r.serverId
-            && l.rating == r.rating && l.failed == r.failed
+            && l.rating == r.rating && l.failed == r.failed && l.fontSize == r.fontSize
     }
 
     var body: some View {
@@ -69,10 +72,10 @@ struct EquatableChatBubble: View, Equatable {
             if failed {
                 failedUserBubble
             } else {
-                ChatBubbleView(role: role, content: content)
+                ChatBubbleView(role: role, content: content, fontSize: fontSize)
             }
         } else {
-            ChatBubbleView(role: role, content: content) {
+            ChatBubbleView(role: role, content: content, fontSize: fontSize) {
                 if let onScrap {
                     Button { onScrap() } label: {
                         Label("스크랩", systemImage: "pin.fill")
@@ -102,7 +105,7 @@ struct EquatableChatBubble: View, Equatable {
     /// 재시도/수정 메뉴가 뜬다(롱홀드 = SwiftUI 표준 long-press 메뉴).
     private var failedUserBubble: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            ChatBubbleView(role: role, content: content)
+            ChatBubbleView(role: role, content: content, fontSize: fontSize)
                 .contextMenu {
                     if let onRetry {
                         Button { onRetry() } label: { Label("재시도", systemImage: "arrow.clockwise") }

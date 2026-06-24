@@ -309,7 +309,7 @@ struct PdfViewerView: View {
                 },
                 onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: false) },
                 onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: false) }
-            ) {
+            ) { fontSize in
                 // 헤더 — 페이지 가이드 설명 + 스크랩/평가
                 if guideLoading {
                     ProgressView().padding(.top, 40)
@@ -319,7 +319,7 @@ struct PdfViewerView: View {
                             Text(guide.topic).font(.headline)
                         }
                         if let content = guide.content, !content.isEmpty {
-                            MarkdownContentView(content: content, preferBake: true)
+                            MarkdownContentView(content: content, fontSize: fontSize, preferBake: true)
                         }
                     }
                     .padding(.horizontal)
@@ -533,7 +533,7 @@ struct PdfViewerView: View {
                 },
                 onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: true) },
                 onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: true) }
-            ) {
+            ) { _ in
                 // 헤더 — 챕터 가이드 요약 + 스크랩/평가
                 if chapterGuideLoading {
                     ProgressView().padding(.top, 40)

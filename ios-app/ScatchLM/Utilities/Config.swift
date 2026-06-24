@@ -95,4 +95,21 @@ enum Config {
         get { MathRenderMode(rawValue: UserDefaults.standard.string(forKey: "mathRenderMode") ?? "") ?? .auto }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "mathRenderMode") }
     }
+
+    /// 채팅 말풍선 글자 크기(pt). 사용자가 채팅 입력바의 글자 크기 메뉴로 조절한다.
+    /// 작은 화면(아이폰 컴패니언)에서 기본 14pt가 너무 작다는 피드백에 대응. 12~24pt로 클램프.
+    static let chatFontSizeRange: ClosedRange<CGFloat> = 12...24
+    static let defaultChatFontSize: CGFloat = 16
+
+    static var chatFontSize: CGFloat {
+        get {
+            let v = UserDefaults.standard.object(forKey: "chatFontSize") as? Double
+            guard let v else { return defaultChatFontSize }
+            return min(max(CGFloat(v), chatFontSizeRange.lowerBound), chatFontSizeRange.upperBound)
+        }
+        set {
+            let clamped = min(max(newValue, chatFontSizeRange.lowerBound), chatFontSizeRange.upperBound)
+            UserDefaults.standard.set(Double(clamped), forKey: "chatFontSize")
+        }
+    }
 }

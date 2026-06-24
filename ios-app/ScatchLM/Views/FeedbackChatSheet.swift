@@ -61,11 +61,12 @@ struct SessionChatSheet: View {
                 onDetail: { turn in pushedRatingMessageId = turn.id },
                 onRetry: { turn in retryFailed(turnId: turn.id) },
                 onEdit: { turn in editFailed(turnId: turn.id) }
-            ) {
+            ) { fontSize in
                 // 헤더 — 피드백 카드 본문(저장 안 된 원본)을 assistant 버블로.
                 if let headerDisplay {
                     EquatableChatBubble(
                         role: "assistant", content: headerDisplay, serverId: headerServerId,
+                        fontSize: fontSize,
                         onScrap: onPin != nil ? { onPin?(headerDisplay, headerServerId); dismiss() } : nil
                     )
                     .equatable()

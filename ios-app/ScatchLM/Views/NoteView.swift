@@ -41,6 +41,39 @@ final class NoteCanvasView: PKCanvasView {
     }
 }
 
+/// FAB pill을 화면 어디로든 옮긴 뒤 손을 떼면 스냅하는 앵커 포인트(4모서리 + 상/하 중앙).
+/// PencilKit 툴피커가 엣지에 도킹하는 것과 같은 자석 방식. 선택은 UserDefaults에 전역 영속.
+enum PillAnchor: String, CaseIterable {
+    case topLeading, top, topTrailing, bottomLeading, bottom, bottomTrailing
+
+    /// 컨테이너 크기와 pill 실측 크기로 pill 중심 좌표를 계산. 하단은 홈 인디케이터를 피해 여유를 더 둔다.
+    func center(in size: CGSize, pill: CGSize) -> CGPoint {
+        let padX: CGFloat = 16, padTop: CGFloat = 16, padBottom: CGFloat = 28
+        let left = padX + pill.width / 2
+        let midX = size.width / 2
+        let right = size.width - padX - pill.width / 2
+        let top = padTop + pill.height / 2
+        let bottom = size.height - padBottom - pill.height / 2
+        switch self {
+        case .topLeading: return CGPoint(x: left, y: top)
+        case .top: return CGPoint(x: midX, y: top)
+        case .topTrailing: return CGPoint(x: right, y: top)
+        case .bottomLeading: return CGPoint(x: left, y: bottom)
+        case .bottom: return CGPoint(x: midX, y: bottom)
+        case .bottomTrailing: return CGPoint(x: right, y: bottom)
+        }
+    }
+}
+
+/// FAB pill의 실측 크기를 body로 끌어올리는 preference — 앵커 중심/스냅 거리 계산에 필요.
+private struct PillSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 struct NoteView: View {
     let noteId: String
     /// 온보딩 전용 훅 — 피드백 카드가 캔버스에 추가되면 호출(채팅 안내 타이밍용). 일반 노트는 nil.
@@ -94,6 +127,13 @@ struct NoteView: View {
     @State private var dividerDragging = false
     /// PDF 필기 모드가 켜지면 true → 노트 캔버스 그리기를 막아 입력/툴피커 꼬임 방지.
     @State private var pdfInkActive = false
+    /// PDF 전체화면. PDF 토글 버튼을 길게 누르면 토글 — split이 아니라 PDF가 화면 전체를 덮는다.
+    /// 캔버스 지오메트리는 split 기준 그대로 두고 PDF 패널만 키워 PencilKit 재레이아웃을 피한다.
+    @State private var pdfFullscreen = false
+    // Floating FAB pill — 사용자가 드래그해 6개 앵커 중 하나로 스냅. 선택은 UserDefaults 전역 영속.
+    @State private var pillAnchor: PillAnchor = PillAnchor(rawValue: UserDefaults.standard.string(forKey: "notePillAnchor") ?? "") ?? .topTrailing
+    @State private var pillDragOffset: CGSize = .zero
+    @State private var pillSize: CGSize = CGSize(width: 360, height: 60)   // 실측 전 1프레임용 추정치
 
     private let db = DatabaseService.shared
 
@@ -117,6 +157,9 @@ struct NoteView: View {
                     let splitH = geo.size.height
                     let dthick = Self.dividerThickness
                     let landscape = isLandscape
+                    let fullscreen = pdfOpen && pdfFullscreen
+                    // pdfW/pdfH는 항상 split 기준 — 캔버스 지오메트리를 fullscreen에서도 그대로 둬 PencilKit
+                    // 재레이아웃을 막는다. PDF 패널만 fullscreen일 때 화면 전체로 키워 캔버스를 덮는다.
                     let pdfW = (pdfOpen && landscape) ? splitW * clampedLandscapeFraction(splitW) : 0
                     let pdfH = (pdfOpen && !landscape) ? splitH * clampedPortraitFraction : 0
                     let canvasRect: CGRect = !pdfOpen
@@ -133,15 +176,23 @@ struct NoteView: View {
 
                         if pdfOpen {
                             pdfPanel(note: note)
-                                .frame(width: landscape ? pdfW : splitW,
-                                       height: landscape ? splitH : pdfH)
-                            dividerHandle(isVertical: landscape, total: landscape ? splitW : splitH)
-                                .frame(width: landscape ? dthick : splitW,
-                                       height: landscape ? splitH : dthick)
-                                .offset(x: landscape ? pdfW : 0, y: landscape ? 0 : pdfH)
+                                .frame(width: fullscreen ? splitW : (landscape ? pdfW : splitW),
+                                       height: fullscreen ? splitH : (landscape ? splitH : pdfH))
+                            if !fullscreen {
+                                dividerHandle(isVertical: landscape, total: landscape ? splitW : splitH)
+                                    .frame(width: landscape ? dthick : splitW,
+                                           height: landscape ? splitH : dthick)
+                                    .offset(x: landscape ? pdfW : 0, y: landscape ? 0 : pdfH)
+                            }
                         }
                     }
                     .frame(width: splitW, height: splitH, alignment: .topLeading)
+
+                    // Floating FAB pill — body 최상단 overlay로 승격해 fullscreen PDF 위에도 떠 있게 한다.
+                    // 항상-위라서 같은 PDF 버튼 길게-누르기로 fullscreen 진입/종료를 토글할 수 있다.
+                    fabPill(note: note, containerSize: geo.size)
+                        .position(pillAnchor.center(in: geo.size, pill: pillSize))
+                        .offset(pillDragOffset)
 
                     // Toast
                     if let msg = toastMessage {
@@ -381,12 +432,7 @@ struct NoteView: View {
             canvasContent(note: note, panelWidth: panelWidth)
         }
         .overlay(alignment: .topLeading) { canvasTopControls() }
-        // AI 피드백(✨) 포함 FAB pill을 캔버스 상단 우측에 둔다 — 좌상단 컨트롤과 대칭.
-        .overlay(alignment: .topTrailing) {
-            fabPill(note: note)
-                .padding(.trailing, 12)
-                .padding(.top, 12)
-        }
+        // FAB pill은 body 최상단 floating overlay로 이동(drag/anchor + fullscreen 위 표시). 여기선 더 안 둔다.
     }
 
     @ViewBuilder
@@ -530,6 +576,7 @@ struct NoteView: View {
                 },
                 onClose: {
                     pdfOpen = false
+                    pdfFullscreen = false   // PDF 닫히면 전체화면 상태도 해제
                     pdfInkActive = false   // PDF 닫히면 노트 캔버스 그리기 복구
                     try? db.updatePdfOpen(noteId: noteId, open: false)
                 },
@@ -545,10 +592,38 @@ struct NoteView: View {
     // MARK: - FAB Pill
 
     @ViewBuilder
-    private func fabPill(note: Note) -> some View {
+    private func fabPill(note: Note, containerSize: CGSize) -> some View {
         VStack(spacing: 8) {
             // Main FAB
             HStack(spacing: 2) {
+                // 드래그 핸들 — 세로 그립. 이 그립으로만 pill을 옮긴다(버튼 탭과 충돌 방지). 손을 떼면 최근접 앵커로 스냅.
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.secondary.opacity(0.5))
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 22, height: 48)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { v in pillDragOffset = v.translation }
+                            .onEnded { v in
+                                let current = pillAnchor.center(in: containerSize, pill: pillSize)
+                                // 관성 — 놓은 위치가 아니라 속도로 외삽한 "예측 종점"으로 타깃을 고른다.
+                                // 빠르게 톡 밀면 predictedEnd가 멀리 뻗어 그 방향 앵커로 던져진다.
+                                let projected = CGPoint(x: current.x + v.predictedEndTranslation.width,
+                                                        y: current.y + v.predictedEndTranslation.height)
+                                let target = nearestPillAnchor(to: projected, in: containerSize)
+                                // 살짝 오버슈트하는 스프링 — 던진 듯한 모멘텀 체감.
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.68)) {
+                                    pillDragOffset = .zero
+                                    setPillAnchor(target)
+                                }
+                            }
+                    )
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(width: 1, height: 24)
+
                 #if targetEnvironment(simulator)
                 // Sim-only: 펜/스크롤 모드 토글
                 Button {
@@ -617,23 +692,16 @@ struct NoteView: View {
                     .fill(Color.black.opacity(0.08))
                     .frame(width: 1, height: 24)
 
-                // PDF toggle — 교재가 없으면 교재 설정 시트를 띄운다.
-                Button {
-                    if note.textbookId != nil {
-                        pdfOpen.toggle()
-                        try? db.updatePdfOpen(noteId: noteId, open: pdfOpen)
-                    } else {
-                        metaFocusTextbook = true
-                        showMetaEditor = true
-                    }
-                } label: {
-                    Image(systemName: pdfOpen ? "book.fill" : "book")
-                        .font(.system(size: 22))
-                        .foregroundStyle(pdfOpen ? .white : .secondary)
-                        .frame(width: 48, height: 48)
-                        .background(pdfOpen ? Color(white: 0, opacity: 0.7) : .clear)
-                        .clipShape(Circle())
-                }
+                // PDF toggle — 탭: 열기/닫기, 길게: 전체화면 토글. 교재가 없으면 교재 설정 시트를 띄운다.
+                Image(systemName: pdfFullscreen ? "arrow.down.right.and.arrow.up.left" : (pdfOpen ? "book.fill" : "book"))
+                    .font(.system(size: 22))
+                    .foregroundStyle(pdfOpen ? .white : .secondary)
+                    .frame(width: 48, height: 48)
+                    .background(pdfOpen ? Color(white: 0, opacity: 0.7) : .clear)
+                    .clipShape(Circle())
+                    .contentShape(Circle())
+                    .onTapGesture { togglePdf(note: note) }
+                    .onLongPressGesture(minimumDuration: 0.4) { togglePdfFullscreen(note: note) }
 
                 Rectangle()
                     .fill(Color.black.opacity(0.08))
@@ -666,7 +734,60 @@ struct NoteView: View {
             .background(.ultraThinMaterial)
             .clipShape(Capsule())
             .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
+            // 실측 크기를 body로 끌어올려 앵커 중심/스냅 거리 계산에 쓴다.
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: PillSizeKey.self, value: proxy.size)
+                }
+            )
         }
+        .onPreferenceChange(PillSizeKey.self) { size in
+            if size != .zero { pillSize = size }
+        }
+    }
+
+    /// 드롭 지점에서 가장 가까운 앵커. 거리는 제곱합 비교로 충분(sqrt 불필요).
+    private func nearestPillAnchor(to point: CGPoint, in container: CGSize) -> PillAnchor {
+        PillAnchor.allCases.min(by: { a, b in
+            let ca = a.center(in: container, pill: pillSize)
+            let cb = b.center(in: container, pill: pillSize)
+            let da = pow(ca.x - point.x, 2) + pow(ca.y - point.y, 2)
+            let db = pow(cb.x - point.x, 2) + pow(cb.y - point.y, 2)
+            return da < db
+        }) ?? .topTrailing
+    }
+
+    /// 앵커 변경 + UserDefaults 전역 영속.
+    private func setPillAnchor(_ anchor: PillAnchor) {
+        pillAnchor = anchor
+        UserDefaults.standard.set(anchor.rawValue, forKey: "notePillAnchor")
+    }
+
+    /// PDF 패널 열기/닫기(탭). 닫을 땐 전체화면도 해제.
+    private func togglePdf(note: Note) {
+        if note.textbookId != nil {
+            pdfOpen.toggle()
+            if !pdfOpen { pdfFullscreen = false }
+            try? db.updatePdfOpen(noteId: noteId, open: pdfOpen)
+        } else {
+            metaFocusTextbook = true
+            showMetaEditor = true
+        }
+    }
+
+    /// PDF 전체화면 토글(길게). 닫혀 있으면 먼저 연 뒤 전체화면으로 진입.
+    private func togglePdfFullscreen(note: Note) {
+        guard note.textbookId != nil else {
+            metaFocusTextbook = true
+            showMetaEditor = true
+            return
+        }
+        if !pdfOpen {
+            pdfOpen = true
+            try? db.updatePdfOpen(noteId: noteId, open: true)
+        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.easeInOut(duration: 0.2)) { pdfFullscreen.toggle() }
     }
 
     // MARK: - Data

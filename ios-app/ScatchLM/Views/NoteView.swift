@@ -2228,80 +2228,78 @@ struct PencilKitCanvasView: UIViewRepresentable {
             // 표시 뷰: 수식이면 WKWebView(글자 크기 적용·내부 스크롤), 아니면 네이티브 텍스트뷰(14, 측정뷰 재사용).
             let label: UIView = useKaTeX ? BakedMarkdownUIView(content: rawText, fontSize: bodyFontSize) : textView
 
+            // 하단 액션 바 — 좌: 대화 + 평가(👍 👎 ⋯), 우: 관리(고정 · 복사 · 되돌리기).
+            // 모든 글리프를 동일 심볼 설정(15pt medium)으로 통일해 크기·굵기를 맞춘다.
+            let iconCfg = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+            func cardIconButton(_ symbol: String, tint: UIColor = .secondaryLabel, enabled: Bool = true) -> UIButton {
+                let b = UIButton(type: .system)
+                b.setImage(UIImage(systemName: symbol, withConfiguration: iconCfg), for: .normal)
+                b.tintColor = tint
+                b.isEnabled = enabled
+                return b
+            }
+
             let buttonBar = UIStackView()
             buttonBar.axis = .horizontal
-            buttonBar.spacing = 12
+            buttonBar.spacing = 14
             buttonBar.alignment = .center
 
-            let chatBtn = UIButton(type: .system)
-            chatBtn.setImage(UIImage(systemName: "bubble.left.fill"), for: .normal)
+            // 대화 — 카드의 주 액션. 본문 탭과 동일하게 채팅을 연다(라벨 + 진한 톤으로 강조).
+            let chatBtn = cardIconButton("bubble.left.fill", tint: .label)
             chatBtn.setTitle(" " + String(localized: "대화"), for: .normal)
-            chatBtn.titleLabel?.font = .systemFont(ofSize: 12)
-            chatBtn.tintColor = .secondaryLabel
+            chatBtn.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
             let chatGesture = FeedbackTapGesture(target: self, action: #selector(feedbackCardTapped(_:)))
             chatGesture.feedbackRecord = fb
             chatBtn.addGestureRecognizer(chatGesture)
-
             buttonBar.addArrangedSubview(chatBtn)
 
-            // Rating buttons — 모든 AI 응답 카드에 노출
-            let upBtn = UIButton(type: .system)
-            let upName = fb.userRating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup"
-            upBtn.setImage(UIImage(systemName: upName), for: .normal)
-            upBtn.tintColor = fb.userRating == 1 ? UIColor.systemGreen : UIColor.secondaryLabel
-            upBtn.isEnabled = fb.serverFeedbackId != nil
+            // 평가 — 👍 / 👎 / 자세히(상세 사유). 모든 AI 응답 카드에 노출.
+            let upBtn = cardIconButton(fb.userRating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup",
+                                       tint: fb.userRating == 1 ? .systemGreen : .secondaryLabel,
+                                       enabled: fb.serverFeedbackId != nil)
             let upGesture = FeedbackTapGesture(target: self, action: #selector(feedbackThumbUpTapped(_:)))
             upGesture.feedbackRecord = fb
             upBtn.addGestureRecognizer(upGesture)
             buttonBar.addArrangedSubview(upBtn)
 
-            let downBtn = UIButton(type: .system)
-            let downName = fb.userRating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown"
-            downBtn.setImage(UIImage(systemName: downName), for: .normal)
-            downBtn.tintColor = fb.userRating == -1 ? UIColor.systemRed : UIColor.secondaryLabel
-            downBtn.isEnabled = fb.serverFeedbackId != nil
+            let downBtn = cardIconButton(fb.userRating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                                         tint: fb.userRating == -1 ? .systemRed : .secondaryLabel,
+                                         enabled: fb.serverFeedbackId != nil)
             let downGesture = FeedbackTapGesture(target: self, action: #selector(feedbackThumbDownTapped(_:)))
             downGesture.feedbackRecord = fb
             downBtn.addGestureRecognizer(downGesture)
             buttonBar.addArrangedSubview(downBtn)
 
-            let detailBtn = UIButton(type: .system)
-            detailBtn.setTitle(String(localized: "자세히"), for: .normal)
-            detailBtn.titleLabel?.font = .systemFont(ofSize: 12)
-            detailBtn.tintColor = .secondaryLabel
-            detailBtn.isEnabled = fb.serverFeedbackId != nil
+            // 자세히(상세 평가 시트) — 평가 클러스터의 "더보기" 글리프.
+            let detailBtn = cardIconButton("ellipsis", enabled: fb.serverFeedbackId != nil)
             let detailGesture = FeedbackTapGesture(target: self, action: #selector(feedbackRateDetailTapped(_:)))
             detailGesture.feedbackRecord = fb
             detailBtn.addGestureRecognizer(detailGesture)
             buttonBar.addArrangedSubview(detailBtn)
 
-            // 띄우기 — 이 카드를 화면공간 플로팅 창으로 고정해 스크롤 무관하게 참조(연습문제 풀이용).
-            let floatBtn = UIButton(type: .system)
-            floatBtn.setImage(UIImage(systemName: "pin"), for: .normal)
-            floatBtn.tintColor = .secondaryLabel
+            // 좌(대화·평가) / 우(관리) 분리.
+            buttonBar.addArrangedSubview(UIView())
+
+            // 고정 — 이 카드를 화면공간 플로팅 창으로 띄워 스크롤 무관하게 참조(연습문제 풀이용).
+            // PiP "팝아웃" 글리프 — 떠 있는 창으로 빼내는 동작을 직관적으로 표현.
+            let floatBtn = cardIconButton("pip.enter")
             let floatGesture = FeedbackTapGesture(target: self, action: #selector(feedbackFloatTapped(_:)))
             floatGesture.feedbackRecord = fb
             floatBtn.addGestureRecognizer(floatGesture)
             buttonBar.addArrangedSubview(floatBtn)
 
             // 다른 페이지로 복사 — 카드 본문을 그대로 다른 페이지에 정적 카드로 얹는다.
-            let copyBtn = UIButton(type: .system)
-            copyBtn.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
-            copyBtn.tintColor = .secondaryLabel
+            let copyBtn = cardIconButton("doc.on.doc")
             let copyGesture = FeedbackTapGesture(target: self, action: #selector(feedbackCopyTapped(_:)))
             copyGesture.feedbackRecord = fb
             copyBtn.addGestureRecognizer(copyGesture)
             buttonBar.addArrangedSubview(copyBtn)
 
-            buttonBar.addArrangedSubview(UIView())
-
             if isLast {
-                let revertBtn = UIButton(type: .system)
+                let revertBtn = cardIconButton("arrow.uturn.backward", tint: UIColor.systemRed.withAlphaComponent(0.7))
                 revertBtn.tag = 8888
-                revertBtn.setImage(UIImage(systemName: "arrow.uturn.backward"), for: .normal)
                 revertBtn.setTitle(" " + String(localized: "되돌리기"), for: .normal)
-                revertBtn.titleLabel?.font = .systemFont(ofSize: 12)
-                revertBtn.tintColor = UIColor.systemRed.withAlphaComponent(0.7)
+                revertBtn.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
                 let revertGesture = FeedbackTapGesture(target: self, action: #selector(feedbackRevertTapped(_:)))
                 revertGesture.feedbackRecord = fb
                 revertBtn.addGestureRecognizer(revertGesture)

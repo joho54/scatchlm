@@ -21,12 +21,19 @@ enum Config {
 
     static var apiBaseURL: String {
         #if DEBUG
-        // 기본은 운영 — 실기기 Debug 빌드에서도 그냥 닿고, #if DEBUG 디버그 로그(canvas 등)가
-        // 운영 로그로 흐른다. 로컬 백엔드로 작업할 땐 UserDefaults `devApiHost`를 LAN IP로 세팅.
+        // UserDefaults override가 최우선 — 실기기에서 같은 Wi-Fi의 Mac LAN IP로 붙일 때 등.
         if let host = UserDefaults.standard.string(forKey: "devApiHost") {
             return "http://\(host):18000/api"
         }
+        #if targetEnvironment(simulator)
+        // 시뮬레이터 Debug = 로컬 개발 루프 → 로컬 백엔드(18000)가 기본.
+        // 시뮬레이터는 호스트 loopback을 공유하므로 127.0.0.1로 Mac의 uvicorn(make serve)에 닿는다.
+        // prod로 붙이려면 devApiHost를 운영 호스트로 세팅(override). 로컬 백엔드가 꺼져 있으면 연결 실패함.
+        return "http://127.0.0.1:18000/api"
+        #else
+        // 실기기 Debug는 기존대로 운영 — 그냥 닿고, #if DEBUG 디버그 로그가 운영 로그로 흐른다.
         return "https://scatchlm.duckdns.org/api"
+        #endif
         #else
         return "https://scatchlm.duckdns.org/api"
         #endif

@@ -40,8 +40,10 @@ struct PdfViewerView: View {
     @State private var showPaywall = false   // 가이드 quota(429) 도달 시 비-pro 업그레이드 유도
     /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
     @Binding var inkMode: Bool
+    /// 부모의 undo 버튼이 PDF 입력 캔버스로 분기할 수 있게 하는 브리지(있으면). 읽기 전용에선 nil.
+    var inkController: PdfInkController?
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?, Bool) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, inkMode: Binding<Bool> = .constant(false)) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?, Bool) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, inkMode: Binding<Bool> = .constant(false), inkController: PdfInkController? = nil) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
@@ -51,6 +53,7 @@ struct PdfViewerView: View {
         self.noteId = noteId
         self.readOnly = readOnly
         self._inkMode = inkMode
+        self.inkController = inkController
         self._currentPage = State(initialValue: initialPage)
     }
 
@@ -715,7 +718,7 @@ struct PdfViewerView: View {
             // 잉크 모드 입력 레이어 — 노트 연결 + pdfView 준비 시에만 PDFView 위 형제로 얹는다.
             // 다크모드에선 표시 오버레이(PDF와 함께 반전)와 색을 맞추려 입력도 동일 반전.
             if inkMode, let noteId, let pdfView {
-                let input = PdfInkInputView(pdfView: pdfView, noteId: noteId, pdfPage: currentPage)
+                let input = PdfInkInputView(pdfView: pdfView, noteId: noteId, pdfPage: currentPage, inkController: inkController)
                 if colorScheme == .dark { input.colorInvert() } else { input }
             }
         }
@@ -1135,6 +1138,30 @@ struct NativePdfView: UIViewRepresentable {
 
 // MARK: - PDF 필기 입력 레이어 (ink 모드 전용 형제 레이어, 입력·저장을 우리가 100% 통제)
 
+/// PDF 입력 캔버스의 undo/redo 브리지. 부모(NoteView)가 소유하고, 입력 레이어가 살아있는 동안
+/// 캔버스 weak 참조를 주입한다. NoteView의 단일 undo 버튼이 `pdfInkActive`에 따라 노트 캔버스 ↔
+/// 이 컨트롤러로 분기 — 새 버튼/상태 없이 기존 토글의 배타성에 무임승차한다.
+/// 주의: 페이지 전환 시 입력 캔버스가 `drawing`을 재할당하므로 undo 스택은 페이지 단위로 초기화된다.
+@Observable
+final class PdfInkController {
+    weak var canvas: PKCanvasView?
+    var canUndo = false
+    var canRedo = false
+
+    func attach(_ canvas: PKCanvasView?) {
+        self.canvas = canvas
+        refresh()
+    }
+
+    func refresh() {
+        canUndo = canvas?.undoManager?.canUndo ?? false
+        canRedo = canvas?.undoManager?.canRedo ?? false
+    }
+
+    func undo() { canvas?.undoManager?.undo(); refresh() }
+    func redo() { canvas?.undoManager?.redo(); refresh() }
+}
+
 /// inkMode일 때만 PDFView 위에 형제로 얹히는 입력 레이어. 라이브 PDFView 대신 **현재 페이지를
 /// 정적 이미지로 렌더**해 host(UIScrollView) > contentView > [페이지이미지, 캔버스] 구조에 올린다
 /// (GoodNotes식). 1손가락=그리기(.anyInput), 2손가락=핀치 줌/팬(host). 라이브 PDFView 제스처와
@@ -1144,6 +1171,7 @@ struct PdfInkInputView: UIViewRepresentable {
     let pdfView: PDFView
     let noteId: String
     let pdfPage: Int
+    var inkController: PdfInkController?
     @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> InkHostScrollView {
@@ -1151,6 +1179,7 @@ struct PdfInkInputView: UIViewRepresentable {
         coord.noteId = noteId
         coord.pageNum = pdfPage
         coord.pdfDocument = pdfView.document
+        coord.controller = inkController
 
         // host: 줌/팬 주체. 펜=그리기, 2손가락=팬/핀치줌 (pan 최소 2터치).
         // 배경을 불투명으로 — 뒤의 라이브 PDFView(읽기 모드 줌 상태)를 완전히 덮어 겹침 방지.
@@ -1205,7 +1234,8 @@ struct PdfInkInputView: UIViewRepresentable {
             picker.setVisible(true, forFirstResponder: canvas)
             coord.toolPicker = picker
             canvas.becomeFirstResponder()
-            appLogDebug("ink", "input ready", ["page": "\(coord.pageNum)"])
+            coord.controller?.attach(canvas)   // undo 브리지 연결 — first responder 된 뒤라야 undoManager가 산다
+            appLogDebug("ink", "input ready", ["page": "\(coord.pageNum)", "undoMgr": "\(canvas.undoManager != nil)"])
         }
 
         NotificationCenter.default.addObserver(
@@ -1224,6 +1254,7 @@ struct PdfInkInputView: UIViewRepresentable {
 
     static func dismantleUIView(_ host: InkHostScrollView, coordinator: Coordinator) {
         coordinator.commit()                  // 사라질 때(잉크 모드 OFF) 즉시 저장
+        coordinator.controller?.attach(nil)   // undo 브리지 해제 — 잉크 OFF 후 stale canUndo 방지
         coordinator.canvas?.resignFirstResponder()
         if let picker = coordinator.toolPicker, let canvas = coordinator.canvas {
             picker.setVisible(false, forFirstResponder: canvas)
@@ -1237,6 +1268,7 @@ struct PdfInkInputView: UIViewRepresentable {
         weak var imageView: UIImageView?
         weak var canvas: PKCanvasView?
         var toolPicker: PKToolPicker?
+        var controller: PdfInkController?
         var pdfDocument: PDFDocument?
         var noteId: String = ""
         var pageNum: Int = 0
@@ -1280,6 +1312,7 @@ struct PdfInkInputView: UIViewRepresentable {
                     canvas.drawing = PKDrawing()
                 }
                 loaded = true
+                controller?.refresh()   // 페이지 로드 시 drawing 재할당 → undo 스택 비워짐. 버튼 disabled 동기화.
                 appLogDebug("ink", "input render", ["page": "\(pageNum)", "pageSize": "\(pb.size)", "loaded": "\(canvas.drawing.strokes.count)"])
             }
 
@@ -1313,6 +1346,7 @@ struct PdfInkInputView: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard loaded else { return }   // 초기 drawing 주입에 의한 콜백 무시
+            controller?.refresh()          // 스트로크/undo/redo 후 버튼 상태 갱신
             scheduleSave()
         }
 

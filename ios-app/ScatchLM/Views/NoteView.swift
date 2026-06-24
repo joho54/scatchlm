@@ -137,6 +137,8 @@ struct NoteView: View {
     @State private var dividerDragging = false
     /// PDF 필기 모드가 켜지면 true → 노트 캔버스 그리기를 막아 입력/툴피커 꼬임 방지.
     @State private var pdfInkActive = false
+    /// PDF 입력 캔버스 undo 브리지. 기존 FAB undo 버튼이 pdfInkActive에 따라 노트 캔버스 ↔ 이걸로 분기.
+    @State private var pdfInk = PdfInkController()
     /// PDF 전체화면. PDF 토글 버튼을 길게 누르면 토글 — split이 아니라 PDF가 화면 전체를 덮는다.
     /// 캔버스 지오메트리는 split 기준 그대로 두고 PDF 패널만 키워 PencilKit 재레이아웃을 피한다.
     @State private var pdfFullscreen = false
@@ -632,7 +634,8 @@ struct NoteView: View {
                     pinToCanvas(content: content, serverFeedbackId: responseId, float: float)
                 },
                 noteId: noteId,
-                inkMode: $pdfInkActive
+                inkMode: $pdfInkActive,
+                inkController: pdfInk
             )
         }
     }
@@ -712,29 +715,32 @@ struct NoteView: View {
                     .fill(Color.black.opacity(0.08))
                     .frame(width: 1, height: 24)
 
-                // Undo
+                // Undo — PDF 필기 모드면 PDF 입력 캔버스로, 아니면 노트 캔버스로 분기.
+                // 두 필기는 배타적(pdfInkActive가 노트 캔버스 입력을 막음)이라 대상이 항상 하나.
+                let inkUndo = pdfInkActive ? pdfInk.canUndo : canUndo
+                let inkRedo = pdfInkActive ? pdfInk.canRedo : canRedo
                 Button {
-                    canvasView.undoManager?.undo()
-                    refreshUndoState()
+                    if pdfInkActive { pdfInk.undo() }
+                    else { canvasView.undoManager?.undo(); refreshUndoState() }
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 18))
-                        .foregroundStyle(canUndo ? .secondary : Color.secondary.opacity(0.35))
+                        .foregroundStyle(inkUndo ? .secondary : Color.secondary.opacity(0.35))
                         .frame(width: 44, height: 48)
                 }
-                .disabled(!canUndo)
+                .disabled(!inkUndo)
 
                 // Redo
                 Button {
-                    canvasView.undoManager?.redo()
-                    refreshUndoState()
+                    if pdfInkActive { pdfInk.redo() }
+                    else { canvasView.undoManager?.redo(); refreshUndoState() }
                 } label: {
                     Image(systemName: "arrow.uturn.forward")
                         .font(.system(size: 18))
-                        .foregroundStyle(canRedo ? .secondary : Color.secondary.opacity(0.35))
+                        .foregroundStyle(inkRedo ? .secondary : Color.secondary.opacity(0.35))
                         .frame(width: 44, height: 48)
                 }
-                .disabled(!canRedo)
+                .disabled(!inkRedo)
 
                 Rectangle()
                     .fill(Color.black.opacity(0.08))

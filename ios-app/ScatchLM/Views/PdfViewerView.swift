@@ -8,7 +8,8 @@ struct PdfViewerView: View {
     let initialPage: Int
     let onPageChanged: (Int) -> Void
     let onClose: () -> Void
-    var onPin: ((String, String?) -> Void)?
+    /// 카드를 캔버스에 스크랩. 3번째 인자 float=true면 스크랩한 카드를 플로팅 문제 창으로 띄운다(연습문제).
+    var onPin: ((String, String?, Bool) -> Void)?
     /// 가이드 채팅 세션을 귀속시킬 노트(있으면). 드로어가 노트 단위로 세션을 모은다(§4.6).
     var noteId: String?
     /// 읽기 전용(iPhone 컴패니언). noteId는 필기 *표시*를 위해 받지만 *편집*(필기 버튼)은 가린다.
@@ -40,7 +41,7 @@ struct PdfViewerView: View {
     /// PDF 필기 모드. 부모(NoteView)가 소유 — 노트 캔버스 필기 시도 시 부모가 자동으로 끌 수 있게 바인딩.
     @Binding var inkMode: Bool
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, inkMode: Binding<Bool> = .constant(false)) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?, Bool) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, inkMode: Binding<Bool> = .constant(false)) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
@@ -303,7 +304,7 @@ struct PdfViewerView: View {
                 sending: guideChatSending,
                 placeholder: "질문하기...",
                 onSend: { sendGuideChat() },
-                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); showGuide = false } : nil,
+                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId, false); showGuide = false } : nil,
                 onRate: { turn, r in
                     if let i = guideChatMessages.firstIndex(where: { $0.id.uuidString == turn.id }) {
                         guideChatMessages[i].rating = r
@@ -332,7 +333,7 @@ struct PdfViewerView: View {
                     HStack(spacing: 12) {
                         if onPin != nil {
                             Button {
-                                onPin?(guide.content ?? guide.topic, guide.feedbackId)
+                                onPin?(guide.content ?? guide.topic, guide.feedbackId, false)
                                 showGuide = false
                             } label: {
                                 Label("스크랩", systemImage: "pin.fill")
@@ -470,7 +471,7 @@ struct PdfViewerView: View {
                     // 퀵액션('연습문제')으로 보낸 응답이면 자동 스크랩 후 가이드 시트를 닫아 캔버스로 내보낸다.
                     if pendingPracticeScrap {
                         pendingPracticeScrap = false
-                        onPin?(res.content, res.feedback_id)
+                        onPin?(res.content, res.feedback_id, true)
                         if isChapter { showChapterGuide = false } else { showGuide = false }
                     }
                 }
@@ -544,7 +545,7 @@ struct PdfViewerView: View {
                 sending: chapterChatSending,
                 placeholder: "질문하기...",
                 onSend: { sendChapterChat() },
-                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); showChapterGuide = false } : nil,
+                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId, false); showChapterGuide = false } : nil,
                 onRate: { turn, r in
                     if let i = chapterChatMessages.firstIndex(where: { $0.id.uuidString == turn.id }) {
                         chapterChatMessages[i].rating = r
@@ -589,7 +590,7 @@ struct PdfViewerView: View {
                         HStack(spacing: 12) {
                             if onPin != nil {
                                 Button {
-                                    onPin?(chapterGuideText(guide), guide.feedbackId)
+                                    onPin?(chapterGuideText(guide), guide.feedbackId, false)
                                     showChapterGuide = false
                                 } label: {
                                     Label("스크랩", systemImage: "pin.fill")

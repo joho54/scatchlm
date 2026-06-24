@@ -13,7 +13,7 @@ struct ChapterDrawerView: View {
     var onJump: (FeedbackRecord) -> Void
     /// 서랍에서 연 채팅의 **개별 메시지** 스크랩(pin). NoteView의 pinToCanvas로 연결.
     /// (세션 통째 스크랩은 제공하지 않는다 — 긴 대화를 캔버스에 올릴 필요가 없음.)
-    var onPin: ((String, String?) -> Void)?
+    var onPin: ((String, String?, Bool) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var sessions: [ChatSessionRecord] = []

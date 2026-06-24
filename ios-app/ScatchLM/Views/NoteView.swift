@@ -74,6 +74,16 @@ private struct PillSizeKey: PreferenceKey {
     }
 }
 
+/// 플로팅 문제 창의 실측 크기를 body로 끌어올리는 preference — pill과 같은 앵커/스냅 계산에 쓴다.
+/// PillSizeKey와 분리해야 둘이 서로의 크기를 덮어쓰지 않는다.
+private struct FloatWindowSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 struct NoteView: View {
     let noteId: String
     /// 온보딩 전용 훅 — 피드백 카드가 캔버스에 추가되면 호출(채팅 안내 타이밍용). 일반 노트는 nil.
@@ -135,6 +145,23 @@ struct NoteView: View {
     @State private var pillDragOffset: CGSize = .zero
     @State private var pillSize: CGSize = CGSize(width: 360, height: 60)   // 실측 전 1프레임용 추정치
 
+    // Floating 문제 창 — 스크랩한 카드 한 장을 화면공간(스크롤 무관)에 고정해, 연습문제 풀 때
+    // 위아래로 카드를 찾아 헤매지 않게 한다. 단일 창(최신 1장만, 새로 띄우면 교체). pill과 같은
+    // 드래그+앵커 스냅 인프라를 재사용. 앵커·접힘은 UserDefaults 전역 영속.
+    @State private var floatingCard: FeedbackRecord?
+    @State private var floatAnchor: PillAnchor = PillAnchor(rawValue: UserDefaults.standard.string(forKey: "noteFloatAnchor") ?? "") ?? .topLeading
+    @State private var floatDragOffset: CGSize = .zero
+    @State private var floatSize: CGSize = CGSize(width: 320, height: 200)   // 실측 전 추정치
+    // 사용자 조절 창 크기 — 코너 드래그로 리사이즈. UserDefaults 영속.
+    @State private var floatWidth: CGFloat = {
+        let w = UserDefaults.standard.double(forKey: "noteFloatWidth"); return w > 0 ? CGFloat(w) : 320
+    }()
+    @State private var floatHeight: CGFloat = {
+        let h = UserDefaults.standard.double(forKey: "noteFloatHeight"); return h > 0 ? CGFloat(h) : 300
+    }()
+    @State private var floatResizeStart: CGSize?   // 리사이즈 시작 시점 크기 앵커(translation 누적값 기준 계산)
+    @State private var floatContainerSize: CGSize = .zero   // body geo.size 캡처 — floatCard에서 상단 도킹 계산에 사용
+
     private let db = DatabaseService.shared
 
     @Environment(\.horizontalSizeClass) private var hSizeClass
@@ -188,11 +215,22 @@ struct NoteView: View {
                     }
                     .frame(width: splitW, height: splitH, alignment: .topLeading)
 
+                    // Floating 문제 창 — pill보다 아래 z-순서(pill이 항상 위). 카드 콘텐츠를 미러링해
+                    // 스크롤과 무관하게 떠 있다. 닫기(✕)/다른 카드 띄우기 전까지 유지.
+                    if let card = floatingCard {
+                        floatingProblemWindow(card: card, containerSize: geo.size)
+                            .position(floatAnchor.center(in: geo.size, pill: floatSize))
+                            .offset(floatDragOffset)
+                    }
+
                     // Floating FAB pill — body 최상단 overlay로 승격해 fullscreen PDF 위에도 떠 있게 한다.
                     // 항상-위라서 같은 PDF 버튼 길게-누르기로 fullscreen 진입/종료를 토글할 수 있다.
                     fabPill(note: note, containerSize: geo.size)
                         .position(pillAnchor.center(in: geo.size, pill: pillSize))
                         .offset(pillDragOffset)
+                        // 컨테이너 크기를 캡처 — floatCard의 상단 도킹 기본값 계산에 쓴다(부양 시점엔 geo 접근 불가).
+                        .onAppear { floatContainerSize = geo.size }
+                        .onChange(of: geo.size) { _, newValue in floatContainerSize = newValue }
 
                     // Toast
                     if let msg = toastMessage {
@@ -306,8 +344,8 @@ struct NoteView: View {
                 noteId: noteId,
                 subject: note?.language,
                 showScrapHint: showChatScrapHint,
-                onPin: { content, responseId in
-                    pinToCanvas(content: content, serverFeedbackId: responseId)
+                onPin: { content, responseId, float in
+                    pinToCanvas(content: content, serverFeedbackId: responseId, float: float)
                 }
             )
         }
@@ -320,9 +358,9 @@ struct NoteView: View {
                     showChapterDrawer = false
                     jumpToPlacement(fb)
                 },
-                onPin: { content, responseId in
+                onPin: { content, responseId, float in
                     showChapterDrawer = false
-                    pinToCanvas(content: content, serverFeedbackId: responseId)
+                    pinToCanvas(content: content, serverFeedbackId: responseId, float: float)
                 }
             )
         }
@@ -471,6 +509,9 @@ struct NoteView: View {
                 clipboard.content = fb.content
                 showToast(String(localized: "카드를 복사했어요. 빈 곳을 길게 눌러 붙여넣기 하세요."))
             },
+            onFeedbackFloat: { fb in
+                floatCard(fb)
+            },
             onPaste: {
                 pasteFromClipboard()
             }
@@ -580,8 +621,8 @@ struct NoteView: View {
                     pdfInkActive = false   // PDF 닫히면 노트 캔버스 그리기 복구
                     try? db.updatePdfOpen(noteId: noteId, open: false)
                 },
-                onPin: { content, responseId in
-                    pinToCanvas(content: content, serverFeedbackId: responseId)
+                onPin: { content, responseId, float in
+                    pinToCanvas(content: content, serverFeedbackId: responseId, float: float)
                 },
                 noteId: noteId,
                 inkMode: $pdfInkActive
@@ -612,7 +653,7 @@ struct NoteView: View {
                                 // 빠르게 톡 밀면 predictedEnd가 멀리 뻗어 그 방향 앵커로 던져진다.
                                 let projected = CGPoint(x: current.x + v.predictedEndTranslation.width,
                                                         y: current.y + v.predictedEndTranslation.height)
-                                let target = nearestPillAnchor(to: projected, in: containerSize)
+                                let target = nearestPillAnchor(to: projected, in: containerSize, size: pillSize)
                                 // 살짝 오버슈트하는 스프링 — 던진 듯한 모멘텀 체감.
                                 withAnimation(.spring(response: 0.4, dampingFraction: 0.68)) {
                                     pillDragOffset = .zero
@@ -747,10 +788,11 @@ struct NoteView: View {
     }
 
     /// 드롭 지점에서 가장 가까운 앵커. 거리는 제곱합 비교로 충분(sqrt 불필요).
-    private func nearestPillAnchor(to point: CGPoint, in container: CGSize) -> PillAnchor {
+    /// size는 스냅 대상의 실측 크기(pill/플로팅 창 공용).
+    private func nearestPillAnchor(to point: CGPoint, in container: CGSize, size: CGSize) -> PillAnchor {
         PillAnchor.allCases.min(by: { a, b in
-            let ca = a.center(in: container, pill: pillSize)
-            let cb = b.center(in: container, pill: pillSize)
+            let ca = a.center(in: container, pill: size)
+            let cb = b.center(in: container, pill: size)
             let da = pow(ca.x - point.x, 2) + pow(ca.y - point.y, 2)
             let db = pow(cb.x - point.x, 2) + pow(cb.y - point.y, 2)
             return da < db
@@ -761,6 +803,146 @@ struct NoteView: View {
     private func setPillAnchor(_ anchor: PillAnchor) {
         pillAnchor = anchor
         UserDefaults.standard.set(anchor.rawValue, forKey: "notePillAnchor")
+    }
+
+    private func setFloatAnchor(_ anchor: PillAnchor) {
+        floatAnchor = anchor
+        UserDefaults.standard.set(anchor.rawValue, forKey: "noteFloatAnchor")
+    }
+
+    private func persistFloatSize() {
+        UserDefaults.standard.set(Double(floatWidth), forKey: "noteFloatWidth")
+        UserDefaults.standard.set(Double(floatHeight), forKey: "noteFloatHeight")
+    }
+
+    /// 화면 상단(.top 앵커)에 도킹하면 상위 절반을 자동으로 채운다(전체폭 × 화면 절반 높이).
+    /// macOS 창 상단 스냅처럼 — "문제를 위에 크게, 필기는 아래" 흐름. 컨테이너 기준으로 즉시 적용·영속.
+    private func applyTopHalfFill(container: CGSize) {
+        floatWidth = container.width - 32
+        floatHeight = container.height * 0.5
+        persistFloatSize()
+    }
+
+    /// 헤더 도킹 버튼 — 드래그-상단-스냅과 동일한 "상위 절반 채움"의 발견 가능한 단방향 경로.
+    /// 되돌리기는 드래그/리사이즈로(토글 복원은 v1 미포함).
+    private func dockToTop(container: CGSize) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            floatDragOffset = .zero
+            setFloatAnchor(.top)
+            applyTopHalfFill(container: container)
+        }
+    }
+
+    /// 카드 콘텐츠(`{"type":"feedback","content":…}` JSON 또는 원문)를 표시 텍스트로 파싱.
+    /// renderCard의 displayText 추출과 같은 규칙.
+    private func floatDisplayText(_ raw: String) -> String {
+        if let data = raw.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
+            return parsed.displayText
+        }
+        return raw
+    }
+
+    // MARK: - Floating 문제 창
+
+    /// pill과 동일한 그립 드래그 → 6앵커 자석 스냅. 핸들로만 옮긴다(버튼 탭과 충돌 방지).
+    private func floatDragHandle(containerSize: CGSize) -> some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color.secondary.opacity(0.6))
+            .frame(width: 44, height: 28)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { v in floatDragOffset = v.translation }
+                    .onEnded { v in
+                        let current = floatAnchor.center(in: containerSize, pill: floatSize)
+                        let projected = CGPoint(x: current.x + v.predictedEndTranslation.width,
+                                                y: current.y + v.predictedEndTranslation.height)
+                        let target = nearestPillAnchor(to: projected, in: containerSize, size: floatSize)
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.68)) {
+                            floatDragOffset = .zero
+                            setFloatAnchor(target)
+                            // 상단 중앙 도킹 → 상위 절반 자동 채움. 다른 앵커는 사용자 크기 유지.
+                            if target == .top {
+                                applyTopHalfFill(container: containerSize)
+                            }
+                        }
+                    }
+            )
+    }
+
+    /// 우하단 코너 리사이즈 그립. 드래그로 폭·높이 조절(드래그 우/하 = 커짐), 컨테이너 안으로 클램프.
+    /// 헤더(상단)와 안 겹치게 하단 고정. 창은 앵커 고정이라, 상/좌 앵커에선 우하단으로 자연스럽게
+    /// 커지고 하/우 앵커에선 고정 모서리 기준으로 커진다.
+    private func floatResizeHandle(containerSize: CGSize) -> some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(Color.secondary.opacity(0.7))
+            .frame(width: 30, height: 30)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { v in
+                        let start = floatResizeStart ?? CGSize(width: floatWidth, height: floatHeight)
+                        if floatResizeStart == nil { floatResizeStart = start }
+                        floatWidth = min(max(start.width + v.translation.width, 240), containerSize.width - 32)
+                        floatHeight = min(max(start.height + v.translation.height, 160), containerSize.height * 0.9)
+                    }
+                    .onEnded { _ in
+                        floatResizeStart = nil
+                        persistFloatSize()
+                    }
+            )
+    }
+
+    /// 스크랩한 카드 한 장을 화면공간에 고정해 보여주는 창. ✕로 닫기.
+    /// 본문은 카드와 같은 마크다운/수식 렌더(`MarkdownContentView`)로, 길면 창 안에서 스크롤한다.
+    @ViewBuilder
+    private func floatingProblemWindow(card: FeedbackRecord, containerSize: CGSize) -> some View {
+        let text = floatDisplayText(card.content)
+        VStack(spacing: 0) {
+            ZStack {
+                // 일반 윈도우(macOS)처럼 창 제어 버튼을 좌측에 모은다 — 닫기 + 상단 도킹.
+                HStack(spacing: 4) {
+                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { floatingCard = nil } } label: {
+                        Image(systemName: "xmark").font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    Button { dockToTop(container: containerSize) } label: {
+                        Image(systemName: "rectangle.tophalf.inset.filled").font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                // 드래그 그립 — 상단 탭 가운데(가로 햄버거). 좌측 버튼과 ZStack으로 겹쳐 중앙 고정.
+                floatDragHandle(containerSize: containerSize)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            Divider()
+            ScrollView {
+                MarkdownContentView(content: text, fontSize: 14)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        // 사용자 조절 크기(코너 드래그). 컨테이너를 넘지 않게 클램프.
+        .frame(width: min(floatWidth, containerSize.width - 32),
+               height: min(floatHeight, containerSize.height * 0.9))
+        .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14))   // 피드백 카드와 동일 배경
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.08)))
+        .overlay(alignment: .bottomTrailing) { floatResizeHandle(containerSize: containerSize) }
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 3)
+        // 실측 크기를 끌어올려 앵커 중심/스냅 거리 계산에 쓴다(pill과 동일 패턴).
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: FloatWindowSizeKey.self, value: proxy.size)
+            }
+        )
+        .onPreferenceChange(FloatWindowSizeKey.self) { size in
+            if size != .zero { floatSize = size }
+        }
     }
 
     /// PDF 패널 열기/닫기(탭). 닫을 땐 전체화면도 해제.
@@ -865,6 +1047,7 @@ struct NoteView: View {
         let page = notePages[index]
         currentNotePage = page
         currentPageIndex = index
+        floatingCard = nil   // 플로팅 문제는 페이지 종속 — 페이지 바뀌면 닫는다(다른 페이지 카드가 떠 있는 혼란 방지).
 
         // coordinator의 렌더링 높이 리셋
         if let delegate = canvasView.delegate as? PencilKitCanvasView.Coordinator {
@@ -888,7 +1071,7 @@ struct NoteView: View {
     /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수.
     /// 카드는 세션을 캔버스에 배치한 placement다(§4.5). `sessionId`가 주어지면 그 세션에 연결하고
     /// (드로어 재스크랩 — 1 session→N cards), 없으면 이 카드용 kind=feedback 세션을 새로 만든다(세션화 통일).
-    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false) {
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false) {
         // skip(피드백 없이 완료) 레코드는 채팅 세션을 만들지 않는다 — 대화할 내용이 없음.
         let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId)?.id)
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
@@ -968,11 +1151,30 @@ struct NoteView: View {
         }
 
         appLog("note", "card appended", ["y": "\(record.positionY)", "nextY": "\(nextCardY)", "contentLen": "\(content.count)"])
+
+        // 연습문제 스크랩 등 floatAfter면 이 카드를 플로팅 문제 창으로 자동 부양 — 풀이 중 스크롤과
+        // 무관하게 문제가 떠 있게 한다.
+        if floatAfter {
+            floatCard(record)
+        }
     }
 
-    private func pinToCanvas(content: String, serverFeedbackId: String? = nil) {
+    private func pinToCanvas(content: String, serverFeedbackId: String? = nil, float: Bool = false) {
         let jsonContent = "{\"type\":\"feedback\",\"content\":\(String(data: (try? JSONEncoder().encode(content)) ?? Data(), encoding: .utf8) ?? "\"\"")}"
-        appendFeedbackCard(content: jsonContent, serverFeedbackId: serverFeedbackId)
+        appendFeedbackCard(content: jsonContent, serverFeedbackId: serverFeedbackId, floatAfter: float)
+    }
+
+    /// 카드를 플로팅 문제 창으로 띄운다(단일 창 — 기존 창 교체). 기본 시작은 상단 도킹(상위 절반).
+    /// 접힘은 펼친 상태로 리셋. 사용자가 이후 드래그/리사이즈로 옮긴다.
+    private func floatCard(_ fb: FeedbackRecord) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            floatingCard = fb
+            // 기본 시작 = 상단 도킹. geo가 아직 측정 전이면(.zero) 마지막 앵커/크기 그대로 둔다.
+            if floatContainerSize != .zero {
+                setFloatAnchor(.top)
+                applyTopHalfFill(container: floatContainerSize)
+            }
+        }
     }
 
     /// 피드백 없이 현재 영역을 완료 처리(flush without feedback). API 호출 없이 현재 stroke들을
@@ -1196,6 +1398,7 @@ struct NoteView: View {
             return
         }
         feedbacks.removeAll { $0.id == fb.id }
+        if floatingCard?.id == fb.id { floatingCard = nil }   // 띄워둔 카드가 삭제되면 플로팅 창도 닫는다.
         if let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator {
             coordinator.removeCard(on: canvasView, feedbackId: fb.id)
             coordinator.recalculateFrozenEnd(on: canvasView, feedbacks: feedbacks)
@@ -1413,6 +1616,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
     var onFeedbackRate: ((FeedbackRecord, Int) -> Void)?
     var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
     var onFeedbackCopy: ((FeedbackRecord) -> Void)?
+    var onFeedbackFloat: ((FeedbackRecord) -> Void)?
     var onPaste: (() -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
@@ -1535,6 +1739,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         coordinator.onFeedbackTapped = onFeedbackTapped
         coordinator.onFeedbackRevert = onFeedbackRevert
         coordinator.onFeedbackCopy = onFeedbackCopy
+        coordinator.onFeedbackFloat = onFeedbackFloat
         coordinator.onPaste = onPaste
         coordinator.contentView?.backgroundColor = isDark ? .black : .white
         // 템플릿/다크모드 변경 시 didSet이 setNeedsDisplay 트리거(동일하면 no-op).
@@ -1578,6 +1783,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         c.onFeedbackRate = onFeedbackRate
         c.onFeedbackRateDetail = onFeedbackRateDetail
         c.onFeedbackCopy = onFeedbackCopy
+        c.onFeedbackFloat = onFeedbackFloat
         c.onPaste = onPaste
         return c
     }
@@ -1590,6 +1796,7 @@ struct PencilKitCanvasView: UIViewRepresentable {
         var onFeedbackRate: ((FeedbackRecord, Int) -> Void)?
         var onFeedbackRateDetail: ((FeedbackRecord) -> Void)?
         var onFeedbackCopy: ((FeedbackRecord) -> Void)?
+        var onFeedbackFloat: ((FeedbackRecord) -> Void)?
         var onPaste: (() -> Void)?
         var editMenuInteraction: UIEditMenuInteraction?
         var toolPicker: PKToolPicker?
@@ -1804,6 +2011,10 @@ struct PencilKitCanvasView: UIViewRepresentable {
             if let fb = gesture.feedbackRecord { onFeedbackCopy?(fb) }
         }
 
+        @objc func feedbackFloatTapped(_ gesture: FeedbackTapGesture) {
+            if let fb = gesture.feedbackRecord { onFeedbackFloat?(fb) }
+        }
+
         // MARK: - Frozen state
 
         /// 마지막으로 피드백을 받은 stroke 인덱스를 재계산한다. 이 값(frozenEndIndex)은
@@ -1952,6 +2163,15 @@ struct PencilKitCanvasView: UIViewRepresentable {
             detailGesture.feedbackRecord = fb
             detailBtn.addGestureRecognizer(detailGesture)
             buttonBar.addArrangedSubview(detailBtn)
+
+            // 띄우기 — 이 카드를 화면공간 플로팅 창으로 고정해 스크롤 무관하게 참조(연습문제 풀이용).
+            let floatBtn = UIButton(type: .system)
+            floatBtn.setImage(UIImage(systemName: "pin"), for: .normal)
+            floatBtn.tintColor = .secondaryLabel
+            let floatGesture = FeedbackTapGesture(target: self, action: #selector(feedbackFloatTapped(_:)))
+            floatGesture.feedbackRecord = fb
+            floatBtn.addGestureRecognizer(floatGesture)
+            buttonBar.addArrangedSubview(floatBtn)
 
             // 다른 페이지로 복사 — 카드 본문을 그대로 다른 페이지에 정적 카드로 얹는다.
             let copyBtn = UIButton(type: .system)

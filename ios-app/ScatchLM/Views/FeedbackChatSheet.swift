@@ -15,7 +15,8 @@ struct SessionChatSheet: View {
     var subject: String?
     /// 온보딩 전용 — 상단에 "스크랩→필기·피드백 루프" 안내 배너를 띄운다. 일반 진입은 false.
     var showScrapHint: Bool = false
-    var onPin: ((String, String?) -> Void)?
+    /// 카드를 캔버스에 스크랩. 3번째 인자 float=true면 스크랩한 카드를 플로팅 문제 창으로 띄운다(연습문제).
+    var onPin: ((String, String?, Bool) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var messages: [ChatMessageRecord] = []
@@ -55,7 +56,7 @@ struct SessionChatSheet: View {
                 input: $input,
                 sending: sending,
                 onSend: { sendMessage() },
-                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); dismiss() } : nil,
+                onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId, false); dismiss() } : nil,
                 onRate: { turn, r in
                     if let msg = messages.first(where: { $0.id == turn.id }) {
                         submitMessageRating(message: msg, rating: r, reasonTags: [], comment: nil)
@@ -71,7 +72,7 @@ struct SessionChatSheet: View {
                     EquatableChatBubble(
                         role: "assistant", content: headerDisplay, serverId: headerServerId,
                         fontSize: fontSize,
-                        onScrap: onPin != nil ? { onPin?(headerDisplay, headerServerId); dismiss() } : nil
+                        onScrap: onPin != nil ? { onPin?(headerDisplay, headerServerId, false); dismiss() } : nil
                     )
                     .equatable()
                 }
@@ -307,7 +308,7 @@ struct SessionChatSheet: View {
                     // 퀵액션('연습문제')으로 보낸 응답이면 자동 스크랩 후 캔버스로 내보낸다.
                     if pendingPracticeScrap {
                         pendingPracticeScrap = false
-                        onPin?(assistantMsg.content, assistantMsg.serverMessageId)
+                        onPin?(assistantMsg.content, assistantMsg.serverMessageId, true)
                         dismiss()
                     }
                 }

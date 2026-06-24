@@ -446,11 +446,13 @@ struct PdfViewerView: View {
                     let response_language: String
                     let textbook_id: String?
                     let current_page: Int?
+                    let note_id: String?
                     let parent_feedback_id: String?
                 }
                 struct ChatRes: Decodable {
                     let content: String
                     let feedback_id: String?
+                    let keywords: [String]?   // DMN 인출 단서 (구버전 서버는 미포함 → nil)
                 }
 
                 let reqBody = ChatReq(
@@ -459,10 +461,21 @@ struct PdfViewerView: View {
                     response_language: Config.responseLanguage,
                     textbook_id: textbookId,
                     current_page: pageParam,
+                    note_id: noteId,
                     parent_feedback_id: parentId
                 )
 
                 let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
+
+                // DMN 인출 단서 적재 — 노트 scope. 가이드 채팅(교재 읽기)은 사용자 최고 가치 경로라
+                // 캔버스 피드백 채팅과 동일하게 단서를 모은다. PDF 뷰어가 노트 밖이면 noteId=nil → 스킵.
+                let kwCount = res.keywords?.count ?? 0
+                if let nid = noteId, let kws = res.keywords, !kws.isEmpty {
+                    try? db.insertDMNCues(noteId: nid, keywords: kws, source: "guide-chat")
+                    appLog("dmn", "cues inserted (guide-chat)", ["note": nid, "n": "\(kws.count)"])
+                } else {
+                    appLog("dmn", "cues skipped (guide-chat)", ["hasNote": "\(noteId != nil)", "kw": "\(kwCount)"])
+                }
 
                 await MainActor.run {
                     appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id)

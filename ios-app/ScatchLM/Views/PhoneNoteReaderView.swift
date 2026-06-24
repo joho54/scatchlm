@@ -446,6 +446,10 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         coordinator.isDark = colorScheme == .dark
         coordinator.onChat = onChat
         coordinator.contentView?.backgroundColor = coordinator.isDark ? .black : .white
+        // 설정의 글자 크기/수식 모드가 바뀌면 카드를 다시 굽는다(makeUIView는 한 번만 호출되므로).
+        if coordinator.needsCardRerender {
+            coordinator.renderCards(feedbacks)
+        }
         coordinator.layout()
     }
 
@@ -461,6 +465,15 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         var contentWidth: CGFloat = Config.logicalCanvasWidth
         private var lastWidth: CGFloat = 0
         private var maxCardBottom: CGFloat = 0
+        /// 카드가 마지막으로 구워진 글자 크기/수식모드 — 설정이 바뀌면 updateUIView가 재렌더한다.
+        /// (카드는 makeUIView에서 한 번만 굽기 때문에, 이 비교가 없으면 설정 변경이 반영 안 됨.)
+        private var lastRenderFontSize: CGFloat = 0
+        private var lastRenderMathMode: Config.MathRenderMode?
+
+        /// 마지막 렌더 이후 글자 크기/수식 모드 설정이 바뀌었는지.
+        var needsCardRerender: Bool {
+            lastRenderFontSize != Config.chatFontSize || lastRenderMathMode != Config.mathRenderMode
+        }
         /// 레이아웃 완료 전에 도착한 점프 요청을 보관했다가 layout()에서 소비한다.
         private var pendingScrollY: CGFloat?
 
@@ -537,6 +550,8 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
             guard let contentView else { return }
             contentView.subviews.filter { $0.tag == 9999 }.forEach { $0.removeFromSuperview() }
             maxCardBottom = 0
+            lastRenderFontSize = Config.chatFontSize
+            lastRenderMathMode = Config.mathRenderMode
             // 종이는 화면에 맞춰 fit(≈logical/contentWidth)으로 축소된다. 카드 텍스트가 그만큼 작아져
             // 읽기 힘드므로, 카드를 그 역수 k배로 키워(content 좌표) 화면상 원래 크기로 보이게 한다.
             // (필기는 좌표 그대로 축소, 카드만 counter-scale — 사용자 요청.)
@@ -592,10 +607,11 @@ struct ReadOnlyNoteCanvas: UIViewRepresentable {
         /// 상한을 넘는 본문은 내부 스크롤로 본다 → 카드가 후속 필기 위로 흘러내리지 않음.
         private func makeCard(fb: FeedbackRecord, scale k: CGFloat, maxHeight: CGFloat?) -> UIView {
             let cardWidth = (Config.logicalCanvasWidth - 32) * k
-            let fontSize = 14 * k
             let parsed = try? JSONDecoder().decode(AIResponse.self, from: fb.content.data(using: .utf8) ?? Data())
             let rawText = parsed?.displayText ?? fb.content
             let useKaTeX = MarkdownRender.shouldUseKaTeX(rawText)
+            // 글자 크기 조절은 KaTeX 렌더 경로에만 — 네이티브 텍스트는 14 고정.
+            let fontSize = (useKaTeX ? Config.chatFontSize : 14) * k
 
             let card = UIView()
             card.tag = 9999

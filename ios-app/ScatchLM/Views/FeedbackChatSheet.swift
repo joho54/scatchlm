@@ -51,7 +51,8 @@ struct SessionChatSheet: View {
                 turns: messages.map {
                     ChatTurn(id: $0.id, role: $0.role, content: $0.content,
                              serverId: $0.serverMessageId, rating: $0.userRating,
-                             failed: failedMessageIds.contains($0.id))
+                             failed: failedMessageIds.contains($0.id),
+                             keywords: $0.keywords)
                 },
                 input: $input,
                 sending: sending,
@@ -295,7 +296,8 @@ struct SessionChatSheet: View {
                     role: "assistant",
                     content: res.content,
                     createdAt: Date(),
-                    serverMessageId: res.feedback_id
+                    serverMessageId: res.feedback_id,
+                    keywords: res.keywords ?? []
                 )
                 do {
                     try db.saveChatMessage(&assistantMsg)

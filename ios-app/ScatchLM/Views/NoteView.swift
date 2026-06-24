@@ -84,6 +84,31 @@ private struct FloatWindowSizeKey: PreferenceKey {
     }
 }
 
+/// AI 피드백 의도 — 같은 필기에 대해 무엇을 시킬지(인지 연산). rawValue는 백엔드 `intent` 파라미터와 일치.
+/// 도메인(수식/언어)이 아니라 출력 행동으로 가른다. 채점만 하던 단일 모드를 셋으로 분기.
+enum FeedbackIntent: String, CaseIterable {
+    case grade   // 채점 — 필기를 답안으로 보고 평가·교정 (기본/탭 동작)
+    case ask     // 질문 — 필기를 물음으로 보고 답·설명 (채점 안 함)
+    case hint    // 힌트 — 답을 숨기고 다음 한 걸음만 밀어줌
+
+    var label: String {
+        switch self {
+        case .grade: return String(localized: "채점받기")
+        case .ask: return String(localized: "질문에 답받기")
+        case .hint: return String(localized: "힌트만 받기")
+        }
+    }
+
+    /// split 버튼 아이콘 겸 메뉴 아이콘. 탭 버튼이 현재 의도를 이 아이콘으로 보여줘 모드 에러를 막는다.
+    var icon: String {
+        switch self {
+        case .grade: return "sparkles"
+        case .ask: return "questionmark.circle"
+        case .hint: return "lightbulb"
+        }
+    }
+}
+
 struct NoteView: View {
     let noteId: String
     /// 온보딩 전용 훅 — 피드백 카드가 캔버스에 추가되면 호출(채팅 안내 타이밍용). 일반 노트는 nil.
@@ -98,6 +123,9 @@ struct NoteView: View {
     @State private var canvasView: PKCanvasView = NoteCanvasView()
     @State private var feedbacks: [FeedbackRecord] = []
     @State private var loading = false
+    // 마지막으로 쓴 피드백 의도 — 전역 기억(notePillAnchor와 동일한 정책). 탭 버튼이 이 의도로 실행되고
+    // 아이콘도 이걸 따라가 "탭하면 뭐가 나올지"를 항상 드러낸다(모드 에러 방지). 기본 채점.
+    @AppStorage("feedbackIntent") private var feedbackIntent: FeedbackIntent = .grade
     @State private var pdfOpen = false
     @State private var currentPage: Int = 1
     @State private var chatContext: ChatSheetContext?
@@ -634,6 +662,8 @@ struct NoteView: View {
                     pinToCanvas(content: content, serverFeedbackId: responseId, float: float)
                 },
                 noteId: noteId,
+                isFullscreen: pdfFullscreen,
+                onToggleFullscreen: { togglePdfFullscreen(note: note) },
                 inkMode: $pdfInkActive,
                 inkController: pdfInk
             )
@@ -646,35 +676,8 @@ struct NoteView: View {
     private func fabPill(note: Note, containerSize: CGSize) -> some View {
         VStack(spacing: 8) {
             // Main FAB
+            // pill 전체가 드래그 대상이라 별도 핸들은 두지 않는다(아무 데나 잡고 이동).
             HStack(spacing: 2) {
-                // 드래그 핸들 — 세로 그립. 이 그립으로만 pill을 옮긴다(버튼 탭과 충돌 방지). 손을 떼면 최근접 앵커로 스냅.
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.secondary.opacity(0.5))
-                    .rotationEffect(.degrees(90))
-                    .frame(width: 22, height: 48)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { v in pillDragOffset = v.translation }
-                            .onEnded { v in
-                                let current = pillAnchor.center(in: containerSize, pill: pillSize)
-                                // 관성 — 놓은 위치가 아니라 속도로 외삽한 "예측 종점"으로 타깃을 고른다.
-                                // 빠르게 톡 밀면 predictedEnd가 멀리 뻗어 그 방향 앵커로 던져진다.
-                                let projected = CGPoint(x: current.x + v.predictedEndTranslation.width,
-                                                        y: current.y + v.predictedEndTranslation.height)
-                                let target = nearestPillAnchor(to: projected, in: containerSize, size: pillSize)
-                                // 살짝 오버슈트하는 스프링 — 던진 듯한 모멘텀 체감.
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.68)) {
-                                    pillDragOffset = .zero
-                                    setPillAnchor(target)
-                                }
-                            }
-                    )
-                Rectangle()
-                    .fill(Color.black.opacity(0.08))
-                    .frame(width: 1, height: 24)
-
                 #if targetEnvironment(simulator)
                 // Sim-only: 펜/스크롤 모드 토글
                 Button {
@@ -761,33 +764,46 @@ struct NoteView: View {
                     .fill(Color.black.opacity(0.08))
                     .frame(width: 1, height: 24)
 
-                // Feedback request (길게 누르면 "피드백 없이 완료" 메뉴)
+                // Feedback split button — 탭: AI 피드백 요청(80% 동작), 옆 chevron: 부가 동작 메뉴.
+                // 길게 누르기 컨텍스트 메뉴도 유지(파워유저). 로딩 중엔 chevron을 숨겨 단일 스피너로.
                 Button {
-                    requestFeedback()
+                    requestFeedback(intent: feedbackIntent)
                 } label: {
                     if loading {
                         ProgressView()
                             .frame(width: 48, height: 48)
                     } else {
-                        Image(systemName: "sparkles")
+                        Image(systemName: feedbackIntent.icon)
                             .font(.system(size: 26))
                             .foregroundStyle(.primary)
                             .frame(width: 48, height: 48)
                     }
                 }
                 .disabled(loading)
-                .contextMenu {
-                    Button {
-                        flushWithoutFeedback()
+                .accessibilityLabel(Text(verbatim: "AI \(feedbackIntent.label)"))
+                .contextMenu { feedbackMenuItems }
+
+                if !loading {
+                    Menu {
+                        feedbackMenuItems
                     } label: {
-                        Label("피드백 없이 완료", systemImage: "checkmark.circle")
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 48)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("피드백 옵션")
                 }
             }
             .padding(4)
             .background(.ultraThinMaterial)
             .clipShape(Capsule())
             .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
+            // pill 전체를 드래그 대상으로. minimumDistance로 "움직임 없는 탭"은 자식 버튼에 양보하고
+            // 임계 거리 이상 끌릴 때만 이동 제스처가 발동 → 버튼 탭과 공존.
+            .contentShape(Capsule())
+            .gesture(pillDragGesture(in: containerSize))
             // 실측 크기를 body로 끌어올려 앵커 중심/스냅 거리 계산에 쓴다.
             .background(
                 GeometryReader { proxy in
@@ -798,6 +814,25 @@ struct NoteView: View {
         .onPreferenceChange(PillSizeKey.self) { size in
             if size != .zero { pillSize = size }
         }
+    }
+
+    /// pill 이동 제스처 — 컨테이너 전체에 붙는다. minimumDistance: 10으로 탭/드래그를 분리한다.
+    private func pillDragGesture(in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { v in pillDragOffset = v.translation }
+            .onEnded { v in
+                let current = pillAnchor.center(in: containerSize, pill: pillSize)
+                // 관성 — 놓은 위치가 아니라 속도로 외삽한 "예측 종점"으로 타깃을 고른다.
+                // 빠르게 톡 밀면 predictedEnd가 멀리 뻗어 그 방향 앵커로 던져진다.
+                let projected = CGPoint(x: current.x + v.predictedEndTranslation.width,
+                                        y: current.y + v.predictedEndTranslation.height)
+                let target = nearestPillAnchor(to: projected, in: containerSize, size: pillSize)
+                // 살짝 오버슈트하는 스프링 — 던진 듯한 모멘텀 체감.
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.68)) {
+                    pillDragOffset = .zero
+                    setPillAnchor(target)
+                }
+            }
     }
 
     /// 드롭 지점에서 가장 가까운 앵커. 거리는 제곱합 비교로 충분(sqrt 불필요).
@@ -859,11 +894,23 @@ struct NoteView: View {
     // MARK: - Floating 문제 창
 
     /// pill과 동일한 그립 드래그 → 6앵커 자석 스냅. 핸들로만 옮긴다(버튼 탭과 충돌 방지).
+    /// 플로팅 창 헤더의 통일된 아이콘 버튼. prominent=닫기처럼 강조(채운 원, 한 단계 큰 글리프).
+    private func floatHeaderButton(_ symbol: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: prominent ? 18 : 15, weight: prominent ? .regular : .medium))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.secondary.opacity(prominent ? 0.9 : 0.7))
+    }
+
     private func floatDragHandle(containerSize: CGSize) -> some View {
-        Image(systemName: "line.3.horizontal")
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(Color.secondary.opacity(0.6))
-            .frame(width: 44, height: 28)
+        Capsule()
+            .fill(Color.secondary.opacity(0.4))
+            .frame(width: 32, height: 5)
+            .frame(width: 80, height: 30)   // 좌우 버튼 사이 넓은 히트 영역
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 1)
@@ -890,8 +937,8 @@ struct NoteView: View {
     /// 커지고 하/우 앵커에선 고정 모서리 기준으로 커진다.
     private func floatResizeHandle(containerSize: CGSize) -> some View {
         Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(Color.secondary.opacity(0.7))
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.secondary.opacity(0.5))
             .frame(width: 30, height: 30)
             .contentShape(Rectangle())
             .gesture(
@@ -914,28 +961,33 @@ struct NoteView: View {
     @ViewBuilder
     private func floatingProblemWindow(card: FeedbackRecord, containerSize: CGSize) -> some View {
         let text = floatDisplayText(card.content)
+        // 글자 크기 조절은 KaTeX 렌더 경로에만 — 네이티브 텍스트는 14 고정.
+        let bodyFontSize: CGFloat = MarkdownRender.shouldUseKaTeX(text) ? Config.chatFontSize : 14
         VStack(spacing: 0) {
             ZStack {
-                // 일반 윈도우(macOS)처럼 창 제어 버튼을 좌측에 모은다 — 닫기 + 상단 도킹.
-                HStack(spacing: 4) {
-                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { floatingCard = nil } } label: {
-                        Image(systemName: "xmark").font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28)
+                // 좌: 카드 액션(원위치 점프 · 상단 도킹) / 중앙: 드래그 그래버 / 우: 닫기.
+                HStack(spacing: 2) {
+                    // 닫고 동시에 원본 피드백 카드 위치(페이지·스크롤)로 점프.
+                    floatHeaderButton("dot.viewfinder") {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { floatingCard = nil }
+                        jumpToPlacement(card)
                     }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    Button { dockToTop(container: containerSize) } label: {
-                        Image(systemName: "rectangle.tophalf.inset.filled").font(.system(size: 13, weight: .semibold)).frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    // 상단 절반 도킹.
+                    floatHeaderButton("arrow.up.to.line") { dockToTop(container: containerSize) }
                     Spacer()
+                    // 닫기 — iOS 표준 dismiss 글리프.
+                    floatHeaderButton("xmark.circle.fill", prominent: true) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { floatingCard = nil }
+                    }
                 }
-                // 드래그 그립 — 상단 탭 가운데(가로 햄버거). 좌측 버튼과 ZStack으로 겹쳐 중앙 고정.
+                // 드래그 그래버 — iOS 시트 그립 스타일. 좌/우 버튼과 ZStack으로 겹쳐 중앙 고정.
                 floatDragHandle(containerSize: containerSize)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            Divider()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            Divider().opacity(0.5)
             ScrollView {
-                MarkdownContentView(content: text, fontSize: 14)
+                MarkdownContentView(content: text, fontSize: bodyFontSize)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -955,6 +1007,29 @@ struct NoteView: View {
         )
         .onPreferenceChange(FloatWindowSizeKey.self) { size in
             if size != .zero { floatSize = size }
+        }
+    }
+
+    /// 피드백 split button의 부가 동작 메뉴 — 탭 메뉴와 길게 누르기 컨텍스트 메뉴가 공유.
+    /// 탭(sparkles)은 채점(grade)이 기본. 메뉴에서 질문/힌트 의도를 명시적으로 고른다.
+    /// 확장 지점: "다른 언어로", "챕터 기준", "다시 받기" 등은 여기에 추가한다.
+    @ViewBuilder
+    private var feedbackMenuItems: some View {
+        // 의도 분기 — 같은 필기에 대해 채점/질문/힌트 중 무엇을 받을지. 고르면 즉시 실행 +
+        // 탭 버튼의 기본 의도로 고정(다음부터 탭만으로 같은 의도 반복).
+        ForEach(FeedbackIntent.allCases, id: \.self) { intent in
+            Button {
+                feedbackIntent = intent
+                requestFeedback(intent: intent)
+            } label: {
+                Label(intent.label, systemImage: intent == feedbackIntent ? "checkmark" : intent.icon)
+            }
+        }
+        Divider()
+        Button {
+            flushWithoutFeedback()
+        } label: {
+            Label("피드백 없이 완료", systemImage: "checkmark.circle")
         }
     }
 
@@ -1084,9 +1159,9 @@ struct NoteView: View {
     /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수.
     /// 카드는 세션을 캔버스에 배치한 placement다(§4.5). `sessionId`가 주어지면 그 세션에 연결하고
     /// (드로어 재스크랩 — 1 session→N cards), 없으면 이 카드용 kind=feedback 세션을 새로 만든다(세션화 통일).
-    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false) {
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false, keywords: [String]? = nil) {
         // skip(피드백 없이 완료) 레코드는 채팅 세션을 만들지 않는다 — 대화할 내용이 없음.
-        let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId)?.id)
+        let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId, keywords: keywords)?.id)
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
         // 먼저 인디케이터를 현재 스트로크/카드 기준으로 갱신해 nextCardLineY를 최신화한 뒤 그 값을 읽는다.
         let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
@@ -1231,11 +1306,21 @@ struct NoteView: View {
         return String(oneLine.prefix(40))
     }
 
+    /// keywords(앞 3개)를 세션 제목으로 결합한다. 비어 있으면 응답 첫 줄 스니펫으로 폴백.
+    private func sessionTitle(content: String, keywords: [String]?) -> String {
+        let cues = (keywords ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+        if !cues.isEmpty { return cues.joined(separator: " · ") }
+        return feedbackTitleSnippet(content)
+    }
+
     /// 카드 placement용 kind=feedback 세션을 새로 만든다. 교재 연결 시 anchorPage=현재 페이지.
-    private func createFeedbackSession(content: String, serverFeedbackId: String?) -> ChatSessionRecord? {
+    private func createFeedbackSession(content: String, serverFeedbackId: String?, keywords: [String]? = nil) -> ChatSessionRecord? {
         var session = ChatSessionRecord(
             kind: ChatSessionRecord.Kind.feedback.rawValue,
-            title: feedbackTitleSnippet(content),
+            title: sessionTitle(content: content, keywords: keywords),
             noteId: noteId,
             textbookId: note?.textbookId,
             anchorPage: note?.textbookId != nil ? currentPage : nil,
@@ -1468,14 +1553,14 @@ struct NoteView: View {
         }
     }
 
-    private func requestFeedback() {
+    private func requestFeedback(intent: FeedbackIntent = .grade) {
         guard !loading else { return }
         loading = true
 
         let requestId = String(UUID().uuidString.prefix(8))
         let t0 = Date()
         func elapsedMs() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
-        appLog("note", "feedback: start", ["requestId": requestId])
+        appLog("note", "feedback: start", ["requestId": requestId, "intent": intent.rawValue])
         track(.feedback, .start)
         Task { @MainActor in
             do {
@@ -1541,6 +1626,7 @@ struct NoteView: View {
                     "language": note?.language ?? "",
                     "response_language": Config.responseLanguage,
                     "request_id": "\(requestId)",
+                    "intent": intent.rawValue,
                 ]
                 if let textbookId = note?.textbookId {
                     fields["textbook_id"] = textbookId
@@ -1567,7 +1653,7 @@ struct NoteView: View {
                 let jsonData = try JSONEncoder().encode(response)
                 let jsonStr = String(data: jsonData, encoding: .utf8) ?? "{}"
                 let strokeEnd = canvasView.drawing.strokes.count
-                appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId)
+                appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId, keywords: response.keywords)
 
                 // DMN 인출 단서 적재 — 노트 scope.
                 if let kws = response.keywords, !kws.isEmpty {
@@ -2110,9 +2196,13 @@ struct PencilKitCanvasView: UIViewRepresentable {
 
             let rawText = parsed?.displayText ?? fb.content
             let useKaTeX = MarkdownRender.shouldUseKaTeX(rawText)
+            // 설정의 글자 크기(Config.chatFontSize)는 KaTeX(WKWebView) 표시 경로에만 적용. 네이티브 텍스트는 14 고정.
+            let bodyFontSize: CGFloat = useKaTeX ? Config.chatFontSize : 14
 
             // 네이티브 경로의 표시 + (양 경로 공통) 높이 추정용 텍스트뷰.
             // KaTeX 경로에선 측정 전용이고, 표시는 BakedMarkdownUIView(WKWebView)가 한다.
+            // 글자 크기와 무관하게 카드 높이를 고정하려고 측정은 항상 기준 폰트(14)로 한다. 표시 폰트가
+            // 더 크면 WKWebView가 카드 안에서 내부 스크롤한다(카드 크기 불변).
             let textView = UITextView()
             textView.isEditable = false
             textView.isScrollEnabled = false
@@ -2135,8 +2225,8 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 textView.textColor = .label
             }
 
-            // 표시 뷰: 수식이면 WKWebView, 아니면 네이티브 텍스트뷰(측정뷰 재사용).
-            let label: UIView = useKaTeX ? BakedMarkdownUIView(content: rawText, fontSize: 14) : textView
+            // 표시 뷰: 수식이면 WKWebView(글자 크기 적용·내부 스크롤), 아니면 네이티브 텍스트뷰(14, 측정뷰 재사용).
+            let label: UIView = useKaTeX ? BakedMarkdownUIView(content: rawText, fontSize: bodyFontSize) : textView
 
             let buttonBar = UIStackView()
             buttonBar.axis = .horizontal

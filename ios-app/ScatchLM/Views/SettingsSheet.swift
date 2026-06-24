@@ -55,7 +55,7 @@ struct SettingsSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("채팅 글자 크기") {
+                Section("글자 크기") {
                     Slider(
                         value: $chatFontSize,
                         in: Config.chatFontSizeRange,
@@ -71,7 +71,7 @@ struct SettingsSheet: View {
                         Config.chatFontSize = newValue
                     }
 
-                    Text("미리보기: 채팅 답변이 이 크기로 보여요.")
+                    Text("미리보기: 채팅 답변과 피드백 카드가 이 크기로 보여요.")
                         .font(.system(size: chatFontSize))
                         .foregroundStyle(.secondary)
                 }

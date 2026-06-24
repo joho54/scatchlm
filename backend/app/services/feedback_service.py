@@ -79,22 +79,79 @@ async def create_message_with_retry(
 
 client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
-def _build_system_prompt(subject: str, response_language: str, has_textbook: bool = False) -> str:
+# 피드백 의도(인지 연산). 같은 손글씨 이미지라도 사용자가 원하는 출력 행동이 다르다 —
+# 도메인(수식/언어/다이어그램)이 아니라 "무엇을 시키나"로 가른다:
+#   grade: 필기를 "답안"으로 보고 채점·교정 (기본값 = 구버전 클라이언트 동작, BC)
+#   ask:   필기를 "질문/물음"으로 보고 답·설명 (채점하지 않음)
+#   hint:  답을 숨기고 다음 한 걸음만 밀어줌 (해답 비공개)
+# 모델은 이미지만으로 이 의도를 안정적으로 구분 못 한다(질문 필기를 미완성 답안으로 읽음) —
+# 그래서 사용자가 명시적으로 지정한다.
+DEFAULT_INTENT = "grade"
+VALID_INTENTS = ("grade", "ask", "hint")
+
+
+def _normalize_intent(intent: str | None) -> str:
+    return intent if intent in VALID_INTENTS else DEFAULT_INTENT
+
+
+# 의도별 task 블록(시스템 프롬프트). 채점에 고정돼 있던 부분을 여기로 분리했다 —
+# 나머지(인식·언어·스타일·인용)는 의도 중립.
+_INTENT_TASK = {
+    "grade": (
+        "Treat the handwriting as the user's OWN attempt or answer, and GRADE it. "
+        "If the subject is a language and the user wrote original text + translation, "
+        "evaluate BOTH — check translation accuracy, grammar, and spelling. "
+        "For non-language subjects, focus on conceptual correctness, reasoning, and terminology. "
+        "Be specific about what is correct and what needs fixing.\n\n"
+    ),
+    "ask": (
+        "Treat the handwriting as a QUESTION or prompt the user is addressing TO you — "
+        "NOT an answer to be graded. Do NOT score it or hunt for mistakes. "
+        "Work out what they are asking and answer it directly and completely, "
+        "explaining the reasoning where it aids understanding. "
+        "If what they want is ambiguous, answer the most likely question and add at most "
+        "one short clarifying line.\n\n"
+    ),
+    "hint": (
+        "Treat the handwriting as work-in-progress on something the user is stuck on. "
+        "Do NOT reveal the final answer or a full correction. Give ONE step of help: "
+        "point to the relevant concept, rule, or the exact spot to re-examine, or ask a "
+        "guiding question that nudges them forward. Withhold the solution so they can try "
+        "again themselves. Keep it short — a nudge, not a lecture.\n\n"
+    ),
+}
+
+# 의도별 user 턴 마지막 지시(이미지와 함께 보낼 한 줄).
+_INTENT_USER_INSTRUCTION = {
+    "grade": "Read the handwriting in the image and grade it — say what is correct and what needs fixing.",
+    "ask": "Read the handwriting in the image and answer the question it poses. Do not grade it.",
+    "hint": "Read the handwriting in the image and give a hint that moves me forward — do not reveal the full answer.",
+}
+
+
+def _build_system_prompt(
+    subject: str, response_language: str, has_textbook: bool = False, intent: str = DEFAULT_INTENT
+) -> str:
     # 주제가 비면(즉시 생성 노트 등) 분야 중립 튜터로 동작 — chat 경로와 동일한 처리.
     subject_phrase = subject.strip() if subject and subject.strip() else "their study material"
+    intent = _normalize_intent(intent)
+
+    # (1) 의도 중립 도입부 — 누구/무엇을 받나, 다언어 인식.
     base = (
         f"You are a study assistant helping the user learn {subject_phrase}. "
         "The user submits handwritten notes as images, sometimes with textbook reference text.\n\n"
         "The image may contain text in MULTIPLE languages — the subject's language "
         "AND the user's native language (translations, annotations, notes). "
         "Recognize ALL text in the image and analyze the entire content holistically.\n\n"
-        "If the subject is a language and the user wrote original text + translation, "
-        "evaluate BOTH — check translation accuracy, grammar, and spelling. "
-        "For non-language subjects, focus on conceptual correctness, reasoning, and terminology. "
-        "Adapt your feedback to what the subject requires, "
-        "and compare with textbook content if provided.\n\n"
+    )
+
+    # (2) 의도별 task — 같은 이미지에 대해 채점/응답/힌트 중 무엇을 할지 결정.
+    base += _INTENT_TASK[intent]
+
+    # (3) 의도 중립 스타일/포맷 — 응답 언어, 2인칭 지칭, 마크다운/LaTeX, 교재 대조.
+    base += (
         f"Respond naturally in {response_language} as a helpful tutor. "
-        "Be specific about what is correct and what needs fixing. "
+        "Compare with the textbook content when it is provided. "
         "ADDRESS THE USER DIRECTLY. Do NOT refer to them with a third-person label "
         "such as \"the student\"/\"학생\"; speak to them in the second person and refer "
         "to their work directly (e.g. in Korean \"작성하신 필기\"/\"여기 번역은\" rather than \"학생 필기\"). "
@@ -277,15 +334,17 @@ async def get_feedback(
     textbook_context: str | None = None,
     previous_context: str | None = None,
     task_type: str = "complex",
+    intent: str = DEFAULT_INTENT,
 ) -> FeedbackResult:
     """캔버스 이미지를 Claude Vision API에 전송하여 피드백을 받는다."""
     model = _select_model(task_type)
+    intent = _normalize_intent(intent)
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     image_size_kb = len(image_bytes) / 1024
 
     log.info(
-        "LLM request: model=%s task=%s lang=%s image=%.1fKB context=%s prev=%s",
-        model, task_type, language,
+        "LLM request: model=%s task=%s intent=%s lang=%s image=%.1fKB context=%s prev=%s",
+        model, task_type, intent, language,
         image_size_kb,
         bool(textbook_context),
         bool(previous_context),
@@ -302,7 +361,7 @@ async def get_feedback(
         prompt_parts.append(f"Textbook reference:\n{textbook_context}")
     if previous_context:
         prompt_parts.append(f"Previous context: {previous_context}")
-    prompt_parts.append("Read the handwriting in the image and provide detailed feedback.")
+    prompt_parts.append(_INTENT_USER_INSTRUCTION[intent])
 
     user_content.append({"type": "text", "text": "\n".join(prompt_parts)})
 
@@ -311,7 +370,7 @@ async def get_feedback(
         client,
         model=model,
         max_tokens=FEEDBACK_MAX_TOKENS,
-        system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None),
+        system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None, intent=intent),
         messages=[{"role": "user", "content": user_content}],
         output_config={"format": {"type": "json_schema", "schema": FEEDBACK_OUTPUT_SCHEMA}},
     )

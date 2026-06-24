@@ -25,6 +25,7 @@ from app.services.feedback_service import (
     get_feedback,
     get_recognition,
     _clean_keywords,
+    _normalize_intent as normalize_intent,
     RECOGNITION_MODEL,
 )
 from app.services.pdf_service import extract_text as extract_pdf_text, extract_text_async
@@ -56,6 +57,7 @@ async def request_feedback(
     language: str = Form(DEFAULT_SUBJECT),
     response_language: str = Form("English"),
     task_type: str = Form("complex"),
+    intent: str = Form("grade"),  # grade(채점)·ask(질문)·hint(힌트). 잘못된 값은 서비스에서 grade로 정규화.
     textbook_id: str | None = Form(None),
     current_page: int | None = Form(None),
     page_start: int | None = Form(None),
@@ -68,7 +70,8 @@ async def request_feedback(
     user_id = payload["sub"]
     tier = get_tier(payload)
     rid = request_id or "no-id"
-    log.info("Feedback [%s]: start user=%s tier=%s note=%s page=%s", rid, user_id, tier, note_id, current_page)
+    intent = normalize_intent(intent)
+    log.info("Feedback [%s]: start user=%s tier=%s note=%s page=%s intent=%s", rid, user_id, tier, note_id, current_page, intent)
 
     # quota 체크 — 초과 시 LLM 호출 없이 429
     await check_daily_quota(user_id, tier, db, is_admin=get_role(payload) == "admin")
@@ -155,6 +158,7 @@ async def request_feedback(
             textbook_context=textbook_context,
             previous_context=previous_context,
             task_type=task_type,
+            intent=intent,
         )
     except Exception as e:
         error_msg = str(e)
@@ -188,6 +192,7 @@ async def request_feedback(
         user_id=user_id,
         note_id=note_id,
         task_type=task_type,
+        intent=intent,
         language=language,
         response_language=response_language,
         model=result.model,

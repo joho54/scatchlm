@@ -398,6 +398,14 @@ final class DatabaseService {
             }
         }
 
+        // assistant 메시지의 LLM keywords를 버블 하단에 #해시태그로 표시(로컬 전용 — sync DTO 미포함).
+        // JSON 배열 문자열로 저장. 기존 행은 '[]'.
+        migrator.registerMigration("v15_chat_keywords") { db in
+            try db.alter(table: "feedback_chats") { t in
+                t.add(column: "keywords", .text).notNull().defaults(to: "[]")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

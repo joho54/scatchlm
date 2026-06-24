@@ -21,6 +21,9 @@ class AIResponse(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     note_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String, nullable=False)
+    # 피드백 의도(인지 연산): grade(채점)·ask(질문)·hint(힌트). 손글씨 피드백에만 의미가 있고
+    # chat/guide 등 다른 task_type은 NULL. 어떤 의도가 실제로 쓰이는지 분석하는 데이터 backbone.
+    intent: Mapped[str | None] = mapped_column(String, nullable=True)
     language: Mapped[str] = mapped_column(String, nullable=False, default=DEFAULT_SUBJECT)
     response_language: Mapped[str] = mapped_column(String, nullable=False, default="English")
     model: Mapped[str] = mapped_column(String, nullable=False)

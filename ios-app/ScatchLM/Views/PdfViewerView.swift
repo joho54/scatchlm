@@ -14,6 +14,10 @@ struct PdfViewerView: View {
     var noteId: String?
     /// 읽기 전용(iPhone 컴패니언). noteId는 필기 *표시*를 위해 받지만 *편집*(필기 버튼)은 가린다.
     var readOnly: Bool = false
+    /// 전체화면 상태(부모 소유) — 상단 확장/축소 버튼 아이콘 분기에만 쓴다. nil이면 버튼을 감춘다.
+    var isFullscreen: Bool = false
+    /// 전체화면 토글 콜백(부모). 길게 누르기 단축키와 동일한 동작을 눈에 보이는 버튼에도 노출.
+    var onToggleFullscreen: (() -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
@@ -43,7 +47,7 @@ struct PdfViewerView: View {
     /// 부모의 undo 버튼이 PDF 입력 캔버스로 분기할 수 있게 하는 브리지(있으면). 읽기 전용에선 nil.
     var inkController: PdfInkController?
 
-    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?, Bool) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, inkMode: Binding<Bool> = .constant(false), inkController: PdfInkController? = nil) {
+    init(textbookId: String, totalPages: Int, initialPage: Int, onPageChanged: @escaping (Int) -> Void, onClose: @escaping () -> Void, onPin: ((String, String?, Bool) -> Void)? = nil, noteId: String? = nil, readOnly: Bool = false, isFullscreen: Bool = false, onToggleFullscreen: (() -> Void)? = nil, inkMode: Binding<Bool> = .constant(false), inkController: PdfInkController? = nil) {
         self.textbookId = textbookId
         self.totalPages = totalPages
         self.initialPage = initialPage
@@ -52,6 +56,8 @@ struct PdfViewerView: View {
         self.onPin = onPin
         self.noteId = noteId
         self.readOnly = readOnly
+        self.isFullscreen = isFullscreen
+        self.onToggleFullscreen = onToggleFullscreen
         self._inkMode = inkMode
         self.inkController = inkController
         self._currentPage = State(initialValue: initialPage)
@@ -73,6 +79,21 @@ struct PdfViewerView: View {
                         .clipShape(Capsule())
 
                     Spacer()
+
+                    // 확장/축소 — split↔전체화면을 눈에 보이는 버튼으로 노출(길게 누르기 단축키와 동일 동작).
+                    if let onToggleFullscreen {
+                        Button(action: onToggleFullscreen) {
+                            Image(systemName: isFullscreen
+                                ? "arrow.down.right.and.arrow.up.left"
+                                : "arrow.up.left.and.arrow.down.right")
+                                .font(.caption.bold())
+                                .foregroundStyle(.primary)
+                                .frame(width: 32, height: 28)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Capsule())
+                        }
+                        .accessibilityLabel(isFullscreen ? "PDF 화면 축소" : "PDF 전체화면")
+                    }
                 }
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
@@ -86,26 +107,21 @@ struct PdfViewerView: View {
                 Spacer()
 
                 // Floating bottom bar — toc + guide + 필기
-                HStack(spacing: 10) {
-                    Button { loadToc() } label: {
-                        Label("목차", systemImage: "list.bullet")
-                            .font(.caption)
-                    }
-                    Button { loadPageGuide() } label: {
-                        Label("가이드", systemImage: "book")
-                            .font(.caption)
-                    }
+                // 라벨 폰트는 작게 유지하되 각 버튼에 44pt 히트 영역을 줘 오탭을 막는다(시각 면적 ≈ 유지).
+                HStack(spacing: 4) {
+                    pdfBarButton(title: "목차", systemImage: "list.bullet", tint: .primary) { loadToc() }
+                    pdfBarButton(title: "가이드", systemImage: "book", tint: .primary) { loadPageGuide() }
                     // 필기 모드 토글 — 노트에 연결된 PDF에서만 노출. 읽기 전용(iPhone)은 가린다.
                     if noteId != nil, !readOnly {
-                        Button { inkMode.toggle() } label: {
-                            Label("필기", systemImage: inkMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
-                                .font(.caption)
-                                .foregroundStyle(inkMode ? Color.accentColor : Color.primary)
-                        }
+                        pdfBarButton(
+                            title: "필기",
+                            systemImage: inkMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
+                            tint: inkMode ? Color.accentColor : Color.primary
+                        ) { inkMode.toggle() }
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
                 .background(.ultraThinMaterial)
                 .clipShape(Capsule())
                 .padding(.bottom, 8)
@@ -130,6 +146,40 @@ struct PdfViewerView: View {
         }
         .task { await pollOcrStatus() }
         .onDisappear { if inkMode { inkMode = false } }   // PDF 닫히면 노트 캔버스 그리기 복구
+    }
+
+    /// 하단 플로팅 바 버튼 — 아이콘 전용. 최소 44pt 정사각 히트 영역 + contentShape으로
+    /// 빈 여백까지 탭 가능하게 한다. 텍스트 라벨은 접근성용으로만 유지(시각 노이즈 최소).
+    @ViewBuilder
+    private func pdfBarButton(
+        title: LocalizedStringKey,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body)
+                .foregroundStyle(tint)
+                .frame(minWidth: 48, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PdfBarButtonStyle())
+        .accessibilityLabel(title)
+    }
+
+    /// 하단 바 버튼 탭 피드백 — 누르면 원형 하이라이트가 뜨고 살짝 줄어드는 버블 느낌.
+    private struct PdfBarButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .background {
+                    Circle()
+                        .fill(Color.primary.opacity(configuration.isPressed ? 0.14 : 0))
+                        .frame(width: 40, height: 40)
+                }
+                .scaleEffect(configuration.isPressed ? 0.82 : 1)
+                .animation(.spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
+        }
     }
 
     /// 스캔본 OCR 진행 배너. 상태별 문구 + 진행 중이면 결정형 프로그레스 바.
@@ -276,6 +326,8 @@ struct PdfViewerView: View {
         var failed = false
         /// feedback_chats에 영속된 row id(수정 시 soft-delete용). 미영속이면 nil.
         var persistedId: String? = nil
+        /// assistant 응답의 LLM 인출 단서 — 버블 하단 #해시태그.
+        var keywords: [String] = []
     }
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
@@ -301,7 +353,8 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: guideChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed,
+                             keywords: $0.keywords)
                 },
                 input: $guideChatInput,
                 sending: guideChatSending,
@@ -514,8 +567,8 @@ struct PdfViewerView: View {
                 }
 
                 await MainActor.run {
-                    appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id)
-                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
+                    appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id, keywords: res.keywords ?? [])
+                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id, keywords: res.keywords ?? []) }
                     setGuideSending(isChapter, false)
                     // 퀵액션('연습문제')으로 보낸 응답이면 자동 스크랩 후 가이드 시트를 닫아 캔버스로 내보낸다.
                     if pendingPracticeScrap {
@@ -576,8 +629,8 @@ struct PdfViewerView: View {
         }
     }
 
-    private func appendGuideAssistant(_ isChapter: Bool, content: String, serverId: String?) {
-        let msg = GuideChatMessage(role: "assistant", content: content, serverId: serverId)
+    private func appendGuideAssistant(_ isChapter: Bool, content: String, serverId: String?, keywords: [String] = []) {
+        let msg = GuideChatMessage(role: "assistant", content: content, serverId: serverId, keywords: keywords)
         if isChapter { chapterChatMessages.append(msg) } else { guideChatMessages.append(msg) }
     }
 
@@ -588,7 +641,8 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: chapterChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed,
+                             keywords: $0.keywords)
                 },
                 input: $chapterChatInput,
                 sending: chapterChatSending,
@@ -829,7 +883,7 @@ struct PdfViewerView: View {
         }
         let msgs = (try? db.messages(sessionId: session.id)) ?? []
         let turns = msgs.dropFirst().map {
-            GuideChatMessage(role: $0.role, content: $0.content, serverId: $0.serverMessageId, rating: $0.userRating)
+            GuideChatMessage(role: $0.role, content: $0.content, serverId: $0.serverMessageId, rating: $0.userRating, keywords: $0.keywords)
         }
         if kind == .pageGuide { guideSessionId = session.id; guideChatMessages = turns }
         else { chapterSessionId = session.id; chapterChatMessages = turns }
@@ -857,10 +911,10 @@ struct PdfViewerView: View {
     }
 
     @discardableResult
-    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?) -> String? {
+    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?, keywords: [String] = []) -> String? {
         var msg = ChatMessageRecord(
             id: UUID().uuidString, sessionId: sessionId, role: role, content: content,
-            createdAt: Date(), serverMessageId: serverId
+            createdAt: Date(), serverMessageId: serverId, keywords: keywords
         )
         do { try db.saveChatMessage(&msg); return msg.id }
         catch { appLogError("guide-chat", "persist message failed", ["error": "\(error)"]); return nil }

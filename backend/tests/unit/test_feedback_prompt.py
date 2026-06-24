@@ -1,7 +1,13 @@
 """피드백 프롬프트 회귀 테스트 — JSON 지시 재유입 방지 + 분야 범용화."""
 
 from app.core.constants import DEFAULT_SUBJECT
-from app.services.feedback_service import _build_system_prompt
+from app.services.feedback_service import (
+    _build_system_prompt,
+    _normalize_intent,
+    _INTENT_USER_INSTRUCTION,
+    DEFAULT_INTENT,
+    VALID_INTENTS,
+)
 
 
 def test_system_prompt_no_json_instruction():
@@ -78,3 +84,63 @@ def test_default_subject_is_field_neutral():
     prompt = _build_system_prompt(DEFAULT_SUBJECT, "Korean")
     assert "learn their study material" in prompt
     assert "learn en" not in prompt
+
+
+# --- 의도 분기 (grade/ask/hint) ---
+
+def test_default_intent_is_grade():
+    """intent 미지정 = 채점(grade). 구버전 클라이언트 동작 유지(BC)."""
+    assert DEFAULT_INTENT == "grade"
+    default = _build_system_prompt("물리학", "Korean")
+    grade = _build_system_prompt("물리학", "Korean", intent="grade")
+    assert default == grade
+
+
+def test_grade_intent_frames_as_evaluation():
+    """채점 의도: 필기를 답안으로 보고 평가하는 지시가 있어야 한다."""
+    prompt = _build_system_prompt("Latin", "Korean", intent="grade")
+    assert "GRADE it" in prompt
+    assert "what is correct and what needs fixing" in prompt
+
+
+def test_ask_intent_does_not_grade():
+    """질문 의도: 채점하지 말고 답하라는 지시. '미완성 답안으로 채점' 버그의 회귀 가드."""
+    prompt = _build_system_prompt("Latin", "Korean", intent="ask")
+    assert "NOT an answer to be graded" in prompt
+    assert "Do NOT score it" in prompt
+    # 채점 전용 문구가 새지 않아야 함
+    assert "GRADE it" not in prompt
+
+
+def test_hint_intent_withholds_answer():
+    """힌트 의도: 정답을 공개하지 말고 한 걸음만 밀어주라는 지시."""
+    prompt = _build_system_prompt("Latin", "Korean", intent="hint")
+    assert "Do NOT reveal the final answer" in prompt
+    assert "GRADE it" not in prompt
+
+
+def test_invalid_intent_falls_back_to_grade():
+    """알 수 없는 intent는 채점으로 정규화 — 깨진/구버전 값에도 안전."""
+    assert _normalize_intent("bogus") == "grade"
+    assert _normalize_intent(None) == "grade"
+    assert _normalize_intent("ask") == "ask"
+    bogus = _build_system_prompt("Latin", "Korean", intent="bogus")
+    grade = _build_system_prompt("Latin", "Korean", intent="grade")
+    assert bogus == grade
+
+
+def test_all_intents_have_user_instruction():
+    """모든 유효 의도가 user 턴 마지막 지시 문구를 가져야 한다(KeyError 방지)."""
+    for intent in VALID_INTENTS:
+        assert intent in _INTENT_USER_INSTRUCTION
+        assert _INTENT_USER_INSTRUCTION[intent].strip()
+    # 의도별로 실제 다른 지시여야 함 — 분기가 무의미해지지 않게.
+    assert len({_INTENT_USER_INSTRUCTION[i] for i in VALID_INTENTS}) == len(VALID_INTENTS)
+
+
+def test_intent_branches_are_subject_agnostic():
+    """모든 의도 분기에서 주제가 주입되고 JSON 지시가 없어야 한다(공통 불변식)."""
+    for intent in VALID_INTENTS:
+        prompt = _build_system_prompt("Japanese", "Korean", intent=intent)
+        assert "Japanese" in prompt
+        assert "JSON" not in prompt and "json" not in prompt

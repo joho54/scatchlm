@@ -28,6 +28,9 @@ struct SessionChatSheet: View {
     /// 한해 채워지고, 해당 버블에 실패 표시 + 롱홀드 재시도/수정 메뉴를 띄운다. quota 초과는
     /// 재시도가 무의미하므로 여기 넣지 않고 alert로 안내한다.
     @State private var failedMessageIds: Set<String> = []
+    /// '연습문제' 퀵액션으로 전송한 응답을, 도착 시 자동으로 캔버스에 스크랩(onPin)하기 위한 플래그.
+    /// 성공 시 onPin 호출 후 시트를 닫아 캔버스로 내보내고, 실패 시 해제한다(수동 재시도엔 자동 핀 금지).
+    @State private var pendingPracticeScrap = false
 
     private let db = DatabaseService.shared
 
@@ -51,7 +54,7 @@ struct SessionChatSheet: View {
                 },
                 input: $input,
                 sending: sending,
-                onSend: sendMessage,
+                onSend: { sendMessage() },
                 onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); dismiss() } : nil,
                 onRate: { turn, r in
                     if let msg = messages.first(where: { $0.id == turn.id }) {
@@ -60,7 +63,8 @@ struct SessionChatSheet: View {
                 },
                 onDetail: { turn in pushedRatingMessageId = turn.id },
                 onRetry: { turn in retryFailed(turnId: turn.id) },
-                onEdit: { turn in editFailed(turnId: turn.id) }
+                onEdit: { turn in editFailed(turnId: turn.id) },
+                onQuickPractice: onPin != nil ? requestPractice : nil
             ) { fontSize in
                 // 헤더 — 피드백 카드 본문(저장 안 된 원본)을 assistant 버블로.
                 if let headerDisplay {
@@ -179,10 +183,19 @@ struct SessionChatSheet: View {
         }
     }
 
-    private func sendMessage() {
-        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// '연습문제' 퀵액션 — 고정 프롬프트를 전송하고 응답을 자동으로 캔버스에 스크랩한다.
+    private func requestPractice() {
+        guard onPin != nil, !sending else { return }
+        pendingPracticeScrap = true
+        sendMessage(overrideText: ChatQuickAction.practicePrompt)
+    }
+
+    private func sendMessage(overrideText: String? = nil) {
+        let raw = overrideText ?? input
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        input = ""
+        // 퀵액션 전송은 입력창을 비우지 않는다(유저가 치던 내용 보존).
+        if overrideText == nil { input = "" }
 
         var userMsg = ChatMessageRecord(
             id: UUID().uuidString,
@@ -291,10 +304,17 @@ struct SessionChatSheet: View {
                 await MainActor.run {
                     messages.append(assistantMsg)
                     sending = false
+                    // 퀵액션('연습문제')으로 보낸 응답이면 자동 스크랩 후 캔버스로 내보낸다.
+                    if pendingPracticeScrap {
+                        pendingPracticeScrap = false
+                        onPin?(assistantMsg.content, assistantMsg.serverMessageId)
+                        dismiss()
+                    }
                 }
             } catch {
                 appLogError("chat", "send failed", ["error": "\(error)"])
                 await MainActor.run {
+                    pendingPracticeScrap = false
                     if case APIError.quotaExceeded = error {
                         // 재시도해도 quota는 안 풀리므로 실패 표시 대신 안내만.
                         errorMessage = String(localized: "오늘 사용량을 모두 사용했어요. 내일 다시 시도해 주세요.")

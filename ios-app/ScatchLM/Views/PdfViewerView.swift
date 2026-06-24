@@ -283,6 +283,9 @@ struct PdfViewerView: View {
     @State private var chapterChatInput = ""
     @State private var chapterChatSending = false
     @State private var chapterSessionId: String?
+    /// '연습문제' 퀵액션으로 전송한 응답을, 도착 시 자동으로 캔버스에 스크랩(onPin)하기 위한 플래그.
+    /// page/chapter 가이드 채팅이 한 번에 하나만 열리므로 공용 플래그로 충분하다.
+    @State private var pendingPracticeScrap = false
 
     private let db = DatabaseService.shared
 
@@ -299,7 +302,7 @@ struct PdfViewerView: View {
                 input: $guideChatInput,
                 sending: guideChatSending,
                 placeholder: "질문하기...",
-                onSend: sendGuideChat,
+                onSend: { sendGuideChat() },
                 onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); showGuide = false } : nil,
                 onRate: { turn, r in
                     if let i = guideChatMessages.firstIndex(where: { $0.id.uuidString == turn.id }) {
@@ -308,7 +311,8 @@ struct PdfViewerView: View {
                     submitGuideRating(serverId: turn.serverId, rating: r, isPage: false)
                 },
                 onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: false) },
-                onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: false) }
+                onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: false) },
+                onQuickPractice: onPin != nil ? { requestPractice(isChapter: false) } : nil
             ) { fontSize in
                 // 헤더 — 페이지 가이드 설명 + 스크랩/평가
                 if guideLoading {
@@ -378,10 +382,19 @@ struct PdfViewerView: View {
         .interactiveDismissDisabled(true)
     }
 
-    private func sendGuideChat() {
-        let text = guideChatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// '연습문제' 퀵액션 — 고정 프롬프트를 전송하고 응답을 자동으로 캔버스에 스크랩한다.
+    private func requestPractice(isChapter: Bool) {
+        guard onPin != nil, !(isChapter ? chapterChatSending : guideChatSending) else { return }
+        pendingPracticeScrap = true
+        if isChapter { sendChapterChat(overrideText: ChatQuickAction.practicePrompt) }
+        else { sendGuideChat(overrideText: ChatQuickAction.practicePrompt) }
+    }
+
+    private func sendGuideChat(overrideText: String? = nil) {
+        let text = (overrideText ?? guideChatInput).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        guideChatInput = ""
+        // 퀵액션 전송은 입력창을 비우지 않는다(유저가 치던 내용 보존).
+        if overrideText == nil { guideChatInput = "" }
 
         var userMsg = GuideChatMessage(role: "user", content: text)
         // 세션 보장 + user 메시지 영속화 (§4.6). 가이드 본문은 세션 첫 assistant 메시지로 저장된다.
@@ -454,10 +467,17 @@ struct PdfViewerView: View {
                     appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id)
                     if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
                     setGuideSending(isChapter, false)
+                    // 퀵액션('연습문제')으로 보낸 응답이면 자동 스크랩 후 가이드 시트를 닫아 캔버스로 내보낸다.
+                    if pendingPracticeScrap {
+                        pendingPracticeScrap = false
+                        onPin?(res.content, res.feedback_id)
+                        if isChapter { showChapterGuide = false } else { showGuide = false }
+                    }
                 }
             } catch {
                 appLogError(tag, "send failed", ["error": "\(error)"])
                 await MainActor.run {
+                    pendingPracticeScrap = false
                     if case APIError.quotaExceeded = error {
                         // 재시도해도 quota는 안 풀림 — 비-pro는 Paywall, pro는 시트 유지.
                         _ = quotaGuideMessage { if isChapter { showChapterGuide = false } else { showGuide = false } }
@@ -523,7 +543,7 @@ struct PdfViewerView: View {
                 input: $chapterChatInput,
                 sending: chapterChatSending,
                 placeholder: "질문하기...",
-                onSend: sendChapterChat,
+                onSend: { sendChapterChat() },
                 onScrap: onPin != nil ? { turn in onPin?(turn.content, turn.serverId); showChapterGuide = false } : nil,
                 onRate: { turn, r in
                     if let i = chapterChatMessages.firstIndex(where: { $0.id.uuidString == turn.id }) {
@@ -532,7 +552,8 @@ struct PdfViewerView: View {
                     submitGuideRating(serverId: turn.serverId, rating: r, isPage: false)
                 },
                 onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: true) },
-                onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: true) }
+                onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: true) },
+                onQuickPractice: onPin != nil ? { requestPractice(isChapter: true) } : nil
             ) { _ in
                 // 헤더 — 챕터 가이드 요약 + 스크랩/평가
                 if chapterGuideLoading {
@@ -637,10 +658,11 @@ struct PdfViewerView: View {
         return parts.joined(separator: "\n\n")
     }
 
-    private func sendChapterChat() {
-        let text = chapterChatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func sendChapterChat(overrideText: String? = nil) {
+        let text = (overrideText ?? chapterChatInput).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        chapterChatInput = ""
+        // 퀵액션 전송은 입력창을 비우지 않는다(유저가 치던 내용 보존).
+        if overrideText == nil { chapterChatInput = "" }
 
         var userMsg = GuideChatMessage(role: "user", content: text)
         // 세션 보장 + user 메시지 영속화 (§4.6). 챕터 본문은 세션 첫 assistant 메시지로 저장된다.

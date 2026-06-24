@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// 입력바 '연습문제' 퀵액션이 보내는 고정 프롬프트.
+/// 가이드(=채팅) 안에서 읽기→필기 다리를 한 탭으로 잇기 위한 것 — 유저가 매번 직접 치던
+/// "간단한 연습문제 내줘" 발화를 결정론적 버튼으로 치환한다. 호스트는 이 프롬프트를 전송하고
+/// 응답을 자동으로 캔버스에 스크랩(onPin)한다.
+enum ChatQuickAction {
+    static let practicePrompt = String(localized: "방금 내용으로 간단한 연습문제를 내줘")
+}
+
 /// 채팅 한 턴(표시용 통일 모델). 피드백(ChatMessageRecord)·가이드(GuideChatMessage)가 각각 매핑해 쓴다.
 struct ChatTurn: Identifiable {
     let id: String
@@ -31,6 +39,9 @@ struct ChatThreadView<Header: View>: View {
     var onRetry: ((ChatTurn) -> Void)? = nil
     /// 실패한 user 메시지 롱홀드 → 내용을 입력창으로 되돌리고 실패 버블 제거(수정 후 재전송).
     var onEdit: ((ChatTurn) -> Void)? = nil
+    /// 입력바 '연습문제' 퀵액션 — 고정 프롬프트(`ChatQuickAction.practicePrompt`)를 전송하고
+    /// 응답을 자동으로 캔버스에 스크랩한다. 스크랩 대상(캔버스)이 있는 호스트만 주입한다.
+    var onQuickPractice: (() -> Void)? = nil
 
     /// 리스트 최상단 헤더(피드백 카드 본문 / 가이드 설명 + 평가 등). 없으면 EmptyView.
     /// 현재 글자 크기(`fontSize`)를 받아 헤더 본문도 함께 키울 수 있게 한다.
@@ -89,6 +100,17 @@ struct ChatThreadView<Header: View>: View {
                 VStack(spacing: 0) {
                     Divider()
                     HStack(spacing: 8) {
+                        if let onQuickPractice {
+                            Button(action: onQuickPractice) {
+                                Label("연습문제", systemImage: "pencil.and.list.clipboard")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .tint(.blue)
+                            .disabled(sending)
+                        }
+
                         fontSizeMenu
 
                         TextField(placeholder, text: $input, axis: .vertical)
@@ -147,10 +169,11 @@ extension ChatThreadView where Header == EmptyView {
          onRate: ((ChatTurn, Int) -> Void)? = nil,
          onDetail: ((ChatTurn) -> Void)? = nil,
          onRetry: ((ChatTurn) -> Void)? = nil,
-         onEdit: ((ChatTurn) -> Void)? = nil) {
+         onEdit: ((ChatTurn) -> Void)? = nil,
+         onQuickPractice: (() -> Void)? = nil) {
         self.init(turns: turns, input: input, sending: sending, placeholder: placeholder,
                   onSend: onSend, onScrap: onScrap, onRate: onRate, onDetail: onDetail,
-                  onRetry: onRetry, onEdit: onEdit,
+                  onRetry: onRetry, onEdit: onEdit, onQuickPractice: onQuickPractice,
                   header: { _ in EmptyView() })
     }
 }

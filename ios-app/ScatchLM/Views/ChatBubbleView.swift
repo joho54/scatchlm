@@ -8,8 +8,6 @@ struct ChatBubbleView<Actions: View>: View {
     let role: String
     let content: String
     var fontSize: CGFloat = 14
-    /// assistant 응답의 LLM 인출 단서 — 본문 아래 #해시태그 칩으로 표시. 비면 미표시.
-    var keywords: [String] = []
     @ViewBuilder var actions: () -> Actions
 
     private var isUser: Bool { role == "user" }
@@ -28,7 +26,6 @@ struct ChatBubbleView<Actions: View>: View {
             VStack(alignment: .leading, spacing: 8) {
                 // preferBake: 채팅 리스트에선 MarkdownUI(중첩 ForEach) 대신 bake 이미지로 — App Hang 방지.
                 MarkdownContentView(content: content, fontSize: fontSize, preferBake: true)
-                if !keywords.isEmpty { keywordChips }
                 Divider()
                 HStack(spacing: 12) { actions() }
             }
@@ -36,50 +33,6 @@ struct ChatBubbleView<Actions: View>: View {
             .padding(12)
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 12))
-        }
-    }
-
-    /// LLM 인출 단서를 #해시태그 칩으로 — 가로 폭을 넘치면 다음 줄로 흐른다(FlowLayout).
-    private var keywordChips: some View {
-        ChipFlowLayout(spacing: 6) {
-            ForEach(keywords, id: \.self) { kw in
-                Text("#\(kw)")
-                    .font(.system(size: max(11, fontSize - 2)))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.secondary.opacity(0.12))
-                    .clipShape(Capsule())
-            }
-        }
-    }
-}
-
-/// 칩을 가로로 채우다 폭을 넘기면 다음 줄로 내리는 단순 flow 레이아웃(iOS16 Layout).
-struct ChipFlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for sub in subviews {
-            let s = sub.sizeThatFits(.unspecified)
-            if x > 0, x + s.width > maxWidth { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            x += s.width + spacing
-            rowHeight = max(rowHeight, s.height)
-        }
-        return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
-        let maxWidth = bounds.width
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for sub in subviews {
-            let s = sub.sizeThatFits(.unspecified)
-            if x > 0, x + s.width > maxWidth { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            sub.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y), proposal: ProposedViewSize(s))
-            x += s.width + spacing
-            rowHeight = max(rowHeight, s.height)
         }
     }
 }
@@ -101,8 +54,6 @@ struct EquatableChatBubble: View, Equatable {
     var rating: Int? = nil
     /// 전송 실패한 user 메시지 — 실패 캡션 + 롱홀드 재시도/수정 메뉴.
     var failed: Bool = false
-    /// assistant 응답의 LLM 인출 단서 — 버블 하단 #해시태그.
-    var keywords: [String] = []
     /// 말풍선 글자 크기. ==에 포함해 사용자가 크기를 바꾸면 버블이 재평가되도록 한다.
     var fontSize: CGFloat = 14
     var onScrap: (() -> Void)? = nil
@@ -114,7 +65,6 @@ struct EquatableChatBubble: View, Equatable {
     static func == (l: EquatableChatBubble, r: EquatableChatBubble) -> Bool {
         l.role == r.role && l.content == r.content && l.serverId == r.serverId
             && l.rating == r.rating && l.failed == r.failed && l.fontSize == r.fontSize
-            && l.keywords == r.keywords
     }
 
     var body: some View {
@@ -125,7 +75,7 @@ struct EquatableChatBubble: View, Equatable {
                 ChatBubbleView(role: role, content: content, fontSize: fontSize)
             }
         } else {
-            ChatBubbleView(role: role, content: content, fontSize: fontSize, keywords: keywords) {
+            ChatBubbleView(role: role, content: content, fontSize: fontSize) {
                 if let onScrap {
                     Button { onScrap() } label: {
                         Label("스크랩", systemImage: "pin.fill")

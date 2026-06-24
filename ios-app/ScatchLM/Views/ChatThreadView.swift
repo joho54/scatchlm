@@ -17,8 +17,6 @@ struct ChatTurn: Identifiable {
     var rating: Int? = nil
     /// 전송 실패한 user 메시지 — 말풍선에 실패 표시 + 롱홀드 재시도/수정 메뉴를 띄운다.
     var failed: Bool = false
-    /// assistant 응답의 LLM 인출 단서 — 버블 하단 #해시태그 표시.
-    var keywords: [String] = []
 }
 
 /// **통일 채팅 스레드** — 피드백·가이드·챕터 챗이 공유하는 단일 컴포넌트.
@@ -67,7 +65,6 @@ struct ChatThreadView<Header: View>: View {
                             serverId: turn.serverId,
                             rating: turn.rating,
                             failed: turn.failed,
-                            keywords: turn.keywords,
                             fontSize: fontSize,
                             onScrap: onScrap.map { f in { f(turn) } },
                             onRate: turn.role == "user" ? nil : onRate.map { f in { r in f(turn, r) } },

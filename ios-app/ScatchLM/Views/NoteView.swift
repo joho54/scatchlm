@@ -2306,25 +2306,54 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 buttonBar.addArrangedSubview(revertBtn)
             }
 
+            // LLM 인출 단서 — 본문 아래 저chrome 해시태그 행(인코딩 시점에 핵심 개념 각인). 없으면 미표시.
+            let keywords = (parsed?.keywords ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            let keywordsLabel: UILabel? = keywords.isEmpty ? nil : {
+                let l = UILabel()
+                l.numberOfLines = 0
+                l.text = keywords.map { "#\($0)" }.joined(separator: "  ")
+                l.font = .systemFont(ofSize: 11)
+                l.textColor = .tertiaryLabel
+                return l
+            }()
+
             card.addSubview(label)
             card.addSubview(buttonBar)
             label.translatesAutoresizingMaskIntoConstraints = false
             buttonBar.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
+            var constraints: [NSLayoutConstraint] = [
                 label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
                 label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-                buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
                 buttonBar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 buttonBar.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
                 buttonBar.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
                 buttonBar.heightAnchor.constraint(equalToConstant: 28),
-            ])
+            ]
+            if let kw = keywordsLabel {
+                card.addSubview(kw)
+                kw.translatesAutoresizingMaskIntoConstraints = false
+                constraints += [
+                    kw.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 6),
+                    kw.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+                    kw.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+                    buttonBar.topAnchor.constraint(equalTo: kw.bottomAnchor, constant: 8),
+                ]
+            } else {
+                constraints.append(buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8))
+            }
+            NSLayoutConstraint.activate(constraints)
 
             let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
             // chrome = top inset(12) + label↔button gap(8) + buttonBar(28) + bottom inset(8) = 56.
             // 이전엔 48이라 본문 textView가 8pt 압축돼 마지막 줄이 잘렸다.
-            let cardHeight = ceil(labelSize.height) + 56
+            var extraHeight: CGFloat = 56
+            if let kw = keywordsLabel {
+                // 키워드 행 높이 + 본문↔키워드 gap(6). 측정은 표시와 동일 폭(cardWidth-24)으로.
+                let kwSize = kw.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
+                extraHeight += ceil(kwSize.height) + 6
+            }
+            let cardHeight = ceil(labelSize.height) + extraHeight
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
             container(canvasView).addSubview(card)

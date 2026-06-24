@@ -326,8 +326,6 @@ struct PdfViewerView: View {
         var failed = false
         /// feedback_chats에 영속된 row id(수정 시 soft-delete용). 미영속이면 nil.
         var persistedId: String? = nil
-        /// assistant 응답의 LLM 인출 단서 — 버블 하단 #해시태그.
-        var keywords: [String] = []
     }
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
@@ -353,8 +351,7 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: guideChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed,
-                             keywords: $0.keywords)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
                 },
                 input: $guideChatInput,
                 sending: guideChatSending,
@@ -567,8 +564,8 @@ struct PdfViewerView: View {
                 }
 
                 await MainActor.run {
-                    appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id, keywords: res.keywords ?? [])
-                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id, keywords: res.keywords ?? []) }
+                    appendGuideAssistant(isChapter, content: res.content, serverId: res.feedback_id)
+                    if let sid { persistGuideMessage(sessionId: sid, role: "assistant", content: res.content, serverId: res.feedback_id) }
                     setGuideSending(isChapter, false)
                     // 퀵액션('연습문제')으로 보낸 응답이면 자동 스크랩 후 가이드 시트를 닫아 캔버스로 내보낸다.
                     if pendingPracticeScrap {
@@ -629,8 +626,8 @@ struct PdfViewerView: View {
         }
     }
 
-    private func appendGuideAssistant(_ isChapter: Bool, content: String, serverId: String?, keywords: [String] = []) {
-        let msg = GuideChatMessage(role: "assistant", content: content, serverId: serverId, keywords: keywords)
+    private func appendGuideAssistant(_ isChapter: Bool, content: String, serverId: String?) {
+        let msg = GuideChatMessage(role: "assistant", content: content, serverId: serverId)
         if isChapter { chapterChatMessages.append(msg) } else { guideChatMessages.append(msg) }
     }
 
@@ -641,8 +638,7 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: chapterChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed,
-                             keywords: $0.keywords)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
                 },
                 input: $chapterChatInput,
                 sending: chapterChatSending,
@@ -883,7 +879,7 @@ struct PdfViewerView: View {
         }
         let msgs = (try? db.messages(sessionId: session.id)) ?? []
         let turns = msgs.dropFirst().map {
-            GuideChatMessage(role: $0.role, content: $0.content, serverId: $0.serverMessageId, rating: $0.userRating, keywords: $0.keywords)
+            GuideChatMessage(role: $0.role, content: $0.content, serverId: $0.serverMessageId, rating: $0.userRating)
         }
         if kind == .pageGuide { guideSessionId = session.id; guideChatMessages = turns }
         else { chapterSessionId = session.id; chapterChatMessages = turns }
@@ -911,10 +907,10 @@ struct PdfViewerView: View {
     }
 
     @discardableResult
-    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?, keywords: [String] = []) -> String? {
+    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?) -> String? {
         var msg = ChatMessageRecord(
             id: UUID().uuidString, sessionId: sessionId, role: role, content: content,
-            createdAt: Date(), serverMessageId: serverId, keywords: keywords
+            createdAt: Date(), serverMessageId: serverId
         )
         do { try db.saveChatMessage(&msg); return msg.id }
         catch { appLogError("guide-chat", "persist message failed", ["error": "\(error)"]); return nil }

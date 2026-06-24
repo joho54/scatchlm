@@ -520,9 +520,6 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     var serverMessageId: String?
     var userRating: Int?
     var userRatingSyncedAt: Date?
-    /// assistant 응답의 LLM 인출 단서. 버블 하단 #해시태그 표시용. 로컬 전용(sync DTO 미포함).
-    /// GRDB가 JSON 배열 문자열로 인코딩해 `keywords` TEXT 컬럼에 저장(v15).
-    var keywords: [String]
     // sync 메타
     var userId: String
     var updatedAt: Date
@@ -530,7 +527,7 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     var dirty: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, role, content, keywords
+        case id, role, content
         case sessionId = "session_id"
         case feedbackId = "feedback_id"
         case createdAt = "created_at"
@@ -543,7 +540,7 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     }
 
     enum Columns: String, ColumnExpression {
-        case id, role, content, keywords
+        case id, role, content
         case sessionId = "session_id"
         case feedbackId = "feedback_id"
         case createdAt = "created_at"
@@ -565,7 +562,6 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         serverMessageId: String? = nil,
         userRating: Int? = nil,
         userRatingSyncedAt: Date? = nil,
-        keywords: [String] = [],
         userId: String = "",
         updatedAt: Date = Date(),
         deleted: Bool = false,
@@ -580,7 +576,6 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         self.serverMessageId = serverMessageId
         self.userRating = userRating
         self.userRatingSyncedAt = userRatingSyncedAt
-        self.keywords = keywords
         self.userId = userId
         self.updatedAt = updatedAt
         self.deleted = deleted

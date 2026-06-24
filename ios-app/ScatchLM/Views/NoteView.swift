@@ -393,9 +393,16 @@ struct NoteView: View {
 
     /// DMN 휴식 시작 — 최근 피드백 본문에서 핵심 단어를 룰 베이스로 추출해 타이머에 넘긴다.
     private func startBreak() {
-        let feedbacks = (try? db.recentFeedbacks(limit: 10)) ?? []
-        let words = WordExtractor.importantWords(from: feedbacks.map(\.content))
-        appLog("dmn", "break started", ["feedbacks": "\(feedbacks.count)", "words": "\(words.count)"])
+        // 1순위: LLM이 응답에 담아준 인출 단서(keywords) — 볼드 휴리스틱과 달리 포맷팅에 안 묶임.
+        // 폴백: 단서가 비면(구버전 피드백·타 기기 동기화분) 기존 볼드 추출.
+        var words = (try? db.recentDMNCues(noteId: noteId, limit: 12)) ?? []
+        var source = "cues"
+        if words.isEmpty {
+            let feedbacks = (try? db.recentFeedbacks(noteId: noteId, limit: 10)) ?? []
+            words = WordExtractor.importantWords(from: feedbacks.map(\.content))
+            source = "bold"
+        }
+        appLog("dmn", "break started", ["note": noteId, "source": source, "words": "\(words.count)"])
         dmnBreak = DMNBreakContext(words: words)
     }
 
@@ -1555,6 +1562,11 @@ struct NoteView: View {
                 let jsonStr = String(data: jsonData, encoding: .utf8) ?? "{}"
                 let strokeEnd = canvasView.drawing.strokes.count
                 appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId)
+
+                // DMN 인출 단서 적재 — 노트 scope.
+                if let kws = response.keywords, !kws.isEmpty {
+                    try? db.insertDMNCues(noteId: noteId, keywords: kws, source: "feedback")
+                }
 
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])
                 track(.feedback, .ok, ms: elapsedMs(), ["hasTextbook": note?.textbookId != nil])

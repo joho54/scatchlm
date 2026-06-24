@@ -62,6 +62,85 @@ async def test_feedback_requires_auth(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_feedback_forwards_intent(client: AsyncClient, auth_header: dict):
+    """intent 파라미터가 get_feedback로 그대로 전달돼야 한다(채점만 하던 단일 모드 분기)."""
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=MOCK_RESULT,
+    ) as mock_fn:
+        res = await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={"note_id": "note-1", "language": "ja", "intent": "ask"},
+        )
+    assert res.status_code == 200
+    assert mock_fn.call_args.kwargs["intent"] == "ask"
+
+
+@pytest.mark.asyncio
+async def test_feedback_intent_defaults_to_grade(client: AsyncClient, auth_header: dict):
+    """intent 미지정 = 채점(grade). 구버전 클라이언트 BC."""
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=MOCK_RESULT,
+    ) as mock_fn:
+        res = await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={"note_id": "note-1", "language": "ja"},
+        )
+    assert res.status_code == 200
+    assert mock_fn.call_args.kwargs["intent"] == "grade"
+
+
+@pytest.mark.asyncio
+async def test_feedback_invalid_intent_normalized_to_grade(client: AsyncClient, auth_header: dict):
+    """깨진/구버전 intent 값은 라우터에서 grade로 정규화 — get_feedback에도 grade가 가야 한다."""
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=MOCK_RESULT,
+    ) as mock_fn:
+        res = await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={"note_id": "note-1", "language": "ja", "intent": "bogus"},
+        )
+    assert res.status_code == 200
+    assert mock_fn.call_args.kwargs["intent"] == "grade"
+
+
+@pytest.mark.asyncio
+async def test_feedback_persists_intent(client: AsyncClient, auth_header: dict, db_session):
+    """피드백 응답 레코드(AIResponse)에 정규화된 intent가 적재돼야 한다(의도 분포 분석 backbone)."""
+    from sqlalchemy import select
+    from app.models.feedback import AIResponse
+
+    with patch(
+        "app.routers.feedback.get_feedback",
+        new_callable=AsyncMock,
+        return_value=MOCK_RESULT,
+    ):
+        res = await client.post(
+            "/api/feedback",
+            headers=auth_header,
+            files={"image": ("canvas.png", io.BytesIO(b"\x89PNG fake"), "image/png")},
+            data={"note_id": "note-intent", "language": "ja", "intent": "hint"},
+        )
+    assert res.status_code == 200
+    feedback_id = res.json()["feedback_id"]
+    record = (await db_session.execute(
+        select(AIResponse).where(AIResponse.id == feedback_id)
+    )).scalar_one()
+    assert record.intent == "hint"
+
+
+@pytest.mark.asyncio
 async def test_feedback_with_textbook_context(client: AsyncClient, auth_header: dict):
     """교재 컨텍스트와 함께 피드백 요청."""
     import fitz

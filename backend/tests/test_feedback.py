@@ -289,6 +289,81 @@ async def test_feedback_chat_with_response_language(client: AsyncClient, auth_he
 
 
 @pytest.mark.asyncio
+async def test_feedback_chat_attaches_annotation_image(client: AsyncClient, auth_header: dict):
+    """annotation_image가 오면 사용자 턴을 멀티모달(text+image)로 구성하고
+    '주의/혼란 지도' system 블록을 주입하는지 회귀 가드(길 B)."""
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="ok")]
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    # 1x1 투명 PNG 대용 — 내용은 무관, base64 문자열이 image 블록에 그대로 실리는지만 본다.
+    fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "이 부분 설명해줘",
+                "history": [],
+                "response_language": "Korean",
+                "annotation_image": fake_b64,
+            },
+        )
+
+    assert res.status_code == 200
+    call_kwargs = mock_client.messages.create.call_args.kwargs
+
+    # 마지막 사용자 턴이 text+image 블록 리스트여야 한다.
+    last_msg = call_kwargs["messages"][-1]
+    assert last_msg["role"] == "user"
+    assert isinstance(last_msg["content"], list)
+    blocks = last_msg["content"]
+    assert blocks[0]["type"] == "text" and blocks[0]["text"] == "이 부분 설명해줘"
+    img = next(b for b in blocks if b["type"] == "image")
+    assert img["source"]["type"] == "base64"
+    assert img["source"]["media_type"] == "image/jpeg"
+    assert img["source"]["data"] == fake_b64
+
+    # system에 주석=주의/혼란 지도 지시가 들어가야 한다.
+    system_text = call_kwargs["system"][0]["text"]
+    assert "ATTENTION/CONFUSION MAP" in system_text
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_without_annotation_image_keeps_text_only(
+    client: AsyncClient, auth_header: dict
+):
+    """annotation_image 미첨부면 사용자 턴은 기존대로 plain string이어야 한다(BC 회귀 가드)."""
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="ok")]
+    mock_response.usage = AsyncMock(input_tokens=100, output_tokens=20,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={"message": "hello", "history": [], "response_language": "Korean"},
+        )
+
+    assert res.status_code == 200
+    call_kwargs = mock_client.messages.create.call_args.kwargs
+    last_msg = call_kwargs["messages"][-1]
+    assert last_msg["content"] == "hello"
+    assert "ATTENTION/CONFUSION MAP" not in call_kwargs["system"][0]["text"]
+
+
+@pytest.mark.asyncio
 async def test_feedback_chat_textbook_rules_prioritize_question_intent(
     client: AsyncClient, auth_header: dict
 ):

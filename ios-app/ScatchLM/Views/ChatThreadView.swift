@@ -111,8 +111,6 @@ struct ChatThreadView<Header: View>: View {
                             .disabled(sending)
                         }
 
-                        fontSizeMenu
-
                         TextField(placeholder, text: $input, axis: .vertical)
                             .textFieldStyle(.roundedBorder)
                             .lineLimit(1...4)
@@ -133,30 +131,6 @@ struct ChatThreadView<Header: View>: View {
                 }
                 .background(.bar)
             }
-        }
-    }
-
-    /// 입력바 좌측 글자 크기 메뉴 — 작게/보통/크게/더 크게/아주 크게 프리셋.
-    /// 선택 시 즉시 말풍선·헤더에 반영(@State fontSize)하고 `Config.chatFontSize`에 영속화한다.
-    private var fontSizeMenu: some View {
-        Menu {
-            Picker(selection: Binding(
-                get: { fontSize },
-                set: { fontSize = $0; Config.chatFontSize = $0 }
-            )) {
-                Text("작게").tag(CGFloat(14))
-                Text("보통").tag(CGFloat(16))
-                Text("크게").tag(CGFloat(18))
-                Text("더 크게").tag(CGFloat(20))
-                Text("아주 크게").tag(CGFloat(22))
-            } label: {
-                Text("글자 크기")
-            }
-        } label: {
-            Image(systemName: "textformat.size")
-                .font(.system(size: 20))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
         }
     }
 }

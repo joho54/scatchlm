@@ -4,6 +4,7 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var responseLanguage = Config.responseLanguage
     @State private var mathRenderMode = Config.mathRenderMode
+    @State private var chatFontSize = Config.chatFontSize
 
     @State private var showDeleteConfirm = false
     @State private var deleting = false
@@ -51,6 +52,27 @@ struct SettingsSheet: View {
 
                     Text("자동: 수식이 있으면 KaTeX로 렌더. 수식 안 보기는 가볍게 텍스트만 표시합니다.")
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("채팅 글자 크기") {
+                    Slider(
+                        value: $chatFontSize,
+                        in: Config.chatFontSizeRange,
+                        step: 1
+                    ) {
+                        Text("채팅 글자 크기")
+                    } minimumValueLabel: {
+                        Text("가").font(.system(size: 13))
+                    } maximumValueLabel: {
+                        Text("가").font(.system(size: 22))
+                    }
+                    .onChange(of: chatFontSize) { _, newValue in
+                        Config.chatFontSize = newValue
+                    }
+
+                    Text("미리보기: 채팅 답변이 이 크기로 보여요.")
+                        .font(.system(size: chatFontSize))
                         .foregroundStyle(.secondary)
                 }
 

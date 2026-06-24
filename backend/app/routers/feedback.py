@@ -275,6 +275,7 @@ class ChatRequest(BaseModel):
     current_page: int | None = None
     note_id: str | None = None
     parent_feedback_id: str | None = None  # 부모 피드백/응답 id (rating 분석용 컨텍스트)
+    annotation_image: str | None = None  # 현재 PDF 페이지+필기 합성 JPEG의 base64. 있으면 사용자 턴에 image 블록으로 첨부 — 주석을 주의/혼란 지도로 활용(길 B). 잉크 없는 페이지는 iOS가 nil로 보냄.
 
 class ChatResponse(BaseModel):
     content: str
@@ -444,12 +445,33 @@ async def feedback_chat(
             "No textbook is connected. Answer based on your general knowledge."
         )
 
+    if req.annotation_image:
+        system_parts.append(
+            "\nThe user has ATTACHED AN IMAGE of the current textbook page with their own "
+            "handwritten annotations on it (margin notes, underlines, circles, question marks). "
+            "Read it as an ATTENTION/CONFUSION MAP: it shows WHERE on the page they focused or "
+            "got stuck — not as the source of facts (use the textbook references above for that). "
+            "When relevant, reference what they marked naturally (e.g. \"네가 ___에 표시한 부분\") and "
+            "prefer answering around it. The page's printed text is shown only so you can tell what "
+            "their marks point at — do NOT transcribe or reproduce the page text; just reason about "
+            "the annotations."
+        )
+
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
     messages = []
     for msg in req.history:
         messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": req.message})
+    # 주석 이미지가 오면 현재 사용자 턴을 멀티모달(text+image)로 — 별도 OCR 콜 없이 이 한 콜에서 모델이 잉크를 직접 본다(길 B).
+    if req.annotation_image:
+        messages.append({"role": "user", "content": [
+            {"type": "text", "text": req.message},
+            {"type": "image", "source": {
+                "type": "base64", "media_type": "image/jpeg", "data": req.annotation_image,
+            }},
+        ]})
+    else:
+        messages.append({"role": "user", "content": req.message})
 
     # 프롬프트 캐싱(§11 L2): system 블록(교재 RAG 컨텍스트 포함)은 같은 대화의 turn마다
     # prefix로 그대로 재사용된다 → cache_control로 5분 내 재요청 시 0.1× 과금(KV 캐시 재사용).

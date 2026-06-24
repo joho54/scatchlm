@@ -394,6 +394,35 @@ struct PdfViewerView: View {
         else { sendGuideChat(overrideText: ChatQuickAction.practicePrompt) }
     }
 
+    /// 현재 페이지 + 그 위 사용자 필기를 하나의 JPEG로 합성해 base64로 반환 (가이드 채팅 비전 컨텍스트, 길 B).
+    /// 필기가 없는 페이지면 nil — 채팅은 이미지 없이 정상 진행하고, 잉크 없는 페이지엔 헛 토큰을 안 쓴다.
+    /// 좌표 정합: 입력 레이어(`applyLayout`)와 동일하게 cropBox·page-point 공간에서 그린다.
+    private func renderPageWithInkBase64() -> String? {
+        guard let nid = noteId,
+              let ann = try? db.pdfAnnotation(noteId: nid, page: currentPage),
+              let data = ann.drawingData,
+              let drawing = try? PKDrawing(data: data), !drawing.strokes.isEmpty else { return nil }
+        guard let doc = pdfView?.document, currentPage >= 1, currentPage <= doc.pageCount,
+              let page = doc.page(at: currentPage - 1) else { return nil }
+        let pb = page.bounds(for: .cropBox)
+        guard pb.width > 1, pb.height > 1 else { return nil }
+        // Vision 입력 상한(~1568px)에 맞춰 긴 변 ~1600 목표로 스케일 산정(최대 2x).
+        let scale = min(2.0, 1600 / max(pb.width, pb.height))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        let full = CGRect(origin: .zero, size: pb.size)
+        let img = UIGraphicsImageRenderer(size: pb.size, format: format).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(full)
+            page.thumbnail(of: CGSize(width: pb.width * scale, height: pb.height * scale), for: .cropBox).draw(in: full)
+            drawing.image(from: full, scale: scale).draw(in: full)
+        }
+        guard let jpeg = img.jpegData(compressionQuality: 0.6) else { return nil }
+        appLog("guide-chat", "annotation image attached", ["page": "\(currentPage)", "bytes": "\(jpeg.count)"])
+        return jpeg.base64EncodedString()
+    }
+
     private func sendGuideChat(overrideText: String? = nil) {
         let text = (overrideText ?? guideChatInput).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -440,6 +469,8 @@ struct PdfViewerView: View {
         let parentId = isChapter ? chapterGuide?.feedbackId : pageGuide?.feedbackId
         let tag = isChapter ? "chapter-chat" : "guide-chat"
         let messageText = userMsg.content
+        // 현재 페이지에 필기가 있으면 페이지+잉크 합성 이미지를 첨부(길 B). main에서 합성(UIKit/db 접근).
+        let annotationImage = renderPageWithInkBase64()
 
         Task {
             do {
@@ -451,6 +482,7 @@ struct PdfViewerView: View {
                     let current_page: Int?
                     let note_id: String?
                     let parent_feedback_id: String?
+                    let annotation_image: String?
                 }
                 struct ChatRes: Decodable {
                     let content: String
@@ -465,7 +497,8 @@ struct PdfViewerView: View {
                     textbook_id: textbookId,
                     current_page: pageParam,
                     note_id: noteId,
-                    parent_feedback_id: parentId
+                    parent_feedback_id: parentId,
+                    annotation_image: annotationImage
                 )
 
                 let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)

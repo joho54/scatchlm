@@ -303,8 +303,12 @@ struct SessionChatSheet: View {
                     appLogError("chat", "saveChatMessage(assistant) failed", ["error": "\(error)"])
                 }
                 // DMN 인출 단서 적재 — 노트 scope. note_id 없는 세션(교재 가이드 등)은 건너뛴다.
+                let kwCount = res.keywords?.count ?? 0
                 if let nid = noteId, let kws = res.keywords, !kws.isEmpty {
                     try? db.insertDMNCues(noteId: nid, keywords: kws, source: "chat")
+                    appLog("dmn", "cues inserted (chat)", ["note": nid, "n": "\(kws.count)"])
+                } else {
+                    appLog("dmn", "cues skipped (chat)", ["hasNote": "\(noteId != nil)", "kw": "\(kwCount)"])
                 }
 
                 await MainActor.run {

@@ -1566,6 +1566,9 @@ struct NoteView: View {
                 // DMN 인출 단서 적재 — 노트 scope.
                 if let kws = response.keywords, !kws.isEmpty {
                     try? db.insertDMNCues(noteId: noteId, keywords: kws, source: "feedback")
+                    appLog("dmn", "cues inserted (feedback)", ["note": noteId, "n": "\(kws.count)"])
+                } else {
+                    appLog("dmn", "cues skipped (feedback)", ["kw": "\(response.keywords?.count ?? 0)"])
                 }
 
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])

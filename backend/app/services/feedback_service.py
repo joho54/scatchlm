@@ -187,10 +187,12 @@ FEEDBACK_OUTPUT_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "description": (
-                "3-7 key concepts or terms a learner should be able to recall after this work, "
-                "as short noun phrases in the response language. These are rest-time retrieval cues, "
-                "NOT a summary: pick the load-bearing concepts (e.g. '역전파', '베이즈 정리'), not filler words. "
-                "Each cue should stand alone as a recall prompt. Omit if nothing substantive."
+                "3-7 rest-time retrieval cues — the load-bearing concepts a learner should recall after this work. "
+                "Each MUST be a SINGLE short term: one noun or a tight compound, ideally <=6 characters in Korean. "
+                "NO phrases, NO clauses, NO descriptions, NO space-joined word lists. "
+                "Good: '역전파', '베이즈정리', '경사하강'. "
+                "Bad: '자음 어간 동사 변화', '구개음·입술음·치음 + σ 변형' (these are phrases — split into single terms or drop). "
+                "Not a summary. Omit if nothing substantive."
             ),
         },
     },

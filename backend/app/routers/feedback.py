@@ -301,10 +301,12 @@ CHAT_OUTPUT_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "description": (
-                "0-5 key concepts or terms from THIS exchange that the learner should be able to recall later, "
-                "as short noun phrases in the response language (e.g. '역전파', '베이즈 정리'). "
-                "Rest-time retrieval cues, NOT a summary — pick load-bearing concepts only. "
-                "Empty array if the exchange is chit-chat or has no substantive concept."
+                "0-5 rest-time retrieval cues — load-bearing concepts from THIS exchange the learner should recall later. "
+                "Each MUST be a SINGLE short term: one noun or a tight compound, ideally <=6 characters in Korean. "
+                "NO phrases, NO clauses, NO descriptions, NO space-joined word lists. "
+                "Good: '역전파', '베이즈정리', '경사하강'. "
+                "Bad: '자음 어간 동사 변화', '구개음·입술음·치음 + σ 변형' (these are phrases — split into single terms or drop). "
+                "Not a summary. Empty array if the exchange is chit-chat or has no substantive concept."
             ),
         },
     },
@@ -322,8 +324,8 @@ async def feedback_chat(
     """피드백 후속 채팅 — RAG 지원."""
     user_id = payload["sub"]
     tier = get_tier(payload)
-    log.info("Feedback chat: user=%s tier=%s history=%d msg=%s textbook=%s",
-             user_id, tier, len(req.history), len(req.message), req.textbook_id)
+    log.info("Feedback chat: user=%s tier=%s history=%d msg=%s textbook=%s note=%s",
+             user_id, tier, len(req.history), len(req.message), req.textbook_id, req.note_id)
 
     # quota 체크 — 초과 시 LLM 호출 없이 429
     await check_daily_quota(user_id, tier, db, is_admin=get_role(payload) == "admin")

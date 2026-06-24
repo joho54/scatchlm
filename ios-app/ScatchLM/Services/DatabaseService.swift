@@ -765,21 +765,27 @@ final class DatabaseService {
         }
     }
 
-    /// 노트 scope 최신 단서 N개(중복 제거, 최신 우선). DMN 타이머용.
+    /// DMN 단서 표시 상한 길이 — 휴식 중 흘끗 보는 인출 단서라 한 문장/구절은 부적합.
+    /// LLM 프롬프트로 짧은 단일 개념어를 유도하지만(1차), 안 지킬 때 표시 단에서 거른다(2차 방어).
+    static let dmnCueMaxLen = 10
+
+    /// 노트 scope 최신 단서 N개(중복 제거, 최신 우선, 길이 초과 제외). DMN 타이머용.
     func recentDMNCues(noteId: String, limit: Int = 12) throws -> [String] {
         guard let uid = scopedUserId else { return [] }
         let cues = try dbQueue.read { db in
             try DMNCue
                 .filter(DMNCue.Columns.userId == uid && DMNCue.Columns.noteId == noteId)
                 .order(DMNCue.Columns.createdAt.desc)
-                .limit(limit * 4)   // 중복 제거 여유분
+                .limit(limit * 4)   // 길이/중복 필터 여유분
                 .fetchAll(db)
         }
         var seen = Set<String>()
         var out: [String] = []
         for c in cues {
-            if seen.insert(c.keyword.lowercased()).inserted {
-                out.append(c.keyword)
+            let kw = c.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard kw.count <= Self.dmnCueMaxLen else { continue }   // 구절/문장 컷
+            if seen.insert(kw.lowercased()).inserted {
+                out.append(kw)
                 if out.count >= limit { break }
             }
         }

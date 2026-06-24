@@ -183,10 +183,40 @@ FEEDBACK_OUTPUT_SCHEMA = {
             "type": "string",
             "description": "The tutor feedback itself, in markdown, written in the requested response language.",
         },
+        "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "3-7 key concepts or terms a learner should be able to recall after this work, "
+                "as short noun phrases in the response language. These are rest-time retrieval cues, "
+                "NOT a summary: pick the load-bearing concepts (e.g. '역전파', '베이즈 정리'), not filler words. "
+                "Each cue should stand alone as a recall prompt. Omit if nothing substantive."
+            ),
+        },
     },
     "required": ["transcription", "feedback"],
     "additionalProperties": False,
 }
+
+
+def _clean_keywords(raw: object, limit: int = 7) -> list[str]:
+    """LLM이 돌려준 keywords를 정규화: 문자열만, 공백 정리, 중복 제거, 상한.
+    길이 컷은 두지 않는다 — 표시(클라이언트) 책임. 비-list/비-str은 조용히 버린다."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        kw = item.strip()
+        if not kw or kw in seen:
+            continue
+        seen.add(kw)
+        out.append(kw)
+        if len(out) >= limit:
+            break
+    return out
 
 
 @dataclass
@@ -310,17 +340,19 @@ async def get_feedback(
     # structured output → {transcription, feedback}. 잘림(max_tokens)이나 예외적 비-JSON 응답이면
     # best-effort 폴백: 원문을 그대로 피드백으로 쓰고 transcription은 비운다(채팅 주입은 단지 생략됨).
     transcription = ""
+    keywords: list[str] = []
     try:
         parsed = json.loads(raw)
         content = (parsed.get("feedback") or "").strip()
         transcription = (parsed.get("transcription") or "").strip()
+        keywords = _clean_keywords(parsed.get("keywords"))
         if not content:
             content = raw
     except (json.JSONDecodeError, AttributeError):
         log.warning("Feedback structured output parse failed (stop=%s); falling back to raw text", response.stop_reason)
         content = raw
 
-    data = {"type": "feedback", "content": content, "transcription": transcription}
+    data = {"type": "feedback", "content": content, "transcription": transcription, "keywords": keywords}
 
     return FeedbackResult(
         data=data,

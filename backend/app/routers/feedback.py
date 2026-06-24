@@ -1,3 +1,4 @@
+import json
 import logging
 
 from datetime import datetime
@@ -23,6 +24,7 @@ from app.services.feedback_service import (
     estimate_cost_from_usage,
     get_feedback,
     get_recognition,
+    _clean_keywords,
     RECOGNITION_MODEL,
 )
 from app.services.pdf_service import extract_text as extract_pdf_text, extract_text_async
@@ -40,6 +42,7 @@ class FeedbackResponse(BaseModel):
     type: str = "feedback"
     content: str = ""
     feedback_id: str | None = None
+    keywords: list[str] = []  # DMN 단서 — 구버전 클라이언트는 무시(BC)
     # Legacy fields (optional, for backward compat)
     recognized_text: str = ""
     feedback: str = ""
@@ -180,6 +183,7 @@ async def request_feedback(
     # 손글씨 transcription은 응답 본문이 아니라 후속 채팅 컨텍스트용 — 별도 컬럼에 저장하고
     # 클라이언트 응답(FeedbackResponse) spread에선 빼낸다.
     handwriting_transcription = (result.data.pop("transcription", "") or "")[:PROMPT_CONTEXT_MAX_CHARS] or None
+    keywords = result.data.get("keywords") or []  # 응답 spread에도 남겨두고 저장도 한다
     record = AIResponse(
         user_id=user_id,
         note_id=note_id,
@@ -194,6 +198,7 @@ async def request_feedback(
         previous_context=(previous_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
         response_content=response_content,
         handwriting_transcription=handwriting_transcription,
+        keywords=keywords,
         request_id=request_id,
     )
     db.add(record)
@@ -275,6 +280,37 @@ class ChatResponse(BaseModel):
     content: str
     sources: list[dict] = []  # [{"page_start": 33, "page_end": 34, "preview": "..."}]
     feedback_id: str | None = None  # 채팅 응답의 AIResponse id — 평가 대상
+    keywords: list[str] = []  # DMN 단서 — 구버전 클라이언트는 무시(BC)
+
+
+# 채팅 structured output 스키마. content(마크다운 답변)와 keywords(DMN 인출 단서)를 한 호출로 받는다.
+# 별도 추출 호출을 붙이지 않으려는 의도 — 한계비용(출력 토큰 몇 개)으로 단서를 얻는다.
+# 주의: 잘림(max_tokens)·비-JSON 응답이면 raw text 폴백으로 content를 채우고 keywords는 비운다(BC).
+CHAT_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "content": {
+            "type": "string",
+            "description": (
+                "Your full tutor response to the user, in markdown, in the requested response language. "
+                "This is the ONLY thing shown to the user — put the entire answer here, following all the "
+                "formatting/citation rules in the system prompt."
+            ),
+        },
+        "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "0-5 key concepts or terms from THIS exchange that the learner should be able to recall later, "
+                "as short noun phrases in the response language (e.g. '역전파', '베이즈 정리'). "
+                "Rest-time retrieval cues, NOT a summary — pick load-bearing concepts only. "
+                "Empty array if the exchange is chit-chat or has no substantive concept."
+            ),
+        },
+    },
+    "required": ["content"],
+    "additionalProperties": False,
+}
 
 
 @router.post("/feedback/chat", response_model=ChatResponse)
@@ -429,12 +465,24 @@ async def feedback_chat(
             max_tokens=2048,  # §11 L1: chat output 상한(설명형이라 피드백보다 넉넉히)
             system=system_blocks,
             messages=messages,
+            output_config={"format": {"type": "json_schema", "schema": CHAT_OUTPUT_SCHEMA}},
         )
     except Exception as e:
         log.exception("Feedback chat API failed: user=%s kind=%s", user_id, classify_anthropic_error(e))
         raise HTTPException(status_code=502, detail=f"LLM API error: {e}")
 
-    content = response.content[0].text
+    raw = response.content[0].text.strip()
+    # structured output → {content, keywords}. 잘림(max_tokens)·비-JSON이면 raw를 그대로 답변으로 쓰고
+    # keywords는 비운다(BC: 구 동작과 동일, 단서만 생략).
+    keywords: list[str] = []
+    try:
+        parsed = json.loads(raw)
+        content = (parsed.get("content") or "").strip() or raw
+        keywords = _clean_keywords(parsed.get("keywords"), limit=5)
+    except (json.JSONDecodeError, AttributeError):
+        log.warning("Chat structured output parse failed (stop=%s); falling back to raw text", response.stop_reason)
+        content = raw
+
     usage = response.usage
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
     cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
@@ -467,9 +515,10 @@ async def feedback_chat(
         prompt_context_snippet=(textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
         previous_context=req.parent_feedback_id,
         response_content=content,
+        keywords=keywords,
     )
     db.add(record)
     await db.commit()
     await db.refresh(record)
 
-    return ChatResponse(content=content, sources=sources, feedback_id=record.id)
+    return ChatResponse(content=content, sources=sources, feedback_id=record.id, keywords=keywords)

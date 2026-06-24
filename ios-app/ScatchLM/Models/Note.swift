@@ -325,6 +325,32 @@ struct FeedbackRecord: Codable, FetchableRecord, PersistableRecord, Identifiable
     }
 }
 
+/// DMN 휴식 타이머 인출 단서 (로컬 전용, sync 안 함). feedback/chat 응답의 keywords를 노트 scope로 모은다.
+struct DMNCue: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "dmn_cues"
+
+    var id: String
+    var noteId: String
+    var keyword: String
+    var source: String       // "feedback" | "chat"
+    var userId: String
+    var createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, keyword, source
+        case noteId = "note_id"
+        case userId = "user_id"
+        case createdAt = "created_at"
+    }
+
+    enum Columns: String, ColumnExpression {
+        case id, keyword, source
+        case noteId = "note_id"
+        case userId = "user_id"
+        case createdAt = "created_at"
+    }
+}
+
 struct PdfDrawing: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "pdf_drawings"
 

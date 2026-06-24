@@ -385,6 +385,19 @@ final class DatabaseService {
             }
         }
 
+        // DMN 휴식 타이머 인출 단서. feedback/chat 응답의 keywords를 노트 scope로 모아둔다.
+        // 로컬 전용(sync 안 함) — 휴식용 ephemeral 단서라 기기 간 이력 동기화 불필요, 새 응답이 곧 채운다.
+        migrator.registerMigration("v14_dmn_cues") { db in
+            try db.create(table: "dmn_cues", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("note_id", .text).notNull().indexed()
+                t.column("keyword", .text).notNull()
+                t.column("source", .text).notNull().defaults(to: "feedback")  // feedback | chat
+                t.column("user_id", .text).notNull().defaults(to: "")
+                t.column("created_at", .datetime).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -395,7 +408,7 @@ final class DatabaseService {
     func purgeAllData(userId: String) throws {
         guard !userId.isEmpty else { return }
         try dbQueue.write { db in
-            for table in ["feedback_chats", "feedbacks", "pdf_annotations", "note_pages", "notes", "folders", "purge_queue"] {
+            for table in ["dmn_cues", "feedback_chats", "feedbacks", "pdf_annotations", "note_pages", "notes", "folders", "purge_queue"] {
                 try db.execute(sql: "DELETE FROM \(table) WHERE user_id = ?", arguments: [userId])
             }
             // pdf_drawings는 user 스코프 컬럼이 없음 — 디바이스 로컬 전체 삭제.
@@ -713,19 +726,64 @@ final class DatabaseService {
         }
     }
 
-    /// 노트와 무관하게 최신 피드백 N개. DMN 타이머 단어 추출용 — skip 센티넬·빈 본문은 제외.
-    func recentFeedbacks(limit: Int = 10) throws -> [FeedbackRecord] {
+    /// 최신 피드백 N개. DMN 타이머 단어 추출용 — skip 센티넬·빈 본문은 제외.
+    /// `noteId`가 주어지면 그 노트로 한정(DMN은 "지금 이 노트" 맥락 앵커가 핵심), nil이면 전역.
+    func recentFeedbacks(noteId: String? = nil, limit: Int = 10) throws -> [FeedbackRecord] {
         guard let uid = scopedUserId else { return [] }
         return try dbQueue.read { db in
-            try FeedbackRecord
+            var query = FeedbackRecord
                 .filter(FeedbackRecord.Columns.userId == uid
                         && FeedbackRecord.Columns.deleted == false
                         && FeedbackRecord.Columns.content != FeedbackRecord.skipSentinel
                         && FeedbackRecord.Columns.content != "")
+            if let noteId {
+                query = query.filter(FeedbackRecord.Columns.noteId == noteId)
+            }
+            return try query
                 .order(FeedbackRecord.Columns.createdAt.desc)
                 .limit(limit)
                 .fetchAll(db)
         }
+    }
+
+    // MARK: - DMN 단서 (인출 단서, 로컬 전용)
+
+    /// feedback/chat 응답의 keywords를 노트 scope 단서로 적재한다. 빈 배열·공백은 건너뛴다.
+    func insertDMNCues(noteId: String, keywords: [String], source: String) throws {
+        guard let uid = scopedUserId else { return }
+        let cleaned = keywords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return }
+        let now = Date()
+        try dbQueue.write { db in
+            for kw in cleaned {
+                var cue = DMNCue(id: UUID().uuidString, noteId: noteId, keyword: kw,
+                                 source: source, userId: uid, createdAt: now)
+                try cue.insert(db)
+            }
+        }
+    }
+
+    /// 노트 scope 최신 단서 N개(중복 제거, 최신 우선). DMN 타이머용.
+    func recentDMNCues(noteId: String, limit: Int = 12) throws -> [String] {
+        guard let uid = scopedUserId else { return [] }
+        let cues = try dbQueue.read { db in
+            try DMNCue
+                .filter(DMNCue.Columns.userId == uid && DMNCue.Columns.noteId == noteId)
+                .order(DMNCue.Columns.createdAt.desc)
+                .limit(limit * 4)   // 중복 제거 여유분
+                .fetchAll(db)
+        }
+        var seen = Set<String>()
+        var out: [String] = []
+        for c in cues {
+            if seen.insert(c.keyword.lowercased()).inserted {
+                out.append(c.keyword)
+                if out.count >= limit { break }
+            }
+        }
+        return out
     }
 
     func saveFeedback(_ feedback: inout FeedbackRecord) throws {

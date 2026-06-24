@@ -33,6 +33,9 @@ class AIResponse(Base):
     # 손글씨 피드백(task_type='feedback')의 원문 transcription. one-pass structured output으로 채워진다.
     # 후속 채팅이 노트 원문을 컨텍스트로 주입하는 데 쓴다(채팅 시점엔 이미지가 없음). 다른 task_type은 NULL.
     handwriting_transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # DMN 휴식 타이머 인출 단서. feedback/chat 응답의 structured output에서 추출한 핵심 개념어.
+    # 길이 컷은 클라이언트(표시) 책임 — 여기선 원문 보존. 단서 없으면 빈 배열.
+    keywords: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     request_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 

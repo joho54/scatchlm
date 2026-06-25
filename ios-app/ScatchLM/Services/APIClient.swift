@@ -424,6 +424,11 @@ extension APIClient {
         try validate(data, response, method: "POST", path: path)
         return try JSONDecoder().decode(DiscoverResult.self, from: data)
     }
+
+    /// 서재 기반 "공부 시작점" 제안 프롬프트(Haiku). 보조 UI라 실패해도 빈 배열만 쓰면 된다.
+    func discoverSuggestions(responseLanguage: String) async throws -> DiscoverSuggestions {
+        try await get("/discover/suggestions", query: ["response_language": responseLanguage])
+    }
 }
 
 enum APIError: LocalizedError {

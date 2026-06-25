@@ -5,7 +5,7 @@ auth는 get_verified_payload(tier/role 필요), 쿼터는 피드백/채팅과 �
 """
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,10 @@ class DiscoverItem(BaseModel):
 class DiscoverResponse(BaseModel):
     recommendations: list[DiscoverItem] = []
     note: str = ""
+
+
+class DiscoverSuggestionsResponse(BaseModel):
+    suggestions: list[str] = []
 
 
 @router.post("/discover", response_model=DiscoverResponse)
@@ -85,3 +89,21 @@ async def discover(
         recommendations=[DiscoverItem(**r) for r in verified],
         note=note,
     )
+
+
+@router.get("/discover/suggestions", response_model=DiscoverSuggestionsResponse)
+async def discover_suggestions(
+    response_language: str = Query("Korean"),
+    payload: dict = Depends(get_verified_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """서재 기반 "공부 시작점" 제안 프롬프트(Haiku). 보조 UI라 쿼터 하드게이트는 두지 않는다
+    (시트 열 때 자동 호출 → 429로 막으면 거슬림). usage는 billable로 적재해 예산엔 합산.
+    실패는 빈 배열(서비스에서 흡수)."""
+    user_id = payload["sub"]
+    is_admin = get_role(payload) == "admin"
+    suggestions = await discover_service.suggest_queries(
+        db, user_id=user_id, response_language=response_language or "Korean", is_admin=is_admin
+    )
+    await db.commit()
+    return DiscoverSuggestionsResponse(suggestions=suggestions)

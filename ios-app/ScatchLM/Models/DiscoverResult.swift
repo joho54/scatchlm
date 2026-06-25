@@ -7,6 +7,11 @@ struct DiscoverResult: Decodable {
     let note: String
 }
 
+/// `/api/discover/suggestions` 응답 — 서재 기반 "공부 시작점" 제안 프롬프트.
+struct DiscoverSuggestions: Decodable {
+    let suggestions: [String]
+}
+
 /// 추천 자료 한 건. format/level은 백엔드가 enum을 보장하지만, 미래 값 추가가
 /// 응답 전체 디코딩을 깨지 않도록 String으로 받고 표시 헬퍼로 분기한다.
 struct DiscoverItem: Decodable, Identifiable, Hashable {

@@ -34,6 +34,11 @@ log = logging.getLogger(__name__)
 # 코드베이스 운영 표준(pricing 테이블·feedback 경로). 품질 부족 시 opus-4-8로 승격은 한 줄.
 DISCOVER_MODEL = "claude-sonnet-4-6"
 
+# 제안 프롬프트(서재 기반 "공부 시작점" 칩) 생성 모델 — 짧고 잦은 호출이라 Haiku(저비용·저지연).
+SUGGEST_MODEL = "claude-haiku-4-5-20251001"
+SUGGEST_COUNT = 4
+SUGGEST_MAX_TOKENS = 400
+
 # 추천 후보 상한 — 비용·지연 가드(§7 Risk). 소수만 web_fetch 검증.
 MAX_RECOMMENDATIONS = 5
 
@@ -435,3 +440,108 @@ async def verify_urls(recommendations: list[dict]) -> list[dict]:
         if ok is True:
             kept.append(rec)
     return kept
+
+
+# ── 제안 프롬프트 (서재 기반 "공부 시작점" 칩) ──────────────────────────────
+
+_SUGGEST_SYSTEM = """\
+You generate short, natural study-goal prompts for a learning app's discovery search, \
+based on the user's current library (textbooks + table of contents).
+
+Produce exactly {n} suggestions. Each is a SINGLE first-person sentence written in the \
+requested language, describing something the learner might want to study NEXT — mostly \
+deepening or extending topics already in their library, plus one adjacent/stretch topic. \
+Keep each under ~20 words, concrete and varied (not near-duplicates). Style example \
+(Korean): "머신러닝 심화 과정을 공부하고 싶어요".
+
+If the library is empty, suggest a few broadly useful starter topics instead.
+
+Respond with ONLY a JSON object: {{"suggestions": ["...", "..."]}}. No prose, no code fences."""
+
+SUGGEST_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "suggestions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["suggestions"],
+    "additionalProperties": False,
+}
+
+
+def _clean_suggestions(raw: object, limit: int = SUGGEST_COUNT) -> list[str]:
+    """LLM이 돌려준 suggestions를 정규화: 문자열만, 공백 정리, 중복 제거, 상한."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        s = item.strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def suggest_queries(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    response_language: str,
+    is_admin: bool = False,
+) -> list[str]:
+    """서재 디제스트 기반 "공부 시작점" 제안 프롬프트를 Haiku로 생성한다(빈 서재면 일반 주제).
+
+    실패(업스트림/파싱)는 빈 리스트로 흡수한다 — 보조 UI라 호출부가 502를 띄울 가치가 없다.
+    """
+    digest = await build_library_digest(db, user_id)
+    system = _SUGGEST_SYSTEM.format(n=SUGGEST_COUNT)
+    user_text = (
+        f"[추천 이유 언어] {response_language}\n"
+        f"[사용자 서재 다이제스트]\n{digest}"
+    )
+    start = time.monotonic()
+    try:
+        response = await create_message_with_retry(
+            client,
+            model=SUGGEST_MODEL,
+            max_tokens=SUGGEST_MAX_TOKENS,
+            system=system,
+            messages=[{"role": "user", "content": user_text}],
+            output_config={"format": {"type": "json_schema", "schema": SUGGEST_OUTPUT_SCHEMA}},
+        )
+    except Exception:
+        log.warning("Discover suggest: LLM failed user=%s", user_id, exc_info=True)
+        return []
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    usage = response.usage
+    in_tokens = getattr(usage, "input_tokens", 0) or 0
+    out_tokens = getattr(usage, "output_tokens", 0) or 0
+    cost = estimate_cost(SUGGEST_MODEL, in_tokens, out_tokens)
+    await log_llm_usage(
+        db,
+        user_id=user_id,
+        model=SUGGEST_MODEL,
+        input_tokens=in_tokens,
+        output_tokens=out_tokens,
+        cost_usd=cost,
+        latency_ms=latency_ms,
+        task_type="discover_suggest",
+        language=response_language,
+        billable=not is_admin,
+    )
+
+    raw = (response.content[0].text or "").strip() if response.content else ""
+    try:
+        parsed = json.loads(raw)
+        suggestions = _clean_suggestions(parsed.get("suggestions"))
+    except (json.JSONDecodeError, AttributeError):
+        log.warning("Discover suggest: parse failed, raw=%r", raw[:200])
+        suggestions = []
+    log.info("Discover suggest: n=%d latency=%dms", len(suggestions), latency_ms)
+    return suggestions

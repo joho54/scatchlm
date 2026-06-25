@@ -9,6 +9,7 @@ struct DiscoverView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var phase: Phase = .input
+    @State private var suggestions: [String] = []
     @FocusState private var focused: Bool
 
     enum Phase: Equatable {
@@ -40,7 +41,20 @@ struct DiscoverView: View {
                     Button("닫기") { dismiss() }
                 }
             }
-            .onAppear { focused = true }
+            .onAppear {
+                focused = true
+                loadSuggestions()
+            }
+        }
+    }
+
+    private func loadSuggestions() {
+        guard suggestions.isEmpty else { return }
+        Task {
+            let res = try? await APIClient.shared.discoverSuggestions(
+                responseLanguage: Config.responseLanguage
+            )
+            if let res { await MainActor.run { suggestions = res.suggestions } }
         }
     }
 
@@ -98,16 +112,52 @@ struct DiscoverView: View {
 
     @ViewBuilder
     private var placeholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "books.vertical")
-                .font(.largeTitle).foregroundStyle(.secondary)
-            Text("공부하고 싶은 주제를 적어 주세요.\n보유한 교재 수준에 맞춰 무료 공개 자료를 찾아 드려요.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+        ScrollView {
+            VStack(spacing: 16) {
+                VStack(spacing: 12) {
+                    Image(systemName: "books.vertical")
+                        .font(.largeTitle).foregroundStyle(.secondary)
+                    Text("공부하고 싶은 주제를 적어 주세요.\n보유한 교재 수준에 맞춰 무료 공개 자료를 찾아 드려요.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .padding(.top, 40)
+
+                // 서재 기반 "공부 시작점" 제안 칩 — 탭하면 질의를 채우고 바로 검색.
+                if !suggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("이런 걸 찾아볼 수 있어요")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                        ForEach(suggestions, id: \.self) { s in
+                            Button {
+                                query = s
+                                run()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "sparkles").font(.caption).foregroundStyle(.tint)
+                                    Text(s).font(.callout).multilineTextAlignment(.leading)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "arrow.up.right").font(.caption2).foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 11)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(.secondarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 16)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func run() {

@@ -146,3 +146,27 @@ async def test_verify_network_error_dropped(monkeypatch):
 @pytest.mark.asyncio
 async def test_verify_empty_noop():
     assert await ds.verify_urls([]) == []
+
+
+# ── _count_server_tools: 턴별 서버툴 계측 ─────────────────────────────────
+
+class _Block:
+    def __init__(self, type, name=None):
+        self.type = type
+        self.name = name
+
+
+def test_count_server_tools_mixed():
+    content = [
+        _Block("text"),
+        _Block("server_tool_use", "web_search"),
+        _Block("server_tool_use", "web_fetch"),
+        _Block("server_tool_use", "web_fetch"),
+        _Block("web_search_tool_result"),
+    ]
+    assert ds._count_server_tools(content) == (1, 2)
+
+
+def test_count_server_tools_none():
+    assert ds._count_server_tools([_Block("text"), _Block("web_fetch_tool_result")]) == (0, 0)
+    assert ds._count_server_tools([]) == (0, 0)

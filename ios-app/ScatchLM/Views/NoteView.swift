@@ -154,6 +154,12 @@ struct NoteView: View {
     // DMN 휴식 타이머 — 최근 피드백에서 뽑은 단어를 검은 화면에 슬라이드.
     // item: 기반 — isPresented면 단어 갱신과 표시 트리거가 같은 틱이라 stale 빈배열이 캡처됨.
     @State private var dmnBreak: DMNBreakContext?
+    // DMN 복귀 연출 — 휴식을 마치고 페이지로 돌아오는 순간 교재·필기가 변형→선명으로 차오른다.
+    // "제대로 쉬었구나"라는 체감은 휴식 중이 아니라 *복귀의 화질*에서 온다 → 그 순간을 설계.
+    @State private var returnFloodProgress: CGFloat = 0
+    @State private var returnFloodStyle: ReturnFloodStyle = .zoom
+    // 복귀 연출을 매번 랜덤으로 — 예측 불가(변동보상)가 "돌아오는 순간"의 선호를 끌어올린다.
+    @State private var returnFloodRandom: Bool = true
     @State private var canUndo: Bool = false
     @State private var canRedo: Bool = false
     // PDF/캔버스 분할 비율 (PDF 쪽 비율). 드래그 가능한 divider로 조정. 세션 휘발(영속 안 함).
@@ -369,6 +375,33 @@ struct NoteView: View {
                 }
             }
         }
+        // 복귀 연출은 라이브 페이지에 직접 — 변형→선명으로 차오르며 들어온다.
+        .returnFlood(progress: returnFloodProgress, style: returnFloodStyle)
+        // DEBUG 전용: 효과를 골라가며 비교. "⚡︎ 바로"=연출만 즉시 재현(빠른 반복),
+        // "🌫️ 휴식 테스트"=실제 경로(cover 올라감→종료→내려감→복귀 연출).
+        #if DEBUG
+        .overlay(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: 8) {
+                Menu {
+                    Button("🎲 랜덤") { returnFloodRandom = true }
+                    ForEach(ReturnFloodStyle.allCases) { s in
+                        Button(s.rawValue) { returnFloodRandom = false; returnFloodStyle = s }
+                    }
+                } label: {
+                    Label(returnFloodRandom ? "🎲 랜덤" : returnFloodStyle.rawValue,
+                          systemImage: "wand.and.stars")
+                        .debugChip()
+                }
+                HStack(spacing: 8) {
+                    Button("⚡︎ 바로") { triggerReturnFlood() }.debugChipButton()
+                    Button("🌫️ 휴식 테스트") {
+                        dmnBreak = DMNBreakContext(words: ["인출", "통합", "기억", "정리", "휴식"])
+                    }.debugChipButton()
+                }
+            }
+            .padding(.leading, 16).padding(.bottom, 140)
+        }
+        #endif
         .sheet(item: $chatContext) { ctx in
             SessionChatSheet(
                 session: ctx.session,
@@ -420,10 +453,31 @@ struct NoteView: View {
             Text("카드가 사라지고 해당 영역에 다시 필기할 수 있게 됩니다. 필기 자체는 남습니다.")
         }
         .fullScreenCover(item: $dmnBreak) { ctx in
-            DMNTimerView(words: ctx.words)
+            DMNTimerView(words: ctx.words) { didRest in
+                if didRest { triggerReturnFlood() }
+            }
         }
         .task { await loadNote() }
         .onDisappear { saveDrawing() }
+    }
+
+    /// DMN 복귀 연출 — 휴식을 마치고(`didRest`) 페이지로 돌아오는 순간 발동.
+    /// 페이지를 즉시 흐림+살짝 어둡게 깔아두고, fullScreenCover dismiss가 끝나 페이지가 드러난 뒤
+    /// 선명해지며 차오른다. 휴식의 가치가 복귀의 화질로 사후 확인되는 그 감각을 매번 재현한다.
+    private func triggerReturnFlood() {
+        if returnFloodRandom {
+            // 직전 효과는 풀에서 빼 연속 중복을 피한다(예측 불가성 강화).
+            let pool = ReturnFloodStyle.allCases.filter { $0 != returnFloodStyle }
+            returnFloodStyle = pool.randomElement() ?? .blur
+        }
+        returnFloodProgress = 1
+        // cover dismiss 애니메이션(~0.35s)이 끝나 페이지가 노출된 직후부터 선명해지기 시작.
+        // 짧고 강한 곡선 — 큰 변형이 순식간에 펴지며 "확 들어오는" 극적 복귀.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.easeOut(duration: 0.55)) {
+                returnFloodProgress = 0
+            }
+        }
     }
 
     /// DMN 휴식 시작 — 최근 피드백 본문에서 핵심 단어를 룰 베이스로 추출해 타이머에 넘긴다.

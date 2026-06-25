@@ -12,6 +12,10 @@ struct DMNTimerView: View {
     /// 가운데 슬라이드 오버할 단어들. 비어 있으면 차분한 안내 문구로 대체.
     let words: [String]
 
+    /// 닫힐 때 호출. `didRest`=실제로 휴식에 들어갔는지(running/done 도달). setup에서 바로 닫으면 false.
+    /// 호스트(NoteView)가 true일 때만 복귀 연출(페이지 흐림→선명)을 트리거한다 — 페이오프는 *복귀*에 있다.
+    var onEnd: (_ didRest: Bool) -> Void = { _ in }
+
     @Environment(\.dismiss) private var dismiss
 
     private enum Phase { case setup, running, done }
@@ -77,7 +81,7 @@ struct DMNTimerView: View {
                 }
             }
 
-            Button("닫기") { dismiss() }
+            Button("닫기") { onEnd(false); dismiss() }
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.4))
         }
@@ -142,7 +146,8 @@ struct DMNTimerView: View {
     }
 
     private var endButton: some View {
-        Button { dismiss() } label: {
+        // running/done에서만 노출 → 휴식에 실제로 들어간 상태. 복귀 연출 트리거(didRest=true).
+        Button { onEnd(true); dismiss() } label: {
             Text("종료")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.white)

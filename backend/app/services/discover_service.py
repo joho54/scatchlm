@@ -158,12 +158,18 @@ async def build_library_digest(db: AsyncSession, user_id: str) -> str:
 
 def _tools() -> list[dict]:
     # web_search만. web_fetch는 latency 주범이라 제외(verify_urls가 백엔드에서 단독 검증).
+    #
+    # allowed_callers=["direct"] 필수: 미설정 시 sonnet-4-6이 web_search를 code_execution으로
+    # 감싸 programmatic하게(Python 루프) 호출한다 → "Server tool use limit exceeded"에 걸려
+    # 한 턴 안에서 90초+ 헛돌이 + 쓰레기 출력(2026-06-25 로컬 재현). direct 강제 시 동일 질의가
+    # 21초·유효 JSON으로 떨어진다. code_execution 오케스트레이션 경로를 통째로 차단.
     return [
         {
             "type": "web_search_20260209",
             "name": "web_search",
             "blocked_domains": BLOCKED_DOMAINS,
             "max_uses": WEB_SEARCH_MAX_USES,
+            "allowed_callers": ["direct"],
         },
     ]
 

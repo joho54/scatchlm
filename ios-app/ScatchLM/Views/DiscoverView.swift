@@ -33,6 +33,10 @@ struct DiscoverView: View {
                 searchField
                 Divider()
                 content
+                    // 스크롤 드래그로 키보드 내림(iMessage 패턴, chat-keyboard-hang-postmortem).
+                    .scrollDismissesKeyboard(.interactively)
+                    // 검색창 바깥(제안/결과 영역) 탭 → 키보드 해제. simultaneous라 칩·결과 버튼 탭은 안 막음.
+                    .simultaneousGesture(TapGesture().onEnded { focused = false })
             }
             .navigationTitle("자료 찾기")
             .navigationBarTitleDisplayMode(.inline)
@@ -46,6 +50,11 @@ struct DiscoverView: View {
                 loadSuggestions()
             }
         }
+    }
+
+    /// 검색창 placeholder — 서재 기반 첫 제안(있으면), 없으면 정적 예시.
+    private var placeholderText: String {
+        suggestions.first ?? "예: 기초 물리학을 더 깊이 공부하고 싶어요"
     }
 
     private func loadSuggestions() {
@@ -63,7 +72,8 @@ struct DiscoverView: View {
         HStack(spacing: 10) {
             Image(systemName: "sparkles.magnifyingglass")
                 .foregroundStyle(.tint)
-            TextField("예: 기초 물리학을 더 깊이 공부하고 싶어요", text: $query)
+            // placeholder도 서재 기반 Haiku 제안 하나로 채운다(로드 전엔 정적 예시).
+            TextField(placeholderText, text: $query)
                 .focused($focused)
                 .submitLabel(.search)
                 .onSubmit(run)

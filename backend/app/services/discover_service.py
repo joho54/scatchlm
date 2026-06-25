@@ -110,10 +110,9 @@ to return fewer (or zero) than to include a paywalled or off-topic link. \
 Keep it fast: a couple of searches is enough — do not over-search.
 
 LEVEL CALIBRATION
-- A digest of the user's current library (textbooks + table of contents) is provided. \
-Infer the learner's current level from it. Recommend mostly at their CURRENT level, \
-plus ONE resource one step ABOVE to stretch them.
-- If the library is empty, infer level from the query alone.
+- Infer the learner's level from the query itself (its wording and any level cues like \
+"입문"/"심화"). Recommend mostly at that level, plus ONE resource one step ABOVE to \
+stretch them.
 
 LANGUAGE
 - Search in the requested material languages. Write each `why` in the requested \
@@ -299,9 +298,11 @@ async def run_discovery(
     """agentic loop를 돌려 {recommendations, note}(미검증)를 반환한다. usage도 적재한다.
 
     예외(업스트림 장애·파싱 불가)는 호출부에서 502로 변환하도록 raise한다.
-    """
-    digest = await build_library_digest(db, user_id)
 
+    검색은 **plain** — 서재 다이제스트를 주입하지 않는다. 수준/맥락은 질의 문자열이 이미 담고
+    있고(제안 칩이 디제스트 기반으로 그 질의를 만들거나 사용자가 직접 입력), 서재의 역할은
+    `suggest_queries`(제안 칩)로 한정한다.
+    """
     langs = "영어" if response_language.strip().lower() == "english" else f"영어, {response_language}"
     system = [
         {
@@ -314,11 +315,6 @@ async def run_discovery(
         {
             "role": "user",
             "content": [
-                {
-                    "type": "text",
-                    "text": f"[사용자 서재 다이제스트]\n{digest}",
-                    "cache_control": {"type": "ephemeral"},
-                },
                 {
                     "type": "text",
                     "text": (

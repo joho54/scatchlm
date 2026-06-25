@@ -19,11 +19,15 @@ final class DeepLinkRouter {
             guard !sessionId.isEmpty, sessionId != "session" else { return }
             let note = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "note" })?.value
-            pending = PendingSession(id: sessionId, noteId: note)
+            pending = PendingSession(sessionId: sessionId, noteId: note)
             appLog("deeplink", "session intent", ["session": sessionId])
         case "note":
-            // 레거시/세션 없는 단서 — 정밀 점프 불가. 현재는 앱을 전면으로 가져오는 것까지만.
-            appLog("deeplink", "note intent (no jump)", ["note": url.lastPathComponent])
+            // 세션이 링크되지 않은 단서(가이드 채팅 등 sessionId 누락분). 정밀 세션 타깃은 없지만
+            // 그 노트의 가장 최근 세션으로 폴백 점프해 위젯 탭이 무반응이 되지 않게 한다.
+            let noteId = url.lastPathComponent
+            guard !noteId.isEmpty, noteId != "note" else { return }
+            pending = PendingSession(sessionId: nil, noteId: noteId)
+            appLog("deeplink", "note intent (fallback to latest session)", ["note": noteId])
         default:
             appLog("deeplink", "unknown url", ["url": url.absoluteString])
         }
@@ -31,8 +35,9 @@ final class DeepLinkRouter {
 }
 
 struct PendingSession: Identifiable, Equatable {
-    let id: String        // sessionId
-    let noteId: String?
+    let sessionId: String?   // 직접 세션 타깃(있으면 우선)
+    let noteId: String?      // 세션이 없으면 이 노트의 최신 세션으로 폴백
+    var id: String { sessionId ?? "note:" + (noteId ?? "") }
 }
 
 /// 위젯 딥링크로 세션 시트를 루트에서 여는 로더.
@@ -94,15 +99,26 @@ struct WidgetSessionLoader: View {
     /// DB가 준비될 때까지 최대 ~3초 폴링하며 세션을 조회한다.
     private func resolve() async {
         for attempt in 0..<20 {
-            if let session = try? db.session(id: pending.id) {
-                let fb = db.feedbackForSession(pending.id)
+            if let session = lookupSession() {
+                let fb = db.feedbackForSession(session.id)
                 resolved = .found(session: session, header: fb?.content, headerServerId: fb?.serverFeedbackId)
-                appLog("deeplink", "session resolved", ["session": pending.id, "attempt": "\(attempt)"])
+                appLog("deeplink", "session resolved", ["session": session.id, "attempt": "\(attempt)"])
                 return
             }
             try? await Task.sleep(nanoseconds: 150_000_000)   // 150ms
         }
-        appLogWarn("deeplink", "session not found", ["session": pending.id])
+        appLogWarn("deeplink", "session not found", ["intent": pending.id])
         failed = true
+    }
+
+    /// 직접 세션 타깃이 있으면 그걸로, 없으면 노트의 최신 세션으로 폴백 조회한다.
+    private func lookupSession() -> ChatSessionRecord? {
+        if let sid = pending.sessionId {
+            return try? db.session(id: sid)
+        }
+        if let nid = pending.noteId {
+            return try? db.sessions(noteId: nid).first
+        }
+        return nil
     }
 }

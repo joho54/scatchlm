@@ -24,14 +24,16 @@ final class WidgetDeepLinkTests: XCTestCase {
     }
 
     func testLegacyCueFallsBackToNoteLink() {
-        // 세션 없는(레거시/가이드) 단서는 note 링크로 폴백 — 세션 시트는 못 열어도 깨지진 않는다.
+        // 세션 없는(레거시/가이드) 단서는 note 링크로 폴백한다.
         let url = WidgetShared.deepLink(for: cue(session: nil, note: "note-9"))
         XCTAssertEqual(url?.host, "note")
 
         let router = DeepLinkRouter()
         router.handle(url!)
-        // note 링크는 세션 점프 대상이 없으므로 pending은 설정되지 않는다.
-        XCTAssertNil(router.pending)
+        // note 링크는 직접 세션 타깃이 없으므로 sessionId는 nil이지만, noteId로 폴백 점프할 수
+        // 있도록 pending이 설정된다(로더가 그 노트의 최신 세션을 연다).
+        XCTAssertNil(router.pending?.sessionId)
+        XCTAssertEqual(router.pending?.noteId, "note-9")
     }
 
     func testEmptySessionTreatedAsLegacy() {

@@ -793,24 +793,53 @@ final class DatabaseService {
 
     /// 위젯 표시용 최근 단서 — **사용자 scope 전체**(노트 무관), 최신·중복제거·길이필터.
     /// 노트별 DMN 타이머(`recentDMNCues`)와 달리 위젯은 "최근 공부한 내용" 전반을 보여준다.
+    ///
+    /// 세션별 라운드로빈으로 뽑는다 — 한 세션(특히 단서가 쏟아지는 가이드 채팅)이 위젯 칸을
+    /// 독점하지 않도록 세션마다 1개씩 번갈아 채운다. 세션 묶음 순서는 최신순, 묶음 내부도 최신순.
     func recentCuesForWidget(limit: Int = 8) -> [WidgetCue] {
         guard let uid = scopedUserId else { return [] }
         let cues = (try? dbQueue.read { db in
             try DMNCue
                 .filter(DMNCue.Columns.userId == uid)
                 .order(DMNCue.Columns.createdAt.desc)
-                .limit(limit * 4)   // 길이/중복 필터 여유분
+                .limit(limit * 8)   // 라운드로빈/길이/중복 필터용 여유분 — 세션이 적어도 칸을 채우도록
                 .fetchAll(db)
         }) ?? []
+
+        // 세션(없으면 noteId)별로 묶되, 묶음 등장 순서·내부 순서 모두 최신 우선을 유지.
+        var groups: [[DMNCue]] = []
+        var groupIndex: [String: Int] = [:]
+        for c in cues {
+            let key = c.sessionId ?? "note:" + c.noteId
+            if let idx = groupIndex[key] {
+                groups[idx].append(c)
+            } else {
+                groupIndex[key] = groups.count
+                groups.append([c])
+            }
+        }
+
+        // 라운드로빈: 각 라운드마다 세션 묶음을 순회하며 다음 단서를 1개씩 뽑는다.
         var seen = Set<String>()
         var out: [WidgetCue] = []
-        for c in cues {
-            let kw = c.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard kw.count <= Self.dmnCueMaxLen else { continue }
-            guard seen.insert(kw.lowercased()).inserted else { continue }
-            out.append(WidgetCue(id: c.id, keyword: kw, sessionId: c.sessionId,
-                                 noteId: c.noteId, createdAt: c.createdAt))
-            if out.count >= limit { break }
+        var cursor = [Int](repeating: 0, count: groups.count)
+        var exhausted = false
+        while out.count < limit && !exhausted {
+            exhausted = true
+            for g in groups.indices {
+                while cursor[g] < groups[g].count {
+                    let c = groups[g][cursor[g]]
+                    cursor[g] += 1
+                    exhausted = false
+                    let kw = c.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard kw.count <= Self.dmnCueMaxLen else { continue }
+                    guard seen.insert(kw.lowercased()).inserted else { continue }
+                    out.append(WidgetCue(id: c.id, keyword: kw, sessionId: c.sessionId,
+                                         noteId: c.noteId, createdAt: c.createdAt))
+                    break   // 이 묶음에선 1개만 — 다음 묶음으로
+                }
+                if out.count >= limit { break }
+            }
         }
         return out
     }

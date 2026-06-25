@@ -62,6 +62,27 @@ final class WidgetCueProjectionTests: XCTestCase {
         XCTAssertEqual(db.recentCuesForWidget(limit: 5).count, 5)
     }
 
+    func testRoundRobinSpreadsAcrossSessions() throws {
+        // 더 최신이고 단서가 많은 세션 A(5개)와, 더 오래된 세션 B(1개).
+        // 순수 최신순이면 A가 위젯을 독점하고 B는 6번째로 밀린다. 라운드로빈은 B에게
+        // 첫 라운드에서 한 칸을 내줘야 한다 → B 단서가 두 번째(index 1)에 등장.
+        try db.insertDMNCues(noteId: "nB", keywords: ["beeOnly"], source: "feedback", sessionId: "s-B")
+        try db.insertDMNCues(noteId: "nA", keywords: ["a1", "a2", "a3", "a4", "a5"],
+                             source: "feedback", sessionId: "s-A")
+        let cues = db.recentCuesForWidget()
+        XCTAssertEqual(cues.count, 6)
+        // 그룹 순서는 최신순(A 먼저) → 첫 칸은 A, 둘째 칸은 라운드로빈으로 B.
+        XCTAssertEqual(cues[0].sessionId, "s-A")
+        XCTAssertEqual(cues[1].sessionId, "s-B")
+    }
+
+    func testSingleSessionFillsAllSlots() throws {
+        // 세션이 하나뿐이면 라운드로빈이라도 그 세션에서 limit까지 채워 빈칸을 만들지 않는다.
+        try db.insertDMNCues(noteId: "n1", keywords: (0..<6).map { "k\($0)" },
+                             source: "feedback", sessionId: "solo")
+        XCTAssertEqual(db.recentCuesForWidget(limit: 4).count, 4)
+    }
+
     func testScopedToUser() throws {
         try db.insertDMNCues(noteId: "n1", keywords: ["내것"], source: "feedback", sessionId: "s1")
         db.currentUserId = UUID().uuidString.lowercased()   // 다른 유저로 전환

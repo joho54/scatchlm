@@ -43,9 +43,19 @@ targets:
     platform: iOS
     sources:
       - ScatchLM
+      - Shared
       - path: WebAssets
         type: folder
         buildPhase: resources
+    # 위젯 딥링크 URL scheme(scatchlm://). GENERATE_INFOPLIST_FILE=YES와 병행 — Xcode가
+    # 이 plist를 베이스로 자동생성 키를 머지한다(CFBundleURLTypes는 INFOPLIST_KEY 미지원이라 파일 경유).
+    info:
+      path: ScatchLM/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.joho54.scatchlm
+            CFBundleURLSchemes:
+              - scatchlm
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.joho54.scatchlm
@@ -56,8 +66,10 @@ targets:
         # → String Catalog 자동 채움(xcstringstool sync) 가능. 미설정 시 추출 안 됨.
         SWIFT_EMIT_LOC_STRINGS: YES
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
-        MARKETING_VERSION: "2.3.0"
-        CURRENT_PROJECT_VERSION: "11"
+        MARKETING_VERSION: "2.4.0"
+        # CFBundleVersion(빌드 번호)는 아래 postBuildScript가 git 커밋 수로 덮어쓴다.
+        # 이 값은 fallback(스크립트 실패 시)일 뿐 — 평소엔 MARKETING_VERSION만 손으로 올리면 된다.
+        CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: true
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -69,11 +81,26 @@ targets:
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
         SWIFT_VERSION: "5.9"
         OTHER_LDFLAGS: "-lc++"   # 벤더 Sentry.xcframework(정적)가 요구하는 libc++ (SPM SentryCppHelper 대체)
+    # 빌드 번호(CFBundleVersion)를 git 커밋 수로 자동 주입.
+    # Process Info.plist 이후·코드 서명 이전(= postBuildScript 시점)에 빌드 산출물 plist를
+    # 직접 덮어써야 안전하다. preBuildScript는 Process Info.plist보다 먼저라 덮어써진다.
+    postBuildScripts:
+      - name: Set build number from git commit count
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          n=$(git -C "$SRCROOT" rev-list --count HEAD 2>/dev/null || echo "")
+          if [ -z "$n" ]; then echo "warning: git unavailable, keeping CURRENT_PROJECT_VERSION"; exit 0; fi
+          plist="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $n" "$plist"
+          echo "Set CFBundleVersion=$n in $plist"
     entitlements:
       path: ScatchLM/ScatchLM.entitlements
       properties:
         com.apple.developer.applesignin:
           - Default
+        com.apple.security.application-groups:
+          - group.com.joho54.scatchlm
     dependencies:
       - package: Supabase
         product: Supabase
@@ -85,6 +112,51 @@ targets:
       #   product: Sentry
       - framework: Vendor/Sentry.xcframework
         embed: false           # 정적 라이브러리 → 임베드 안 함
+      - target: ScatchLMWidgetExtension
+        embed: true            # 위젯 익스텐션을 앱 PlugIns에 임베드
+
+  ScatchLMWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ScatchLMWidget
+      - Shared
+    info:
+      path: ScatchLMWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joho54.scatchlm.widget
+        DEVELOPMENT_TEAM: Z5U7D89KP7
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # 앱과 버전 일치 필수(임베드 익스텐션 검증). MARKETING_VERSION은 앱과 동일하게,
+        # CFBundleVersion은 아래 postBuildScript가 앱과 같은 git 커밋 수로 덮어쓴다.
+        MARKETING_VERSION: "2.4.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: ScatchLM
+    postBuildScripts:
+      - name: Set build number from git commit count
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          n=$(git -C "$SRCROOT" rev-list --count HEAD 2>/dev/null || echo "")
+          if [ -z "$n" ]; then echo "warning: git unavailable, keeping CURRENT_PROJECT_VERSION"; exit 0; fi
+          plist="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $n" "$plist"
+          echo "Set CFBundleVersion=$n in $plist"
+    entitlements:
+      path: ScatchLMWidget/ScatchLMWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.joho54.scatchlm
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
 
   ScatchLMTests:
     type: bundle.unit-test

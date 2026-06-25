@@ -1164,7 +1164,9 @@ struct NoteView: View {
     /// 피드백/스크랩 카드를 캔버스에 추가하는 공통 함수.
     /// 카드는 세션을 캔버스에 배치한 placement다(§4.5). `sessionId`가 주어지면 그 세션에 연결하고
     /// (드로어 재스크랩 — 1 session→N cards), 없으면 이 카드용 kind=feedback 세션을 새로 만든다(세션화 통일).
-    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false, keywords: [String]? = nil) {
+    /// 반환값: 이 카드에 연결된 세션 id(없으면 nil). DMN 단서를 세션에 링크할 때 호출처에서 쓴다.
+    @discardableResult
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false, keywords: [String]? = nil) -> String? {
         // skip(피드백 없이 완료) 레코드는 채팅 세션을 만들지 않는다 — 대화할 내용이 없음.
         let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId, keywords: keywords)?.id)
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
@@ -1202,7 +1204,7 @@ struct NoteView: View {
             // 저장 실패 시 메모리 배열에 추가하지 않음(롤백) + 사용자 알림 (L7/O11)
             appLogError("note", "saveFeedback failed", ["error": "\(error)"])
             showToast(String(localized: "피드백을 저장하지 못했어요."))
-            return
+            return nil
         }
         feedbacks.append(record)
         onFeedbackAppended?()
@@ -1250,6 +1252,7 @@ struct NoteView: View {
         if floatAfter {
             floatCard(record)
         }
+        return placementSessionId
     }
 
     private func pinToCanvas(content: String, serverFeedbackId: String? = nil, float: Bool = false) {
@@ -1658,11 +1661,11 @@ struct NoteView: View {
                 let jsonData = try JSONEncoder().encode(response)
                 let jsonStr = String(data: jsonData, encoding: .utf8) ?? "{}"
                 let strokeEnd = canvasView.drawing.strokes.count
-                appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId, keywords: response.keywords)
+                let placementSessionId = appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId, keywords: response.keywords)
 
-                // DMN 인출 단서 적재 — 노트 scope.
+                // DMN 인출 단서 적재 — 노트 scope. 위젯 점프용으로 세션 id를 함께 링크.
                 if let kws = response.keywords, !kws.isEmpty {
-                    try? db.insertDMNCues(noteId: noteId, keywords: kws, source: "feedback")
+                    try? db.insertDMNCues(noteId: noteId, keywords: kws, source: "feedback", sessionId: placementSessionId)
                     appLog("dmn", "cues inserted (feedback)", ["note": noteId, "n": "\(kws.count)"])
                 } else {
                     appLog("dmn", "cues skipped (feedback)", ["kw": "\(response.keywords?.count ?? 0)"])

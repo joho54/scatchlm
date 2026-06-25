@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import WidgetKit
 
 enum DatabaseServiceError: Error {
     /// 로그인 세션이 없어 sync 대상 write를 수행할 수 없음 (§4.5).
@@ -398,6 +399,14 @@ final class DatabaseService {
             }
         }
 
+        // DMN 단서에 세션 링크 추가 — 위젯에서 단서 탭 시 해당 세션 시트로 점프하기 위함.
+        // nullable: 레거시 단서/세션 없는 적재는 nil(점프 불가, 노트로 폴백).
+        migrator.registerMigration("v15_dmn_cue_session") { db in
+            try db.alter(table: "dmn_cues") { t in
+                t.add(column: "session_id", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -726,6 +735,20 @@ final class DatabaseService {
         }
     }
 
+    /// 세션에 연결된 피드백 카드 1건. 위젯 딥링크로 세션 시트를 루트에서 열 때 원본 피드백
+    /// 본문(headerContent)을 복원하는 데 쓴다. NoteView 밖이라 카드 메모리 배열이 없기 때문.
+    func feedbackForSession(_ sessionId: String) -> FeedbackRecord? {
+        guard let uid = scopedUserId else { return nil }
+        return try? dbQueue.read { db in
+            try FeedbackRecord
+                .filter(FeedbackRecord.Columns.sessionId == sessionId
+                        && FeedbackRecord.Columns.userId == uid
+                        && FeedbackRecord.Columns.deleted == false)
+                .order(FeedbackRecord.Columns.createdAt.asc)
+                .fetchOne(db)
+        }
+    }
+
     /// 최신 피드백 N개. DMN 타이머 단어 추출용 — skip 센티넬·빈 본문은 제외.
     /// `noteId`가 주어지면 그 노트로 한정(DMN은 "지금 이 노트" 맥락 앵커가 핵심), nil이면 전역.
     func recentFeedbacks(noteId: String? = nil, limit: Int = 10) throws -> [FeedbackRecord] {
@@ -749,7 +772,8 @@ final class DatabaseService {
     // MARK: - DMN 단서 (인출 단서, 로컬 전용)
 
     /// feedback/chat 응답의 keywords를 노트 scope 단서로 적재한다. 빈 배열·공백은 건너뛴다.
-    func insertDMNCues(noteId: String, keywords: [String], source: String) throws {
+    /// `sessionId`가 있으면 단서에 세션을 링크해 위젯에서 해당 세션 시트로 점프할 수 있게 한다.
+    func insertDMNCues(noteId: String, keywords: [String], source: String, sessionId: String? = nil) throws {
         guard let uid = scopedUserId else { return }
         let cleaned = keywords
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -759,10 +783,43 @@ final class DatabaseService {
         try dbQueue.write { db in
             for kw in cleaned {
                 var cue = DMNCue(id: UUID().uuidString, noteId: noteId, keyword: kw,
-                                 source: source, userId: uid, createdAt: now)
+                                 source: source, sessionId: sessionId, userId: uid, createdAt: now)
                 try cue.insert(db)
             }
         }
+        // 위젯 공유 스냅샷 갱신 — 새 단서가 홈화면 위젯에 즉시 반영되도록.
+        refreshWidgetCues()
+    }
+
+    /// 위젯 표시용 최근 단서 — **사용자 scope 전체**(노트 무관), 최신·중복제거·길이필터.
+    /// 노트별 DMN 타이머(`recentDMNCues`)와 달리 위젯은 "최근 공부한 내용" 전반을 보여준다.
+    func recentCuesForWidget(limit: Int = 8) -> [WidgetCue] {
+        guard let uid = scopedUserId else { return [] }
+        let cues = (try? dbQueue.read { db in
+            try DMNCue
+                .filter(DMNCue.Columns.userId == uid)
+                .order(DMNCue.Columns.createdAt.desc)
+                .limit(limit * 4)   // 길이/중복 필터 여유분
+                .fetchAll(db)
+        }) ?? []
+        var seen = Set<String>()
+        var out: [WidgetCue] = []
+        for c in cues {
+            let kw = c.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard kw.count <= Self.dmnCueMaxLen else { continue }
+            guard seen.insert(kw.lowercased()).inserted else { continue }
+            out.append(WidgetCue(id: c.id, keyword: kw, sessionId: c.sessionId,
+                                 noteId: c.noteId, createdAt: c.createdAt))
+            if out.count >= limit { break }
+        }
+        return out
+    }
+
+    /// 최근 단서 스냅샷을 App Group에 쓰고 위젯 타임라인을 새로고침한다.
+    func refreshWidgetCues() {
+        let cues = recentCuesForWidget()
+        WidgetShared.writeCues(cues)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// DMN 단서 표시 상한 길이 — 휴식 중 흘끗 보는 인출 단서라 한 문장/구절은 부적합.

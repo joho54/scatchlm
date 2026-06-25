@@ -332,13 +332,15 @@ struct DMNCue: Codable, FetchableRecord, PersistableRecord {
     var id: String
     var noteId: String
     var keyword: String
-    var source: String       // "feedback" | "chat"
+    var source: String       // "feedback" | "chat" | "guide-chat"
+    var sessionId: String?   // 위젯 점프 타깃(세션 시트). 레거시 카드/세션 없는 적재는 nil
     var userId: String
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
         case id, keyword, source
         case noteId = "note_id"
+        case sessionId = "session_id"
         case userId = "user_id"
         case createdAt = "created_at"
     }
@@ -346,6 +348,7 @@ struct DMNCue: Codable, FetchableRecord, PersistableRecord {
     enum Columns: String, ColumnExpression {
         case id, keyword, source
         case noteId = "note_id"
+        case sessionId = "session_id"
         case userId = "user_id"
         case createdAt = "created_at"
     }

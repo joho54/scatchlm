@@ -14,11 +14,14 @@
 		172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */; };
 		17A65C3E20CFF1357426A14D /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724FDDF394FA92210D07C3A6 /* OnboardingView.swift */; };
 		18AC9BB7343336EE101ACA63 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380787FC7AF195DA35EE153 /* APIClient.swift */; };
+		259BCBD3CFE6E7D673B30020 /* WidgetDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B353930F9E2F946ACE049C9 /* WidgetDeepLinkTests.swift */; };
+		278678AE22447203065ACF19 /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F2C4B8401754401FF9BF75 /* WidgetShared.swift */; };
 		27F35F95F92188CB80F6E5DD /* MoveToFolderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB59BE6EEE292BBCB6EFFF61 /* MoveToFolderSheet.swift */; };
 		29767428ECA536B01783F8D4 /* FolderEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62027EE95AB235B602002766 /* FolderEditSheet.swift */; };
 		2A40B5BDC768921B075FD35E /* DocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CDA96077DF41ED9CBF03294 /* DocumentPicker.swift */; };
 		2BD1B671389331E7F0DC1E98 /* ChapterDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC2179BEC204EBD835987DD /* ChapterDrawerView.swift */; };
 		2CB209193FCAAD7BB4F35E3A /* BakedMarkdownHTMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */; };
+		2D117A1F969EF3E42E9E1C8A /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01744A0367B1024387B60EFB /* DeepLinkRouter.swift */; };
 		2E4DE5B39114BE137C2444A3 /* ScatchLMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E694681F7B469459BF1C53F /* ScatchLMApp.swift */; };
 		30709021522A472BD55FB69E /* Observability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65C0173500BC2A857B2CCED /* Observability.swift */; };
 		3072AF9120ECAC5618F184CA /* NoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1940235A9FDF08A1E9126 /* NoteView.swift */; };
@@ -26,6 +29,7 @@
 		39DD9D8488FC008E166CF1D0 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9020268EE7920E07C66AEEA /* PaywallView.swift */; };
 		3A9A09736FAD423408D02D16 /* StoreKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F80EDAE50A5386B1588848E /* StoreKitService.swift */; };
 		3B0456884D1F535FC0CC2692 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */; };
+		3BC1B1DA437F9F3448284B3B /* WidgetCueProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CBAE7254B38C9206AB18CD8 /* WidgetCueProjectionTests.swift */; };
 		3F972B478F07F438B198F02F /* PageNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 548034A17894523B72F0EE4E /* PageNavigatorView.swift */; };
 		4187D694CFA080FBD91046A2 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B227D5757F08C09540E0A7D3 /* MarkdownUI */; };
 		43A0BB28FF307690169A77C5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A59CE0D34AA9EA1822931AEA /* GRDB */; };
@@ -34,11 +38,13 @@
 		48593657C2174AD1AF1E6EC5 /* DrawingHash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 154C163A4458A929F3381C5D /* DrawingHash.swift */; };
 		4DB709A105BD7E276EC51897 /* AIResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679B23706BB3597C8044006F /* AIResponse.swift */; };
 		508D520FCBF1C2A686ABE603 /* NoteTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886DD8CD7AE3DA3F6477840E /* NoteTemplate.swift */; };
+		522127662BCFC2A83A4FE71B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9333EAD5AC4D1E256A2D6AAE /* SwiftUI.framework */; };
 		527E3460CB3B7483BB962D3E /* NoteMetaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267A5359DA46F3B9B3393963 /* NoteMetaSheet.swift */; };
 		5330569F6B2D5638B49A16C6 /* PhoneNoteReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E47ADD6BAD4AE626B504547 /* PhoneNoteReaderView.swift */; };
 		596C6EE008171D393AA56B90 /* SyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */; };
 		59DD32F636A6ACF003844498 /* WordExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1048618916402D4D95669EF7 /* WordExtractorTests.swift */; };
 		5DF69251BEDB127C92E213FA /* ConfigChatFontSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D120E6EF2C458E7AEE9FF1BA /* ConfigChatFontSizeTests.swift */; };
+		60A19B6F12674EC6453F1C32 /* RecentStudyWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E2E23457D55FED85447FFF /* RecentStudyWidget.swift */; };
 		60EE77BCF6CA71AFF68B7653 /* Note.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFE523FFC2200C1FC82A2E4 /* Note.swift */; };
 		65AA1E127870ED1CC8C869A5 /* PhoneHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B936690AEFE7E293F4B7E510 /* PhoneHomeView.swift */; };
 		6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */; };
@@ -62,11 +68,14 @@
 		A8AB3A69E583B419B2B22A4D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */; };
 		B44E535A802E1ABB1FBA7462 /* DMNTimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FB27F52C5979AFFB33E015 /* DMNTimerView.swift */; };
 		C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */; };
+		CB55D29E7D50F1E747CEFE3A /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F2C4B8401754401FF9BF75 /* WidgetShared.swift */; };
 		CB5848024E833EA7A48399DA /* PdfViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37AAE771009E3533316E278 /* PdfViewerView.swift */; };
 		CDF117CC3D7073BE8ECFA8FA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D7A77C93C22BFC716A884820 /* Localizable.xcstrings */; };
 		CE4BF5BB13515765A5342509 /* ChatThreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C188F0762A57CB4C11F1F189 /* ChatThreadView.swift */; };
 		D4DFBB036249FB325D5D7802 /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF8A4CB8143EE7F7D7CE7FB /* SyncModels.swift */; };
 		DCE7CFB58E3DBFB7726F1F3E /* demo-template.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 5025B76A599AEF52B002E4E1 /* demo-template.pdf */; };
+		DDFDF0DBFE75353F66DD1263 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEB29A71F07DD955EC7E52BA /* WidgetKit.framework */; };
+		E88C335DBB7AB663BC6F3C59 /* ScatchLMWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7AF8BB97A04B60E346367C95 /* ScatchLMWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		ECAD7C8D375493B40EB5F07F /* SyncStatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */; };
 		F37AA108DAE68E61A4B76031 /* BakedMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24157267AAD8DC390057F2DA /* BakedMarkdownView.swift */; };
 		FA08A5EA08E7963F7064CADF /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */; };
@@ -82,9 +91,31 @@
 			remoteGlobalIDString = F7DA71B8129950248351EA2C;
 			remoteInfo = ScatchLM;
 		};
+		312645EAD44C7B7A0D78E1BD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4B2121513C41EDDEDB4EE921 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 12D04AD170D3B1D9B9E48C1E;
+			remoteInfo = ScatchLMWidgetExtension;
+		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		D25D46A4144BFDFFF4E4F829 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E88C335DBB7AB663BC6F3C59 /* ScatchLMWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		01744A0367B1024387B60EFB /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
 		02BD2D6D04081E930A770553 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
 		0C9978D4A1B1559395568666 /* ViewExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewExtensions.swift; sourceTree = "<group>"; };
 		0CDA96077DF41ED9CBF03294 /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
@@ -93,18 +124,22 @@
 		1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		1048618916402D4D95669EF7 /* WordExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordExtractorTests.swift; sourceTree = "<group>"; };
 		154C163A4458A929F3381C5D /* DrawingHash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingHash.swift; sourceTree = "<group>"; };
+		194B208620E70B2A51F36051 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1E10F85BF4FE26F8B5924ED9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		1FF8A4CB8143EE7F7D7CE7FB /* SyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModels.swift; sourceTree = "<group>"; };
 		22C0C189A01EC7D75A98674A /* ScatchLM.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScatchLM.entitlements; sourceTree = "<group>"; };
 		24157267AAD8DC390057F2DA /* BakedMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakedMarkdownView.swift; sourceTree = "<group>"; };
 		267A5359DA46F3B9B3393963 /* NoteMetaSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteMetaSheet.swift; sourceTree = "<group>"; };
 		2C56EBDAD48612F30CF2C40B /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		2CBAE7254B38C9206AB18CD8 /* WidgetCueProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetCueProjectionTests.swift; sourceTree = "<group>"; };
 		32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		3B353930F9E2F946ACE049C9 /* WidgetDeepLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDeepLinkTests.swift; sourceTree = "<group>"; };
 		3D5D6094A94114069EE302AF /* ScatchLMTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScatchLMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3D88EC19A82161B002E02609 /* NoteSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteSearchTests.swift; sourceTree = "<group>"; };
 		3E694681F7B469459BF1C53F /* ScatchLMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScatchLMApp.swift; sourceTree = "<group>"; };
 		4380787FC7AF195DA35EE153 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		49741ADF8AF82F0E85EF90D6 /* PencilKitCanvasViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilKitCanvasViewTests.swift; sourceTree = "<group>"; };
+		49E2E23457D55FED85447FFF /* RecentStudyWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentStudyWidget.swift; sourceTree = "<group>"; };
 		4F87740E0CE96FF5A6E45BA6 /* DatabaseService+Sync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseService+Sync.swift"; sourceTree = "<group>"; };
 		5025B76A599AEF52B002E4E1 /* demo-template.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = "demo-template.pdf"; sourceTree = "<group>"; };
 		548034A17894523B72F0EE4E /* PageNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageNavigatorView.swift; sourceTree = "<group>"; };
@@ -120,6 +155,8 @@
 		724FDDF394FA92210D07C3A6 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		745F4CF7E7A9B64BCE30A3F4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		75FB27F52C5979AFFB33E015 /* DMNTimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMNTimerView.swift; sourceTree = "<group>"; };
+		7AF8BB97A04B60E346367C95 /* ScatchLMWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ScatchLMWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7B60BF7A8B2F0585D8177F39 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7C48ABF6545E10824E6607AA /* DatabaseServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseServiceTests.swift; sourceTree = "<group>"; };
 		7E47ADD6BAD4AE626B504547 /* PhoneNoteReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNoteReaderView.swift; sourceTree = "<group>"; };
 		7F80EDAE50A5386B1588848E /* StoreKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitService.swift; sourceTree = "<group>"; };
@@ -127,12 +164,16 @@
 		84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sentry.xcframework; path = Vendor/Sentry.xcframework; sourceTree = "<group>"; };
 		883E63AB9BFC90F013ADF722 /* ScatchLM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScatchLM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		886DD8CD7AE3DA3F6477840E /* NoteTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTemplate.swift; sourceTree = "<group>"; };
+		9333EAD5AC4D1E256A2D6AAE /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		947225FE2D686B29C56F4B97 /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = SOURCE_ROOT; };
 		971DEE7780F441E507C903A9 /* CreateNoteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNoteSheet.swift; sourceTree = "<group>"; };
+		9D9E9138E83AB42CCE74B740 /* ScatchLMWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScatchLMWidget.entitlements; sourceTree = "<group>"; };
 		9DC172E785A1151DEE61A85B /* FolderSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderSidebar.swift; sourceTree = "<group>"; };
+		A7F2C4B8401754401FF9BF75 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetShared.swift; sourceTree = "<group>"; };
 		AB39F4EC17A9B5F5ACCD27BF /* WordExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordExtractor.swift; sourceTree = "<group>"; };
 		B9020268EE7920E07C66AEEA /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		B936690AEFE7E293F4B7E510 /* PhoneHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHomeView.swift; sourceTree = "<group>"; };
+		BEB29A71F07DD955EC7E52BA /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		C188F0762A57CB4C11F1F189 /* ChatThreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatThreadView.swift; sourceTree = "<group>"; };
 		C37AAE771009E3533316E278 /* PdfViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfViewerView.swift; sourceTree = "<group>"; };
 		CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseService.swift; sourceTree = "<group>"; };
@@ -171,6 +212,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FF88B5EF1115B25B6D907402 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDFDF0DBFE75353F66DD1263 /* WidgetKit.framework in Frameworks */,
+				522127662BCFC2A83A4FE71B /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -201,10 +251,22 @@
 			path = Models;
 			sourceTree = "<group>";
 		};
+		1A171947506D26451AE9CC01 /* ScatchLMWidget */ = {
+			isa = PBXGroup;
+			children = (
+				7B60BF7A8B2F0585D8177F39 /* Info.plist */,
+				49E2E23457D55FED85447FFF /* RecentStudyWidget.swift */,
+				9D9E9138E83AB42CCE74B740 /* ScatchLMWidget.entitlements */,
+			);
+			path = ScatchLMWidget;
+			sourceTree = "<group>";
+		};
 		2768741AE64596B2D54A168F /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				84A37A0BFFC2033CBAAF8D90 /* Sentry.xcframework */,
+				9333EAD5AC4D1E256A2D6AAE /* SwiftUI.framework */,
+				BEB29A71F07DD955EC7E52BA /* WidgetKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -219,6 +281,8 @@
 				49741ADF8AF82F0E85EF90D6 /* PencilKitCanvasViewTests.swift */,
 				0EE72A7D66F9437169D5258B /* ReadOnlyNoteCanvasTests.swift */,
 				70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */,
+				2CBAE7254B38C9206AB18CD8 /* WidgetCueProjectionTests.swift */,
+				3B353930F9E2F946ACE049C9 /* WidgetDeepLinkTests.swift */,
 				1048618916402D4D95669EF7 /* WordExtractorTests.swift */,
 			);
 			path = ScatchLMTests;
@@ -227,6 +291,7 @@
 		4C7D0AFFD1402CBF5AAE5CFE /* ScatchLM */ = {
 			isa = PBXGroup;
 			children = (
+				194B208620E70B2A51F36051 /* Info.plist */,
 				22C0C189A01EC7D75A98674A /* ScatchLM.entitlements */,
 				FD2BEEC09F80B1A41D924AAF /* App */,
 				0CB5D3BBF07CE16F62B838A1 /* Models */,
@@ -243,6 +308,7 @@
 			children = (
 				883E63AB9BFC90F013ADF722 /* ScatchLM.app */,
 				3D5D6094A94114069EE302AF /* ScatchLMTests.xctest */,
+				7AF8BB97A04B60E346367C95 /* ScatchLMWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -253,9 +319,19 @@
 				947225FE2D686B29C56F4B97 /* WebAssets */,
 				4C7D0AFFD1402CBF5AAE5CFE /* ScatchLM */,
 				3DDFCB91023A86B0414B6FB6 /* ScatchLMTests */,
+				1A171947506D26451AE9CC01 /* ScatchLMWidget */,
+				8195EBDA092A3BDD6B8E8863 /* Shared */,
 				2768741AE64596B2D54A168F /* Frameworks */,
 				5ED7ADFF2FAFB4B06703D1ED /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		8195EBDA092A3BDD6B8E8863 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A7F2C4B8401754401FF9BF75 /* WidgetShared.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 		96FF7011758757620ED80F64 /* Resources */ = {
@@ -319,6 +395,7 @@
 		FD2BEEC09F80B1A41D924AAF /* App */ = {
 			isa = PBXGroup;
 			children = (
+				01744A0367B1024387B60EFB /* DeepLinkRouter.swift */,
 				3E694681F7B469459BF1C53F /* ScatchLMApp.swift */,
 			);
 			path = App;
@@ -327,6 +404,25 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		12D04AD170D3B1D9B9E48C1E /* ScatchLMWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3B88776990F23BCEB39F4C68 /* Build configuration list for PBXNativeTarget "ScatchLMWidgetExtension" */;
+			buildPhases = (
+				FF5E43A8CDFEDC2D70572C58 /* Sources */,
+				FF88B5EF1115B25B6D907402 /* Frameworks */,
+				436C60A15F6228DDD4072EF2 /* Set build number from git commit count */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScatchLMWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = ScatchLMWidgetExtension;
+			productReference = 7AF8BB97A04B60E346367C95 /* ScatchLMWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		6C793923F3159046F77D7E9A /* ScatchLMTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CA63F9F31C26129A0CCDFEC7 /* Build configuration list for PBXNativeTarget "ScatchLMTests" */;
@@ -354,10 +450,13 @@
 				CE46A5631D783689D5F21D22 /* Sources */,
 				2CB25C7D38DB44712ACDAE0F /* Resources */,
 				02A49F65EE2BB4508A716432 /* Frameworks */,
+				D25D46A4144BFDFFF4E4F829 /* Embed Foundation Extensions */,
+				01E55270859DFA94F48498D3 /* Set build number from git commit count */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				26FE857E8C0A29A0AF713D19 /* PBXTargetDependency */,
 			);
 			name = ScatchLM;
 			packageProductDependencies = (
@@ -378,6 +477,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
+					12D04AD170D3B1D9B9E48C1E = {
+						DevelopmentTeam = Z5U7D89KP7;
+						ProvisioningStyle = Automatic;
+					};
 					F7DA71B8129950248351EA2C = {
 						DevelopmentTeam = Z5U7D89KP7;
 						ProvisioningStyle = Automatic;
@@ -406,6 +509,7 @@
 			targets = (
 				F7DA71B8129950248351EA2C /* ScatchLM */,
 				6C793923F3159046F77D7E9A /* ScatchLMTests */,
+				12D04AD170D3B1D9B9E48C1E /* ScatchLMWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -424,6 +528,47 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		01E55270859DFA94F48498D3 /* Set build number from git commit count */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Set build number from git commit count";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nn=$(git -C \"$SRCROOT\" rev-list --count HEAD 2>/dev/null || echo \"\")\nif [ -z \"$n\" ]; then echo \"warning: git unavailable, keeping CURRENT_PROJECT_VERSION\"; exit 0; fi\nplist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $n\" \"$plist\"\necho \"Set CFBundleVersion=$n in $plist\"\n";
+		};
+		436C60A15F6228DDD4072EF2 /* Set build number from git commit count */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Set build number from git commit count";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nn=$(git -C \"$SRCROOT\" rev-list --count HEAD 2>/dev/null || echo \"\")\nif [ -z \"$n\" ]; then echo \"warning: git unavailable, keeping CURRENT_PROJECT_VERSION\"; exit 0; fi\nplist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $n\" \"$plist\"\necho \"Set CFBundleVersion=$n in $plist\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		30F44C9F94B68D1504A9AE03 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -436,6 +581,8 @@
 				7FD0731BAB0D61F38AE8A28E /* PencilKitCanvasViewTests.swift in Sources */,
 				11C71D4579FF05BAAD8DFC5D /* ReadOnlyNoteCanvasTests.swift in Sources */,
 				596C6EE008171D393AA56B90 /* SyncServiceTests.swift in Sources */,
+				3BC1B1DA437F9F3448284B3B /* WidgetCueProjectionTests.swift in Sources */,
+				259BCBD3CFE6E7D673B30020 /* WidgetDeepLinkTests.swift in Sources */,
 				59DD32F636A6ACF003844498 /* WordExtractorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -458,6 +605,7 @@
 				B44E535A802E1ABB1FBA7462 /* DMNTimerView.swift in Sources */,
 				355605C1914429CB5EBE47E1 /* DatabaseService+Sync.swift in Sources */,
 				C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */,
+				2D117A1F969EF3E42E9E1C8A /* DeepLinkRouter.swift in Sources */,
 				2A40B5BDC768921B075FD35E /* DocumentPicker.swift in Sources */,
 				48593657C2174AD1AF1E6EC5 /* DrawingHash.swift in Sources */,
 				172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */,
@@ -491,13 +639,28 @@
 				14C34B1E0B2CB242F8C0AF67 /* SyncService.swift in Sources */,
 				ECAD7C8D375493B40EB5F07F /* SyncStatusIndicator.swift in Sources */,
 				8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */,
+				278678AE22447203065ACF19 /* WidgetShared.swift in Sources */,
 				92459A631764A2AF54E3A327 /* WordExtractor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FF5E43A8CDFEDC2D70572C58 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				60A19B6F12674EC6453F1C32 /* RecentStudyWidget.swift in Sources */,
+				CB55D29E7D50F1E747CEFE3A /* WidgetShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		26FE857E8C0A29A0AF713D19 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 12D04AD170D3B1D9B9E48C1E /* ScatchLMWidgetExtension */;
+			targetProxy = 312645EAD44C7B7A0D78E1BD /* PBXContainerItemProxy */;
+		};
 		BC910D49E3E5F2E22F8563B9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = F7DA71B8129950248351EA2C /* ScatchLM */;
@@ -530,13 +693,14 @@
 				CODE_SIGN_ENTITLEMENTS = ScatchLM/ScatchLM.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Z5U7D89KP7;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"Vendor\"",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScatchLM/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -545,7 +709,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 2.3.0;
+				MARKETING_VERSION = 2.4.0;
 				OTHER_LDFLAGS = "-lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.scatchlm;
 				SDKROOT = iphoneos;
@@ -682,13 +846,14 @@
 				CODE_SIGN_ENTITLEMENTS = ScatchLM/ScatchLM.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Z5U7D89KP7;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"Vendor\"",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScatchLM/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -697,7 +862,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 2.3.0;
+				MARKETING_VERSION = 2.4.0;
 				OTHER_LDFLAGS = "-lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.scatchlm;
 				SDKROOT = iphoneos;
@@ -725,9 +890,64 @@
 			};
 			name = Release;
 		};
+		CCDE88334DA8BF1214046EA9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ScatchLMWidget/ScatchLMWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5U7D89KP7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScatchLMWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ScatchLM;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.scatchlm.widget;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D8FCED30BECFECB2225577B9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ScatchLMWidget/ScatchLMWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5U7D89KP7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScatchLMWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ScatchLM;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.joho54.scatchlm.widget;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		3B88776990F23BCEB39F4C68 /* Build configuration list for PBXNativeTarget "ScatchLMWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D8FCED30BECFECB2225577B9 /* Debug */,
+				CCDE88334DA8BF1214046EA9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		4B4828B2142E617080EE8B14 /* Build configuration list for PBXNativeTarget "ScatchLM" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -74,7 +74,11 @@ struct HomeView: View {
             }
             notesGrid
         }
-        .navigationTitle(isTrash ? "휴지통" : "노트")
+        // nav bar large title은 우측 notesGrid 스크롤에 자동 연동돼 커졌다/줄었다 한다(어색).
+        // 제목 텍스트는 notesGrid 상단에 고정 헤더로 직접 그리고(스크롤 밖), nav bar 타이틀은 숨긴다.
+        // navigationTitle은 back-button 라벨/접근성용으로만 남기되 inline+빈 문자열로 미표시.
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: String.self) { noteId in
             NoteView(noteId: noteId)
                 // 진동 픽스 검증: NoteView가 홈 path 푸시 경로로 떴음을 표시.
@@ -205,7 +209,14 @@ struct HomeView: View {
 
     @ViewBuilder
     private var notesGrid: some View {
-        ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+            // 좌측 고정 제목 — 스크롤(아래 ScrollView)과 비연동. nav bar large title 대체.
+            Text(isTrash ? "휴지통" : "노트")
+                .font(.largeTitle.bold())
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            ScrollView {
             // 학습 자료 추천 진입(그리드 상단 컴팩트 프롬프트 바, §4.2). 휴지통에선 숨김.
             if !isTrash {
                 DiscoverPromptBar(suggestion: discoverSuggestion) { showDiscover = true }
@@ -235,6 +246,7 @@ struct HomeView: View {
                 }
             }
             .padding()
+            }
         }
     }
 

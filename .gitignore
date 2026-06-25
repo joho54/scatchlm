@@ -48,3 +48,6 @@ xcuserdata/
 
 # 심볼릭 링크된 node_modules (cardnews는 screenshots의 node_modules를 symlink) — 디렉토리 패턴이 symlink를 못 잡음
 docs/cardnews-instagram/node_modules
+
+# PSI/메모리 분석 로컬 아티팩트 (sar 덤프 + 시각화 노트북) — 소스 아님, 로컬 분석용
+mem7d*

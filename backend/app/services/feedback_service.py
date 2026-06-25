@@ -129,6 +129,25 @@ _INTENT_USER_INSTRUCTION = {
 }
 
 
+def source_citation_rules() -> list[str]:
+    """피드백·채팅이 공유하는 출처/인용 정책 절(clause).
+
+    두 프롬프트에 같은 규칙이 중복돼 있다가 한쪽만 고쳐 drift날 뻔한 이력이 있어 단일 출처로
+    추출한다. 태스크가 달라(이미지 채점 vs 대화 Q&A) 프롬프트 전체는 합치지 않고 이 커널만 공유 —
+    각 호출부가 자기 규칙 목록 번호로 감싸 쓴다.
+
+    핵심: 양의 주장(본문에 있는 것 → [p.X])만 groundable이라 유지하고, 음의 주장(교재 외 단정)은
+    챕터만 주입된 상태에선 '다른 챕터 vs 교재 밖'을 구분할 수 없어 부당하므로 금지한다.
+    """
+    return [
+        "When you reference content present in the provided textbook text, cite the page inline: [p.33].",
+        "The provided text is only the CURRENT chapter, NOT the whole textbook. For anything not in the "
+        "provided text, do NOT assert its provenance — you cannot tell whether it appears elsewhere in this "
+        "textbook or is outside it. Present it plainly with no citation (its absence already signals it is "
+        "not in the shown text), and never attach a 교재 외 참고 / 'outside textbook' label.",
+    ]
+
+
 def _build_system_prompt(
     subject: str, response_language: str, has_textbook: bool = False, intent: str = DEFAULT_INTENT
 ) -> str:
@@ -162,10 +181,11 @@ def _build_system_prompt(
     )
 
     if has_textbook:
+        cite = source_citation_rules()
         base += (
             "SOURCE CITATION RULES:\n"
-            "1. When your feedback references textbook content, cite the page inline: [p.33]\n"
-            "2. When you use knowledge NOT from the provided textbook context, mark it as: 📖 교재 외 참고:\n"
+            f"1. {cite[0]}\n"
+            f"2. {cite[1]}\n"
             "3. Prefer textbook content over general knowledge when available.\n\n"
         )
 
@@ -357,20 +377,38 @@ async def get_feedback(
     })
 
     prompt_parts = [f"Subject: {language}. Respond in {response_language}."]
-    if textbook_context:
-        prompt_parts.append(f"Textbook reference:\n{textbook_context}")
     if previous_context:
         prompt_parts.append(f"Previous context: {previous_context}")
     prompt_parts.append(_INTENT_USER_INSTRUCTION[intent])
 
     user_content.append({"type": "text", "text": "\n".join(prompt_parts)})
 
+    # 프롬프트 캐싱(§11 L2): 교재 컨텍스트(챕터 전문)는 같은 페이지를 반복 채점할 때
+    # 호출마다 동일한 prefix다 → system 블록으로 올리고 cache_control을 걸어 5분 내
+    # 재요청 시 0.1× 과금(KV 캐시 재사용). 변동분(손글씨 이미지·intent 지시·이전 컨텍스트)은
+    # user 메시지에 남겨 캐시 prefix 뒤로 둔다 — 호출마다 이미지가 달라도 system 캐시는 안 깨진다.
+    # 교재 미연결이면 캐시할 큰 prefix가 없어 평문 system을 그대로 쓴다(무캐시·무해).
+    system_text = _build_system_prompt(
+        language, response_language, has_textbook=textbook_context is not None, intent=intent
+    )
+    if textbook_context:
+        system = [
+            {"type": "text", "text": system_text},
+            {
+                "type": "text",
+                "text": f"Textbook reference:\n{textbook_context}",
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+    else:
+        system = system_text
+
     start = time.monotonic()
     response = await create_message_with_retry(
         client,
         model=model,
         max_tokens=FEEDBACK_MAX_TOKENS,
-        system=_build_system_prompt(language, response_language, has_textbook=textbook_context is not None, intent=intent),
+        system=system,
         messages=[{"role": "user", "content": user_content}],
         output_config={"format": {"type": "json_schema", "schema": FEEDBACK_OUTPUT_SCHEMA}},
     )
@@ -380,11 +418,15 @@ async def get_feedback(
     input_tokens = usage.input_tokens
     output_tokens = usage.output_tokens
     total_tokens = input_tokens + output_tokens
-    cost = _estimate_cost(model, input_tokens, output_tokens)
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    # 캐시 적중분을 반영한 정확한 비용(§11 L2). input_tokens는 비캐시 신규분만이라
+    # 평면 estimate_cost는 캐시 write(1.25×)·read(0.1×)를 누락한다. 캐시 미사용이면 동일.
+    cost = estimate_cost_from_usage(model, usage)
 
     log.info(
-        "LLM response: model=%s latency=%dms tokens=%d (in=%d out=%d) cost=$%.4f stop=%s",
-        model, latency_ms, total_tokens, input_tokens, output_tokens, cost,
+        "LLM response: model=%s latency=%dms tokens=%d (in=%d out=%d cache_read=%d cache_write=%d) cost=$%.4f stop=%s",
+        model, latency_ms, total_tokens, input_tokens, output_tokens, cache_read, cache_write, cost,
         response.stop_reason,
     )
 

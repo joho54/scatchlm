@@ -24,6 +24,7 @@ from app.services.feedback_service import (
     estimate_cost_from_usage,
     get_feedback,
     get_recognition,
+    source_citation_rules,
     _clean_keywords,
     _normalize_intent as normalize_intent,
     RECOGNITION_MODEL,
@@ -424,6 +425,7 @@ async def feedback_chat(
         )
 
     if textbook_context:
+        cite = source_citation_rules()
         system_parts.append(
             "\nTEXTBOOK REFERENCES (from the user's textbook):\n"
             + textbook_context
@@ -435,12 +437,12 @@ async def feedback_chat(
             "the referent lives in the CONVERSATION, not the textbook. Resolve it from the immediately preceding "
             "turns. If you genuinely cannot tell what the user is pointing at, ASK a one-line clarifying question "
             "instead of translating/summarizing the entire reference passage.\n"
-            "3. When your answer is based on the textbook references above, cite the page number inline: [p.33]\n"
-            "4. When your answer uses knowledge NOT found in the references above, clearly mark it as: 📖 교재 외 참고:\n"
+            f"3. {cite[0]}\n"
+            f"4. {cite[1]}\n"
             "5. Use textbook content as the preferred source of facts when it is relevant to the question — but "
             "relevance to the user's question comes first. Quote a passage only when it directly supports the answer; "
             "do not quote or reproduce reference text just because it is present.\n"
-            "6. If the references don't contain relevant information for the question, say so and provide general knowledge with the 📖 marker.\n"
+            "6. If the references don't contain relevant information for the question, say so and provide general knowledge (without a provenance label).\n"
             "7. If the user asks about content from a DIFFERENT chapter than what's provided, tell them: "
             "\"해당 내용은 현재 보고 계신 챕터에 없습니다. 관련 챕터로 이동한 후 다시 질문해 주세요.\" "
             "and suggest which chapter/page they should navigate to if you can infer it."

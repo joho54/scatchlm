@@ -43,25 +43,21 @@ MAX_CONTINUATIONS = 5
 # 응답 토큰 상한. 추천 JSON은 작지만 server-tool turn 사이 추론 여지를 둔다.
 DISCOVER_MAX_TOKENS = 2048
 
-# 서버 도구 사용 상한 — 지연 바운드(§7 Risk). 검색/fetch가 순차 실행돼 곱셈으로
-# latency가 커지므로 보수적으로 잡는다. 초기 prod 테스트에서 120s 클라이언트 타임아웃을
-# 못 맞춘 것을 계기로 8/6→4/3으로 하향(per-turn 로깅으로 재측정 후 재조정).
+# web_search 사용 상한. **web_fetch는 의도적으로 안 쓴다** — 모델이 후보 페이지/PDF를
+# 서버사이드에서 통째로 받아 읽는 fetch가 latency를 분 단위로 키우는 주범이었다(2026-06-25
+# prod 테스트: 단일 턴이 120s+ 미반환, llm_usage 0행). web_search는 스니펫+URL만 줘 초 단위.
+# liveness/PDF 검증은 LLM fetch가 아니라 백엔드 verify_urls(httpx)가 단독으로 맡는다 —
+# 어차피 이중검증이었고, 비싼 쪽을 제거. max_uses를 작게 잡아 검색 라운드도 바운드한다.
 WEB_SEARCH_MAX_USES = 3
-WEB_FETCH_MAX_USES = 4
 
-# web_fetch가 받아오는 문서당 컨텍스트 토큰 상한. 미설정 시 교재/논문 PDF 전문(수백 페이지)을
-# 통째로 끌어와 fetch 지연 + 이후 모든 턴의 입력 비대화를 유발한다. "무료·관련성" 확인엔
-# 앞부분 수천 토큰이면 충분.
-WEB_FETCH_MAX_CONTENT_TOKENS = 6000
-
-# web_fetch 재검증 타임아웃(초).
+# 백엔드 URL 재검증 타임아웃(초).
 VERIFY_TIMEOUT = 6.0
 
 # 유효한 enum 값(§3.2-a). 모델이 다른 값을 내면 결과에서 제외.
 VALID_FORMATS = ("PDF", "웹페이지", "강의코스")
 VALID_LEVELS = ("입문", "학부기초", "심화", "대학원")
 
-# 해적/불법 복제 사이트 — web_search/web_fetch blocked_domains로 차단(§7, §6.x-3).
+# 해적/불법 복제 사이트 — web_search blocked_domains로 차단(§7, §6.x-3).
 # 초기 소규모 하드코딩 + 운영 중 보강. 도메인만(스킴/경로 없이).
 BLOCKED_DOMAINS = [
     "libgen.is",
@@ -88,22 +84,25 @@ FREE, publicly and legally accessible learning resources (PDFs, open textbooks, 
 lecture notes, courses) on the open web.
 
 TOOLS
-- You have web_search and web_fetch. You MUST ground every recommendation in REAL \
-search results that you actually fetched and inspected. NEVER invent, guess, or \
-reconstruct a URL from memory.
-- Workflow: web_search for candidates -> web_fetch the most promising ones to \
-confirm the resource is real, free to access (no paywall, no login, not pirated), \
-and matches the topic/level -> recommend only what you verified.
+- You have web_search ONLY. Run a few targeted searches, then choose recommendations \
+from the search results (titles, URLs, snippets). Do NOT attempt to open or read the \
+pages — speed matters, and a separate backend step independently verifies that each \
+URL is live before it reaches the user.
+- NEVER invent, guess, or reconstruct a URL from memory. Every `url` MUST come \
+verbatim from a real search result you saw.
 
 ABSOLUTE RULES (a violation makes the whole answer useless)
-1. Only recommend resources that are FREE and LEGAL to access. No paywalled, \
-login-gated, or pirated copies. If you are unsure a copy is legitimate, drop it.
-2. Every `url` MUST be a real URL you obtained from a search result and fetched. \
-If you could not fetch/verify it, do not include it.
-3. Prefer official, open-license sources: OpenStax, LibreTexts, MIT OpenCourseWare, \
-other university OCW, arXiv, government/edu domains, official course pages.
+1. Only recommend resources that are FREE and LEGAL to access. Judge from the domain \
+and snippet: prefer official open-license hosts; drop anything that looks paywalled, \
+login-gated, or pirated. If unsure a copy is legitimate, drop it.
+2. Every `url` MUST be copied exactly from a search result. If you did not see it in \
+results, do not include it.
+3. Strongly prefer official, open-license sources: OpenStax, LibreTexts, MIT \
+OpenCourseWare, other university OCW, arXiv, government/edu domains, official course \
+pages. These are reliable free/legal hosts and the safest picks from snippets alone.
 4. Return AT MOST {max_recs} recommendations. Quality over quantity. It is better \
-to return fewer (or zero) than to include a dead, paywalled, or off-topic link.
+to return fewer (or zero) than to include a paywalled or off-topic link. \
+Keep it fast: a couple of searches is enough — do not over-search.
 
 LEVEL CALIBRATION
 - A digest of the user's current library (textbooks + table of contents) is provided. \
@@ -158,19 +157,13 @@ async def build_library_digest(db: AsyncSession, user_id: str) -> str:
 
 
 def _tools() -> list[dict]:
+    # web_search만. web_fetch는 latency 주범이라 제외(verify_urls가 백엔드에서 단독 검증).
     return [
         {
             "type": "web_search_20260209",
             "name": "web_search",
             "blocked_domains": BLOCKED_DOMAINS,
             "max_uses": WEB_SEARCH_MAX_USES,
-        },
-        {
-            "type": "web_fetch_20260209",
-            "name": "web_fetch",
-            "blocked_domains": BLOCKED_DOMAINS,
-            "max_uses": WEB_FETCH_MAX_USES,
-            "max_content_tokens": WEB_FETCH_MAX_CONTENT_TOKENS,
         },
     ]
 

@@ -43,6 +43,17 @@ MAX_CONTINUATIONS = 5
 # 응답 토큰 상한. 추천 JSON은 작지만 server-tool turn 사이 추론 여지를 둔다.
 DISCOVER_MAX_TOKENS = 2048
 
+# 서버 도구 사용 상한 — 지연 바운드(§7 Risk). 검색/fetch가 순차 실행돼 곱셈으로
+# latency가 커지므로 보수적으로 잡는다. 초기 prod 테스트에서 120s 클라이언트 타임아웃을
+# 못 맞춘 것을 계기로 8/6→4/3으로 하향(per-turn 로깅으로 재측정 후 재조정).
+WEB_SEARCH_MAX_USES = 3
+WEB_FETCH_MAX_USES = 4
+
+# web_fetch가 받아오는 문서당 컨텍스트 토큰 상한. 미설정 시 교재/논문 PDF 전문(수백 페이지)을
+# 통째로 끌어와 fetch 지연 + 이후 모든 턴의 입력 비대화를 유발한다. "무료·관련성" 확인엔
+# 앞부분 수천 토큰이면 충분.
+WEB_FETCH_MAX_CONTENT_TOKENS = 6000
+
 # web_fetch 재검증 타임아웃(초).
 VERIFY_TIMEOUT = 6.0
 
@@ -152,15 +163,33 @@ def _tools() -> list[dict]:
             "type": "web_search_20260209",
             "name": "web_search",
             "blocked_domains": BLOCKED_DOMAINS,
-            "max_uses": 6,
+            "max_uses": WEB_SEARCH_MAX_USES,
         },
         {
             "type": "web_fetch_20260209",
             "name": "web_fetch",
             "blocked_domains": BLOCKED_DOMAINS,
-            "max_uses": 8,
+            "max_uses": WEB_FETCH_MAX_USES,
+            "max_content_tokens": WEB_FETCH_MAX_CONTENT_TOKENS,
         },
     ]
+
+
+def _count_server_tools(content) -> tuple[int, int]:
+    """assistant content에서 (web_search, web_fetch) 서버툴 호출 수를 센다(턴별 계측용).
+
+    서버툴 호출은 `server_tool_use` 블록으로 나타나며 `.name`이 도구명이다.
+    """
+    n_search = 0
+    n_fetch = 0
+    for block in content:
+        if getattr(block, "type", None) == "server_tool_use":
+            name = getattr(block, "name", "")
+            if name == "web_search":
+                n_search += 1
+            elif name == "web_fetch":
+                n_fetch += 1
+    return n_search, n_fetch
 
 
 def _extract_text(content) -> str:
@@ -301,9 +330,12 @@ async def run_discovery(
     tools = _tools()
     in_tokens = 0
     out_tokens = 0
+    n_search = 0
+    n_fetch = 0
     start = time.monotonic()
     response = None
     for cont in range(MAX_CONTINUATIONS + 1):
+        turn_start = time.monotonic()
         response = await create_message_with_retry(
             client,
             model=DISCOVER_MODEL,
@@ -312,9 +344,20 @@ async def run_discovery(
             messages=messages,
             tools=tools,
         )
+        turn_ms = int((time.monotonic() - turn_start) * 1000)
         usage = response.usage
-        in_tokens += getattr(usage, "input_tokens", 0) or 0
-        out_tokens += getattr(usage, "output_tokens", 0) or 0
+        ti = getattr(usage, "input_tokens", 0) or 0
+        to = getattr(usage, "output_tokens", 0) or 0
+        in_tokens += ti
+        out_tokens += to
+        # 이 턴이 어떤 서버툴을 얼마나 썼는지 — 시간이 검색에서 새는지 fetch에서 새는지 가린다.
+        ts, tf = _count_server_tools(response.content)
+        n_search += ts
+        n_fetch += tf
+        log.info(
+            "Discover turn %d: %dms stop=%s in=%d out=%d search=%d fetch=%d (cum search=%d fetch=%d)",
+            cont, turn_ms, response.stop_reason, ti, to, ts, tf, n_search, n_fetch,
+        )
         if response.stop_reason != "pause_turn":
             break
         # 서버툴 장기 실행 — assistant content를 그대로 이어붙여 재전송.
@@ -325,8 +368,9 @@ async def run_discovery(
     latency_ms = int((time.monotonic() - start) * 1000)
     cost = estimate_cost(DISCOVER_MODEL, in_tokens, out_tokens)
     log.info(
-        "Discover LLM: model=%s latency=%dms in=%d out=%d cost=$%.4f stop=%s",
-        DISCOVER_MODEL, latency_ms, in_tokens, out_tokens, cost, response.stop_reason if response else "none",
+        "Discover LLM: model=%s latency=%dms turns=%d search=%d fetch=%d in=%d out=%d cost=$%.4f stop=%s",
+        DISCOVER_MODEL, latency_ms, cont + 1, n_search, n_fetch, in_tokens, out_tokens, cost,
+        response.stop_reason if response else "none",
     )
     await log_llm_usage(
         db,

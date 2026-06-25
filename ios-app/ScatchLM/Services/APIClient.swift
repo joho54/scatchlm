@@ -5,6 +5,11 @@ final class APIClient {
 
     private let session: URLSession
 
+    /// discover 전용 롱-타임아웃 세션. discover는 web_search/web_fetch agentic loop라
+    /// 응답까지 1~3분이 걸릴 수 있다 — 공용 세션(60/120s)으론 정상 호출도 resource timeout(120s)에
+    /// 걸려 실패한다(2026-06-25 prod 첫 테스트에서 정확히 120s에 NSURLError -1001 확인).
+    private let longSession: URLSession
+
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
@@ -13,6 +18,14 @@ final class APIClient {
         config.allowsConstrainedNetworkAccess = true
         config.allowsExpensiveNetworkAccess = true
         session = URLSession(configuration: config)
+
+        let longConfig = URLSessionConfiguration.default
+        longConfig.timeoutIntervalForRequest = 200
+        longConfig.timeoutIntervalForResource = 200
+        longConfig.waitsForConnectivity = true
+        longConfig.allowsConstrainedNetworkAccess = true
+        longConfig.allowsExpensiveNetworkAccess = true
+        longSession = URLSession(configuration: longConfig)
     }
 
     private var baseURL: String { Config.apiBaseURL }
@@ -395,11 +408,21 @@ extension APIClient {
 
 extension APIClient {
     /// 자연어 질의 → 무료 공개 학습자료 추천. 서재 컨텍스트는 백엔드(JWT)가 붙인다.
+    /// agentic loop라 느려서 공용 세션이 아닌 `longSession`(200s)으로 호출한다.
     func discover(query: String, responseLanguage: String) async throws -> DiscoverResult {
-        try await postJSON(
-            "/discover",
-            body: ["query": query, "response_language": responseLanguage]
+        let path = "/discover"
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "POST"
+        for (key, value) in await authHeaders() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["query": query, "response_language": responseLanguage]
         )
+        appLog("api", "→ POST \(path) (long)")
+        let (data, response) = try await longSession.data(for: request)
+        try validate(data, response, method: "POST", path: path)
+        return try JSONDecoder().decode(DiscoverResult.self, from: data)
     }
 }
 

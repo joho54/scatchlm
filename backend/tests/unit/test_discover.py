@@ -179,3 +179,10 @@ def test_tools_search_only_no_fetch():
     names = [t["name"] for t in ds._tools()]
     assert names == ["web_search"]
     assert all(t["type"] != "web_fetch_20260209" for t in ds._tools())
+
+
+def test_web_search_forces_direct_caller():
+    """allowed_callers=['direct'] 없으면 sonnet-4-6이 web_search를 code_execution으로 감싸
+    programmatic 호출 → 90s+ 헛돌이(2026-06-25 재현). 이 불변식이 깨지면 다시 느려진다."""
+    ws = ds._tools()[0]
+    assert ws["allowed_callers"] == ["direct"]

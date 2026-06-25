@@ -29,5 +29,8 @@ COPY backup/crontab          /etc/supercronic/crontab
 RUN chmod +x /usr/local/bin/run_backup.sh /usr/local/bin/run_prune.sh
 
 # postgres 베이스의 ENTRYPOINT(docker-entrypoint.sh)는 DB를 띄우려 한다 — 우회하고 스케줄러만 실행.
+# -no-reap: supercronic의 프로세스 reaper를 끈다. 이 런타임(Docker 29 / 커널 6.8)에서 reaper
+#   초기화가 "Failed to fork exec"로 fatal → 크래시루프였다(-no-reap 없이는 crontab 파싱도 못 감).
+#   백업 잡은 단발성(pg_dump|upload)이라 고아 프로세스 회수가 불필요하므로 끄는 게 안전.
 ENTRYPOINT []
-CMD ["supercronic", "/etc/supercronic/crontab"]
+CMD ["supercronic", "-no-reap", "/etc/supercronic/crontab"]

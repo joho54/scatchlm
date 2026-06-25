@@ -96,7 +96,9 @@ struct PdfViewerView: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.top, 8)
+                // 노트 컨트롤(나가기·DMN 등)이 전체화면 포함 항상 화면 좌상단에 떠 있어
+                // 페이지 인덱스를 그 아래로 내려 겹침을 피한다.
+                .padding(.top, 56)
 
                 if let status = pdfStatus, status.isScanned, status.ocrStatus != "complete" {
                     ocrStatusBanner(status)

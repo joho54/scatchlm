@@ -245,6 +245,11 @@ struct NoteView: View {
                     }
                     .frame(width: splitW, height: splitH, alignment: .topLeading)
 
+                    // 노트 컨트롤(나가기·페이지·챕터챗·DMN)을 화면 상단으로 승격 — 캔버스 패널 안이
+                    // 아니라 body 레벨이라 분할/세로/가로/전체화면과 무관하게 항상 화면 좌상단에 고정된다.
+                    canvasTopControls()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
                     // Floating 문제 창 — pill보다 아래 z-순서(pill이 항상 위). 카드 콘텐츠를 미러링해
                     // 스크롤과 무관하게 떠 있다. 닫기(✕)/다른 카드 띄우기 전까지 유지.
                     if let card = floatingCard {
@@ -506,8 +511,8 @@ struct NoteView: View {
             Color(uiColor: .systemGray5)
             canvasContent(note: note, panelWidth: panelWidth)
         }
-        .overlay(alignment: .topLeading) { canvasTopControls() }
-        // FAB pill은 body 최상단 floating overlay로 이동(drag/anchor + fullscreen 위 표시). 여기선 더 안 둔다.
+        // 노트 컨트롤(canvasTopControls)·FAB pill은 모두 body 최상단 overlay로 승격 —
+        // 캔버스 패널 안이 아니라 화면 좌상단에 고정해 분할/세로/가로와 무관하게 같은 위치에 둔다.
     }
 
     @ViewBuilder

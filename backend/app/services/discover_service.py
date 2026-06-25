@@ -38,9 +38,10 @@ DISCOVER_MODEL = "claude-sonnet-4-6"
 SUGGEST_MODEL = "claude-haiku-4-5-20251001"
 SUGGEST_COUNT = 4
 SUGGEST_MAX_TOKENS = 400
-# 제안어는 짧은 토픽 구문이어야 한다(칩·placeholder가 한 줄). 프롬프트로 지시하고,
-# 초과분은 백엔드에서 떨궈 보장한다(잘라내면 단어 중간이 깨져 drop이 안전).
-SUGGEST_MAX_CHARS = 10
+# 제안어 길이 상한 — 너무 길어지지 않게 하는 완만한 가드(런어웨이 drop용). 10자 하드캡은
+# 주어를 깎아 "고급 문법 구조"처럼 맥락 없는 파편을 낳아 폐기. 자기완결적인 짧은 문장형 큐를
+# 허용하되 한 줄(칩·placeholder)에 들어갈 길이로 바운드. 초과분은 drop(자르면 단어 깨짐).
+SUGGEST_MAX_CHARS = 22
 
 # 추천 후보 상한 — 비용·지연 가드(§7 Risk). 소수만 web_fetch 검증.
 MAX_RECOMMENDATIONS = 5
@@ -444,16 +445,22 @@ async def verify_urls(recommendations: list[dict]) -> list[dict]:
 # ── 제안 프롬프트 (서재 기반 "공부 시작점" 칩) ──────────────────────────────
 
 _SUGGEST_SYSTEM = """\
-You generate SHORT study-topic suggestions for a learning app's discovery search, \
-based on the user's current library (textbooks + table of contents).
+You generate short study-goal suggestions for a learning app's discovery search, based on \
+the user's current library (textbooks + table of contents). Each becomes a tappable cue \
+that, when tapped, is sent verbatim as the search query.
 
-Produce exactly {n} suggestions. Each is a TERSE topic phrase (NOT a sentence) of AT MOST \
-{max_chars} characters in the requested language — a single study topic the learner might \
-want next, mostly deepening/extending topics already in their library, plus one adjacent/\
-stretch topic. No verbs, no "...하고 싶어요", no filler — just the topic. Keep them varied \
-(not near-duplicates). Examples (Korean): "양자역학", "머신러닝 심화", "베이즈 추론".
+Produce exactly {n} suggestions. Each MUST:
+- be SELF-CONTAINED: always name the concrete subject/topic so it makes sense on its own. \
+NEVER a bare modifier with no subject (BAD: "고급 문법 구조", "심화 과정" — advanced WHAT?). \
+GOOD: "라틴어 고급 문법", "선형대수 고윳값 복습".
+- be CONCISE: one short clause, at most ~{max_chars} characters in the requested language. \
+A brief natural goal is fine ("베이즈 추론 더 익히기"); avoid long rambling sentences and \
+filler like "...하고 싶어요".
+- be grounded in the library: mostly deepen/extend topics the user already has, plus one \
+adjacent/stretch topic. Keep them varied (not near-duplicates).
 
-If the library is empty, suggest a few broadly useful starter topics instead.
+If the library is empty, suggest a few broadly useful starter topics instead (still \
+self-contained, e.g. "미적분학 입문").
 
 Respond with ONLY a JSON object: {{"suggestions": ["...", "..."]}}. No prose, no code fences."""
 

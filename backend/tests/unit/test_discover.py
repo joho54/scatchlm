@@ -170,3 +170,12 @@ def test_count_server_tools_mixed():
 def test_count_server_tools_none():
     assert ds._count_server_tools([_Block("text"), _Block("web_fetch_tool_result")]) == (0, 0)
     assert ds._count_server_tools([]) == (0, 0)
+
+
+# ── _tools: web_fetch 제외 회귀 가드 (latency 결정 고정) ───────────────────
+
+def test_tools_search_only_no_fetch():
+    """web_fetch는 latency 주범이라 hot path에서 제거됐다(2026-06-25). 재유입 방지."""
+    names = [t["name"] for t in ds._tools()]
+    assert names == ["web_search"]
+    assert all(t["type"] != "web_fetch_20260209" for t in ds._tools())

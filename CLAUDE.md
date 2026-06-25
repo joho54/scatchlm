@@ -197,9 +197,10 @@ SSH 키: `~/.ssh/id_ed25519`. NCP pem(`/Users/johyeonho/scatchlm-secret/ssh-scat
    - `docker compose --env-file .env.prod pull app && up -d` → app은 새 이미지로 교체, Caddy는 설정 바뀌면 reload.
    - 헬스체크: `/docs`, `/privacy`, `/terms` (최대 10회 재시도).
 
-**수동 개입이 필요한 두 가지 (CI가 안 함):**
+**DB 마이그레이션(alembic)은 자동 적용된다**: Dockerfile CMD가 `alembic upgrade head && uvicorn ...`이라 컨테이너 기동(배포 때 `up -d`)마다 먼저 마이그레이션이 돈다. 모델 변경은 별도 수동 단계 없이 배포로 반영된다. (수동으로 돌려야 할 때는: `ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T app alembic upgrade head'`)
+
+**수동 개입이 필요한 한 가지 (CI가 안 함):**
 - **`.env.prod`(시크릿)**: scp 동기화에서 의도적으로 제외 — VM `/opt/scatchlm/.env.prod`에서 수동 관리. 새 env 추가 시 직접 넣고 `up -d`로 재생성.
-- **DB 마이그레이션(alembic)**: 워크플로가 자동 실행하지 **않음**. 모델 변경 배포 시 VM에서 수동: `ssh scatchlm 'cd /opt/scatchlm && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T app alembic upgrade head'`
 
 긴급 수동 배포(워크플로 우회)가 필요하면: 로컬 `docker build --platform linux/amd64 -t ghcr.io/joho54/scatchlm-app:latest backend/ && docker push ...` → VM `pull && up -d`.
 

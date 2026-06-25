@@ -186,3 +186,21 @@ def test_web_search_forces_direct_caller():
     programmatic 호출 → 90s+ 헛돌이(2026-06-25 재현). 이 불변식이 깨지면 다시 느려진다."""
     ws = ds._tools()[0]
     assert ws["allowed_callers"] == ["direct"]
+
+
+# ── _clean_suggestions: 제안 프롬프트 정규화 ──────────────────────────────
+
+def test_clean_suggestions_dedup_and_strip():
+    raw = ["  공부 A  ", "공부 A", "공부 B", "", "   "]
+    assert ds._clean_suggestions(raw) == ["공부 A", "공부 B"]
+
+
+def test_clean_suggestions_caps_at_limit():
+    raw = [f"주제 {i}" for i in range(ds.SUGGEST_COUNT + 3)]
+    assert len(ds._clean_suggestions(raw)) == ds.SUGGEST_COUNT
+
+
+def test_clean_suggestions_drops_non_string_and_non_list():
+    assert ds._clean_suggestions(["ok", 1, None, {"x": 1}]) == ["ok"]
+    assert ds._clean_suggestions("not a list") == []
+    assert ds._clean_suggestions(None) == []

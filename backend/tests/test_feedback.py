@@ -324,6 +324,62 @@ async def test_feedback_chat_returns_feedback_id_and_is_rateable(client: AsyncCl
 
 
 @pytest.mark.asyncio
+async def test_feedback_chat_textbook_prompt_caches_and_drops_external_badge(
+    client: AsyncClient, auth_header: dict
+):
+    """교재 연결 채팅: 교재 컨텍스트가 cache_control system 블록으로 가고, '교재 외' badge
+    발화 지시가 없어야 한다(피드백과 동일 처방의 채팅 측 회귀 가드)."""
+    import io
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Lesson 24 vocabulary")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    upload_res = await client.post(
+        "/api/pdf/upload",
+        headers=auth_header,
+        files={"file": ("textbook.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        data={"note_id": "note-1"},
+    )
+    textbook_id = upload_res.json()["id"]
+
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="answer body")]
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "이 페이지 설명해줘",
+                "history": [],
+                "response_language": "Korean",
+                "textbook_id": textbook_id,
+                "current_page": 1,
+            },
+        )
+
+    assert res.status_code == 200
+    system = mock_client.messages.create.call_args.kwargs["system"]
+    # 교재 컨텍스트는 cache_control:ephemeral system 블록으로 주입
+    assert isinstance(system, list)
+    block = system[0]
+    assert block["cache_control"] == {"type": "ephemeral"}
+    assert "Lesson 24" in block["text"]            # 교재 텍스트 캐시 prefix에 포함
+    assert "[p.33]" in block["text"]               # 공유 커널 양의 주장 유지
+    assert "mark it as" not in block["text"]       # 교재 외 badge 발화 지시 없음
+
+
+@pytest.mark.asyncio
 async def test_feedback_chat_requires_auth(client: AsyncClient):
     """인증 없이 채팅 요청 시 401 반환."""
     res = await client.post(

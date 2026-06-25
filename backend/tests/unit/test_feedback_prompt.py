@@ -4,6 +4,7 @@ from app.core.constants import DEFAULT_SUBJECT
 from app.services.feedback_service import (
     _build_system_prompt,
     _normalize_intent,
+    source_citation_rules,
     _INTENT_USER_INSTRUCTION,
     DEFAULT_INTENT,
     VALID_INTENTS,
@@ -22,7 +23,6 @@ def test_system_prompt_with_textbook_no_json():
     prompt = _build_system_prompt("Japanese", "Korean", has_textbook=True)
     assert "JSON" not in prompt
     assert "json" not in prompt
-    assert "교재 외 참고" in prompt
 
 
 def test_system_prompt_contains_response_language():
@@ -144,3 +144,38 @@ def test_intent_branches_are_subject_agnostic():
         prompt = _build_system_prompt("Japanese", "Korean", intent=intent)
         assert "Japanese" in prompt
         assert "JSON" not in prompt and "json" not in prompt
+
+
+# --- 출처/인용 커널 (피드백·채팅 공유) + 교재외 badge 제거 회귀 가드 ---
+
+def test_citation_kernel_positive_claim_groundable():
+    """공유 인용 커널: 본문에 있는 것 → [p.X] 인용. 양의 주장만 groundable이라 유지."""
+    rules = source_citation_rules()
+    assert len(rules) == 2
+    assert "[p.33]" in rules[0]
+
+
+def test_citation_kernel_forbids_external_badge_emission():
+    """커널은 '교재 외' 음의 주장을 금지만 하고 발화 지시는 없어야 한다.
+
+    챕터만 주입된 상태에선 '다른 챕터 교재 내용'과 '교재 밖 일반지식'을 구분할 수 없어
+    교재 외 단정은 부당하다. 과거의 'mark it as: 📖 교재 외 참고' 발화 지시 회귀를 막는다.
+    """
+    joined = " ".join(source_citation_rules())
+    assert "do NOT assert its provenance" in joined  # 금지 지시 존재
+    assert "교재 외 참고" in joined                    # 라벨 금지 언급
+    assert "mark it as" not in joined                  # 발화 지시 부재
+
+
+def test_feedback_prompt_uses_shared_citation_kernel():
+    """피드백 프롬프트가 공유 커널 절을 그대로 포함해야 한다(두 프롬프트 drift 가드)."""
+    prompt = _build_system_prompt("Latin", "Korean", has_textbook=True)
+    for clause in source_citation_rules():
+        assert clause in prompt
+
+
+def test_feedback_prompt_no_external_badge_emission():
+    """피드백 프롬프트가 교재 외 badge를 붙이라고 지시하지 않아야 한다(회귀 가드)."""
+    prompt = _build_system_prompt("Latin", "Korean", has_textbook=True)
+    assert "[p.33]" in prompt           # 양의 주장 유지
+    assert "mark it as" not in prompt   # 발화 지시 제거됨

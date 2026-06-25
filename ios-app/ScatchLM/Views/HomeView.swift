@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var path: [String] = []
     @State private var showCreateSheet = false
     @State private var showDiscover = false
+    @State private var discoverSuggestion: String?
     @State private var showSettings = false
     @State private var editingNote: Note?
     @State private var movingNote: Note?
@@ -207,9 +208,13 @@ struct HomeView: View {
         ScrollView {
             // 학습 자료 추천 진입(그리드 상단 컴팩트 프롬프트 바, §4.2). 휴지통에선 숨김.
             if !isTrash {
-                DiscoverPromptBar { showDiscover = true }
+                DiscoverPromptBar(suggestion: discoverSuggestion) { showDiscover = true }
                     .padding(.horizontal)
                     .padding(.top, 8)
+                    .task {
+                        discoverSuggestion = await DiscoverSuggestionLoader.shared
+                            .load(language: Config.responseLanguage).first
+                    }
             }
             if filteredNotes.isEmpty {
                 emptyState

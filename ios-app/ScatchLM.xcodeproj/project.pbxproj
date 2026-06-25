@@ -87,6 +87,7 @@
 		FA08A5EA08E7963F7064CADF /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */; };
 		FB0EE0DF5E637E7CBE74B613 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = E448211B4B38BBC9147A67F8 /* Config.swift */; };
 		FF204548E1EBCDABB5A96A8B /* MarkdownContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83513D52E0AEE8A1123D5420 /* MarkdownContentView.swift */; };
+		FF3252AB3C0C9B9FF1D15068 /* DiscoverSuggestionLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8E73F3DEE123590F3B3991 /* DiscoverSuggestionLoader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -127,6 +128,7 @@
 		0CDA96077DF41ED9CBF03294 /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
 		0D98092EE50AD434DFF4782E /* LogoIntroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogoIntroView.swift; sourceTree = "<group>"; };
 		0EE72A7D66F9437169D5258B /* ReadOnlyNoteCanvasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyNoteCanvasTests.swift; sourceTree = "<group>"; };
+		0F8E73F3DEE123590F3B3991 /* DiscoverSuggestionLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverSuggestionLoader.swift; sourceTree = "<group>"; };
 		1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		1048618916402D4D95669EF7 /* WordExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordExtractorTests.swift; sourceTree = "<group>"; };
 		154C163A4458A929F3381C5D /* DrawingHash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingHash.swift; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 				32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */,
 				CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */,
 				4F87740E0CE96FF5A6E45BA6 /* DatabaseService+Sync.swift */,
+				0F8E73F3DEE123590F3B3991 /* DiscoverSuggestionLoader.swift */,
 				154C163A4458A929F3381C5D /* DrawingHash.swift */,
 				E52A7F87E1D186E8DDE427CB /* LogService.swift */,
 				F65C0173500BC2A857B2CCED /* Observability.swift */,
@@ -627,6 +630,7 @@
 				8B1B62A49E45574F8A7F03D9 /* DiscoverPromptBar.swift in Sources */,
 				7D4FA3D76685097F5DB24122 /* DiscoverResult.swift in Sources */,
 				6BCB3C63E98197C0F3B2912D /* DiscoverResultsView.swift in Sources */,
+				FF3252AB3C0C9B9FF1D15068 /* DiscoverSuggestionLoader.swift in Sources */,
 				CCF0D616628175098707117F /* DiscoverView.swift in Sources */,
 				2A40B5BDC768921B075FD35E /* DocumentPicker.swift in Sources */,
 				48593657C2174AD1AF1E6EC5 /* DrawingHash.swift in Sources */,

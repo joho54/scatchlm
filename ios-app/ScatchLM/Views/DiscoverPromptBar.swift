@@ -6,16 +6,21 @@ import SwiftUI
 /// (입력은 시트 안에서). 노트 필터링용 `.searchable`과는 위치(그리드 상단)·아이콘·문구로 분리.
 /// iPad(`HomeView`)/iPhone(`PhoneHomeView`) 공용.
 struct DiscoverPromptBar: View {
+    /// 서재 기반 Haiku 제안(있으면 표시). 없으면 정적 CTA.
+    var suggestion: String? = nil
     var onTap: () -> Void
+
+    private var label: String { suggestion ?? "공부할 자료 찾기…" }
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 10) {
                 Image(systemName: "sparkles.magnifyingglass")
                     .foregroundStyle(.tint)
-                Text("공부할 자료 찾기…")
+                Text(label)
                     .foregroundStyle(.secondary)
-                Spacer()
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
             .font(.callout)
             .padding(.horizontal, 14)

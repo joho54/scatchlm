@@ -60,10 +60,11 @@ struct DiscoverView: View {
     private func loadSuggestions() {
         guard suggestions.isEmpty else { return }
         Task {
-            let res = try? await APIClient.shared.discoverSuggestions(
-                responseLanguage: Config.responseLanguage
+            // 홈 프롬프트 바와 같은 세션 캐시를 공유 — 중복 Haiku 호출 방지.
+            let result = await DiscoverSuggestionLoader.shared.load(
+                language: Config.responseLanguage
             )
-            if let res { await MainActor.run { suggestions = res.suggestions } }
+            await MainActor.run { suggestions = result }
         }
     }
 

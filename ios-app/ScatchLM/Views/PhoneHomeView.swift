@@ -26,6 +26,7 @@ private struct PhoneNotesTab: View {
     @State private var showSettings = false
     @State private var showCreateSheet = false
     @State private var showDiscover = false
+    @State private var discoverSuggestion: String?
     @State private var path: [String] = []   // 생성 후 프로그래밍 push용 노트 ID 스택
 
     private let db = DatabaseService.shared
@@ -52,9 +53,13 @@ private struct PhoneNotesTab: View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
                 // 학습 자료 추천 진입(§4.2 — iPad/iPhone 공용 프롬프트 바).
-                DiscoverPromptBar { showDiscover = true }
+                DiscoverPromptBar(suggestion: discoverSuggestion) { showDiscover = true }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
+                    .task {
+                        discoverSuggestion = await DiscoverSuggestionLoader.shared
+                            .load(language: Config.responseLanguage).first
+                    }
                 if !folders.isEmpty {
                     folderChips
                 }

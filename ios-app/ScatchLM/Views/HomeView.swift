@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var search = ""
     @State private var path: [String] = []
     @State private var showCreateSheet = false
+    @State private var showDiscover = false
     @State private var showSettings = false
     @State private var editingNote: Note?
     @State private var movingNote: Note?
@@ -129,6 +130,9 @@ struct HomeView: View {
         .sheet(isPresented: $showSettings) {
             SettingsSheet()
         }
+        .sheet(isPresented: $showDiscover) {
+            DiscoverView()
+        }
         .sheet(item: $editingNote) { note in
             NoteMetaSheet(note: note) { updated in
                 updateNote(updated)
@@ -201,6 +205,12 @@ struct HomeView: View {
     @ViewBuilder
     private var notesGrid: some View {
         ScrollView {
+            // 학습 자료 추천 진입(그리드 상단 컴팩트 프롬프트 바, §4.2). 휴지통에선 숨김.
+            if !isTrash {
+                DiscoverPromptBar { showDiscover = true }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
             if filteredNotes.isEmpty {
                 emptyState
             }

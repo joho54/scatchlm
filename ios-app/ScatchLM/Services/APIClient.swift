@@ -391,6 +391,18 @@ extension APIClient {
     }
 }
 
+// MARK: - Discover (학습 자료 추천, §3.2-a)
+
+extension APIClient {
+    /// 자연어 질의 → 무료 공개 학습자료 추천. 서재 컨텍스트는 백엔드(JWT)가 붙인다.
+    func discover(query: String, responseLanguage: String) async throws -> DiscoverResult {
+        try await postJSON(
+            "/discover",
+            body: ["query": query, "response_language": responseLanguage]
+        )
+    }
+}
+
 enum APIError: LocalizedError {
     case serverError(Int, String)
     case quotaExceeded(QuotaInfo)

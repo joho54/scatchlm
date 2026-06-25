@@ -1,0 +1,8 @@
+# supercronic crontab — 백업 사이드카 스케줄. TZ는 compose의 TZ=Asia/Seoul가 결정(=KST).
+# host root crontab(소실 위험)을 대체한다. 형식: 표준 cron (min hour dom mon dow command).
+
+# DB 논리 백업: 매일 03:17 KST → s3://scatchlm-prod/backups/db/scatchlm-<date>.dump
+17 3 * * * /usr/local/bin/run_backup.sh
+
+# app_logs prune: 매주 일요일 04:23 KST
+23 4 * * 0 /usr/local/bin/run_prune.sh

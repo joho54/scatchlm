@@ -38,7 +38,8 @@ jobs:
         id: meta
         run: echo "sha_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/build-push-action@v5
+      - name: Build & push app image
+        uses: docker/build-push-action@v5
         with:
           context: backend
           platforms: linux/amd64
@@ -46,8 +47,23 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ steps.meta.outputs.sha_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+      # 백업 사이드카 이미지(별도 gha 캐시 scope로 app 캐시와 분리). compose가 :latest를
+      # pull_policy: always로 당겨가므로 VM은 .env.prod 수정 없이 자동 갱신.
+      - name: Build & push backup sidecar image
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: backend/backup/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/joho54/scatchlm-backup:latest
+            ghcr.io/joho54/scatchlm-backup:${{ steps.meta.outputs.sha_tag }}
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,mode=max,scope=backup
 
   deploy:
     needs: build-and-push

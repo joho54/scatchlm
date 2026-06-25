@@ -34,6 +34,23 @@ services:
       - uploads:/app/uploads  # STORAGE_BACKEND=local 폴백용. s3면 사용 안 됨
     # 외부 노출 X. Caddy가 리버스 프록시
 
+  # 백업 사이드카 — pg_dump/prune을 host cron이 아니라 여기서 스케줄(supercronic).
+  # git-managed(이 compose가 scp 동기화)라 박스 재생성에도 `up -d`로 생존. 2026-06-18 백업
+  # 소실(host crontab 미이관)의 구조적 재발 차단. 이미지는 :latest + pull_policy: always라
+  # .env.prod 수정 없이 up -d가 자동 pull. 자격증명/엔드포인트는 .env.prod 재사용.
+  backup:
+    image: ghcr.io/joho54/scatchlm-backup:latest
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_HOST: postgres
+      TZ: Asia/Seoul
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

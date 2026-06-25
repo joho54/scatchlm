@@ -38,6 +38,9 @@ DISCOVER_MODEL = "claude-sonnet-4-6"
 SUGGEST_MODEL = "claude-haiku-4-5-20251001"
 SUGGEST_COUNT = 4
 SUGGEST_MAX_TOKENS = 400
+# 제안어는 짧은 토픽 구문이어야 한다(칩·placeholder가 한 줄). 프롬프트로 지시하고,
+# 초과분은 백엔드에서 떨궈 보장한다(잘라내면 단어 중간이 깨져 drop이 안전).
+SUGGEST_MAX_CHARS = 10
 
 # 추천 후보 상한 — 비용·지연 가드(§7 Risk). 소수만 web_fetch 검증.
 MAX_RECOMMENDATIONS = 5
@@ -441,14 +444,14 @@ async def verify_urls(recommendations: list[dict]) -> list[dict]:
 # ── 제안 프롬프트 (서재 기반 "공부 시작점" 칩) ──────────────────────────────
 
 _SUGGEST_SYSTEM = """\
-You generate short, natural study-goal prompts for a learning app's discovery search, \
+You generate SHORT study-topic suggestions for a learning app's discovery search, \
 based on the user's current library (textbooks + table of contents).
 
-Produce exactly {n} suggestions. Each is a SINGLE first-person sentence written in the \
-requested language, describing something the learner might want to study NEXT — mostly \
-deepening or extending topics already in their library, plus one adjacent/stretch topic. \
-Keep each under ~20 words, concrete and varied (not near-duplicates). Style example \
-(Korean): "머신러닝 심화 과정을 공부하고 싶어요".
+Produce exactly {n} suggestions. Each is a TERSE topic phrase (NOT a sentence) of AT MOST \
+{max_chars} characters in the requested language — a single study topic the learner might \
+want next, mostly deepening/extending topics already in their library, plus one adjacent/\
+stretch topic. No verbs, no "...하고 싶어요", no filler — just the topic. Keep them varied \
+(not near-duplicates). Examples (Korean): "양자역학", "머신러닝 심화", "베이즈 추론".
 
 If the library is empty, suggest a few broadly useful starter topics instead.
 
@@ -464,8 +467,10 @@ SUGGEST_OUTPUT_SCHEMA = {
 }
 
 
-def _clean_suggestions(raw: object, limit: int = SUGGEST_COUNT) -> list[str]:
-    """LLM이 돌려준 suggestions를 정규화: 문자열만, 공백 정리, 중복 제거, 상한."""
+def _clean_suggestions(
+    raw: object, limit: int = SUGGEST_COUNT, max_chars: int | None = None
+) -> list[str]:
+    """LLM이 돌려준 suggestions를 정규화: 문자열만, 공백 정리, 중복 제거, 길이 초과 drop, 상한."""
     if not isinstance(raw, list):
         return []
     out: list[str] = []
@@ -476,6 +481,8 @@ def _clean_suggestions(raw: object, limit: int = SUGGEST_COUNT) -> list[str]:
         s = item.strip()
         if not s or s in seen:
             continue
+        if max_chars is not None and len(s) > max_chars:
+            continue  # 장황한 제안은 버림(잘라내면 단어 중간이 깨짐)
         seen.add(s)
         out.append(s)
         if len(out) >= limit:
@@ -495,7 +502,7 @@ async def suggest_queries(
     실패(업스트림/파싱)는 빈 리스트로 흡수한다 — 보조 UI라 호출부가 502를 띄울 가치가 없다.
     """
     digest = await build_library_digest(db, user_id)
-    system = _SUGGEST_SYSTEM.format(n=SUGGEST_COUNT)
+    system = _SUGGEST_SYSTEM.format(n=SUGGEST_COUNT, max_chars=SUGGEST_MAX_CHARS)
     user_text = (
         f"[추천 이유 언어] {response_language}\n"
         f"[사용자 서재 다이제스트]\n{digest}"
@@ -535,7 +542,7 @@ async def suggest_queries(
     raw = (response.content[0].text or "").strip() if response.content else ""
     try:
         parsed = json.loads(raw)
-        suggestions = _clean_suggestions(parsed.get("suggestions"))
+        suggestions = _clean_suggestions(parsed.get("suggestions"), max_chars=SUGGEST_MAX_CHARS)
     except (json.JSONDecodeError, AttributeError):
         log.warning("Discover suggest: parse failed, raw=%r", raw[:200])
         suggestions = []

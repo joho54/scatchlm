@@ -204,3 +204,11 @@ def test_clean_suggestions_drops_non_string_and_non_list():
     assert ds._clean_suggestions(["ok", 1, None, {"x": 1}]) == ["ok"]
     assert ds._clean_suggestions("not a list") == []
     assert ds._clean_suggestions(None) == []
+
+
+def test_clean_suggestions_drops_over_max_chars():
+    """장황한 제안(>10자)은 떨군다 — 칩·placeholder가 한 줄이라."""
+    raw = ["양자역학", "머신러닝 심화 과정을 공부하고 싶어요", "행렬분해"]
+    assert ds._clean_suggestions(raw, max_chars=10) == ["양자역학", "행렬분해"]
+    # max_chars 미지정이면 길이 제한 없음(하위호환)
+    assert len(ds._clean_suggestions(raw)) == 3

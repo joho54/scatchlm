@@ -362,6 +362,12 @@ struct NoteView: View {
                     ProgressView()
                 }
             }
+            // DMN 타이머 종료 시 상단 UI가 위로 밀리는 버그 계측.
+            // 가설: fullScreenCover(DMNTimerView) 내부 .statusBarHidden(true) 누수로
+            // dismiss 후 top safe-area inset이 붕괴(24→0)한다. 종료 시점에 찍히면 원인 확정.
+            .onChange(of: geo.safeAreaInsets.top) { old, new in
+                appLog("dmn", "safeAreaTop changed", ["old": old, "new": new])
+            }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)

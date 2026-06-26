@@ -102,7 +102,7 @@ enum FeedbackIntent: String, CaseIterable {
     /// split 버튼 아이콘 겸 메뉴 아이콘. 탭 버튼이 현재 의도를 이 아이콘으로 보여줘 모드 에러를 막는다.
     var icon: String {
         switch self {
-        case .grade: return "sparkles"
+        case .grade: return "checkmark"
         case .ask: return "questionmark.circle"
         case .hint: return "lightbulb"
         }
@@ -1071,7 +1071,7 @@ struct NoteView: View {
     }
 
     /// 피드백 split button의 부가 동작 메뉴 — 탭 메뉴와 길게 누르기 컨텍스트 메뉴가 공유.
-    /// 탭(sparkles)은 채점(grade)이 기본. 메뉴에서 질문/힌트 의도를 명시적으로 고른다.
+    /// 탭(checkmark)은 채점(grade)이 기본. 메뉴에서 질문/힌트 의도를 명시적으로 고른다.
     /// 확장 지점: "다른 언어로", "챕터 기준", "다시 받기" 등은 여기에 추가한다.
     @ViewBuilder
     private var feedbackMenuItems: some View {
@@ -1082,7 +1082,7 @@ struct NoteView: View {
                 feedbackIntent = intent
                 requestFeedback(intent: intent)
             } label: {
-                Label(intent.label, systemImage: intent == feedbackIntent ? "checkmark" : intent.icon)
+                Label(intent.label, systemImage: intent.icon)
             }
         }
         Divider()

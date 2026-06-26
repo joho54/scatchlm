@@ -6,6 +6,9 @@ import SwiftUI
 /// 응답을 자동으로 캔버스에 스크랩(onPin)한다.
 enum ChatQuickAction {
     static let practicePrompt = String(localized: "방금 내용으로 간단한 연습문제를 내줘")
+    /// PDF 필기 모드 하단 바 '필기 질문' 퀵액션이 보내는 고정 프롬프트.
+    /// 방금 쓴 필기(페이지+잉크 합성 이미지가 자동 첨부됨)에 대해 한 탭으로 AI에게 물어본다.
+    static let handwritingPrompt = String(localized: "내가 방금 필기한 내용을 봐줘")
 }
 
 /// 채팅 한 턴(표시용 통일 모델). 피드백(ChatMessageRecord)·가이드(GuideChatMessage)가 각각 매핑해 쓴다.

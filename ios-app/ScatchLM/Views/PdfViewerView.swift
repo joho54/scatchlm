@@ -136,7 +136,15 @@ struct PdfViewerView: View {
                             .disabled(currentPage >= totalPages)
                             .opacity(currentPage >= totalPages ? 0.35 : 1)
                     }
+                    // 현재 페이지에 필기가 있을 때만 — 방금 쓴 필기를 AI에 바로 물어보는 퀵 진입점.
+                    // 빈 페이지엔 숨겨 노이즈를 없애고, 펜을 떼면 등장(accent + 스케일 트랜지션)해
+                    // "물어볼 수 있어요" 어포던스가 된다. 연습문제와 동일한 퀵액션 결.
+                    if inkMode, noteId != nil, !readOnly, inkController?.hasInk == true {
+                        pdfBarButton(title: "필기 질문", systemImage: "sparkles", tint: Color.accentColor) { askHandwriting() }
+                            .transition(.scale.combined(with: .opacity))
+                    }
                 }
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: inkController?.hasInk)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(.ultraThinMaterial)
@@ -452,6 +460,16 @@ struct PdfViewerView: View {
         .presentationDetents([.medium, .large])
         // 명시적 '닫기' 버튼으로만 닫는다 — 스와이프/바깥 탭 비활성화.
         .interactiveDismissDisabled(true)
+    }
+
+    /// '필기 질문' 퀵액션 — 페이지 가이드 채팅을 열고 방금 쓴 필기에 대한 고정 프롬프트를 즉시 전송한다.
+    /// 연습문제와 달리 자동 스크랩하지 않고 채팅에 머문다(설명/확인 성격 → 대화를 이어갈 여지).
+    /// 합성 이미지는 DB에서 읽으므로, 디바운스 저장을 기다리지 않게 먼저 commit으로 최신 잉크를 flush한다.
+    private func askHandwriting() {
+        guard noteId != nil, inkController?.hasInk == true, !guideChatSending else { return }
+        inkController?.commitNow()
+        loadPageGuide()   // showGuide=true + 세션(동기)·가이드(비동기) 로드
+        sendGuideChat(overrideText: ChatQuickAction.handwritingPrompt)
     }
 
     /// '연습문제' 퀵액션 — 고정 프롬프트를 전송하고 응답을 자동으로 캔버스에 스크랩한다.
@@ -1293,15 +1311,24 @@ final class PdfInkController {
     weak var canvas: PKCanvasView?
     var canUndo = false
     var canRedo = false
+    /// 현재 페이지 캔버스에 스트로크가 있는지 — PDF 하단 바 '필기 질문' 버튼 노출 조건(dirty 어포던스).
+    var hasInk = false
+    /// 입력 레이어(Coordinator)의 즉시 저장(commit)을 강제 호출 — '필기 질문' 시 합성 이미지 직전,
+    /// 0.6s 디바운스 저장을 기다리지 않고 방금 쓴 스트로크를 DB로 flush하기 위한 브리지.
+    var requestCommit: (() -> Void)?
 
     func attach(_ canvas: PKCanvasView?) {
         self.canvas = canvas
         refresh()
     }
 
+    /// 합성 이미지(renderPageWithInkBase64)가 최신 필기를 담도록 입력 레이어 저장을 강제한다.
+    func commitNow() { requestCommit?() }
+
     func refresh() {
         canUndo = canvas?.undoManager?.canUndo ?? false
         canRedo = canvas?.undoManager?.canRedo ?? false
+        hasInk = !(canvas?.drawing.strokes.isEmpty ?? true)
     }
 
     func undo() { canvas?.undoManager?.undo(); refresh() }
@@ -1381,6 +1408,7 @@ struct PdfInkInputView: UIViewRepresentable {
             coord.toolPicker = picker
             canvas.becomeFirstResponder()
             coord.controller?.attach(canvas)   // undo 브리지 연결 — first responder 된 뒤라야 undoManager가 산다
+            coord.controller?.requestCommit = { [weak coord] in coord?.commit() }  // '필기 질문' flush 브리지
             appLogDebug("ink", "input ready", ["page": "\(coord.pageNum)", "undoMgr": "\(canvas.undoManager != nil)"])
         }
 
@@ -1400,6 +1428,7 @@ struct PdfInkInputView: UIViewRepresentable {
 
     static func dismantleUIView(_ host: InkHostScrollView, coordinator: Coordinator) {
         coordinator.commit()                  // 사라질 때(잉크 모드 OFF) 즉시 저장
+        coordinator.controller?.requestCommit = nil   // flush 브리지 해제 — dangling coord 참조 방지
         coordinator.controller?.attach(nil)   // undo 브리지 해제 — 잉크 OFF 후 stale canUndo 방지
         coordinator.canvas?.resignFirstResponder()
         if let picker = coordinator.toolPicker, let canvas = coordinator.canvas {

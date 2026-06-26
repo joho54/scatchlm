@@ -37,8 +37,13 @@ class DiscoverResponse(BaseModel):
     note: str = ""
 
 
+class DiscoverSuggestion(BaseModel):
+    topic: str
+    bridge: str = ""
+
+
 class DiscoverSuggestionsResponse(BaseModel):
-    suggestions: list[str] = []
+    suggestions: list[DiscoverSuggestion] = []
 
 
 @router.post("/discover", response_model=DiscoverResponse)
@@ -97,7 +102,7 @@ async def discover_suggestions(
     payload: dict = Depends(get_verified_payload),
     db: AsyncSession = Depends(get_db),
 ):
-    """서재 기반 "공부 시작점" 제안 프롬프트(Haiku). 보조 UI라 쿼터 하드게이트는 두지 않는다
+    """서재 기반 "새로 도전해볼 분야" 제안 프롬프트(Sonnet). 보조 UI라 쿼터 하드게이트는 두지 않는다
     (시트 열 때 자동 호출 → 429로 막으면 거슬림). usage는 billable로 적재해 예산엔 합산.
     실패는 빈 배열(서비스에서 흡수)."""
     user_id = payload["sub"]

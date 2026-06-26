@@ -224,7 +224,7 @@ struct HomeView: View {
                     .padding(.top, 8)
                     .task {
                         discoverSuggestion = await DiscoverSuggestionLoader.shared
-                            .load(language: Config.responseLanguage).first
+                            .load(language: Config.responseLanguage).first?.topic
                     }
             }
             if filteredNotes.isEmpty {

@@ -6,11 +6,11 @@ import SwiftUI
 /// (입력은 시트 안에서). 노트 필터링용 `.searchable`과는 위치(그리드 상단)·아이콘·문구로 분리.
 /// iPad(`HomeView`)/iPhone(`PhoneHomeView`) 공용.
 struct DiscoverPromptBar: View {
-    /// 서재 기반 Haiku 제안(있으면 표시). 없으면 정적 CTA.
+    /// 서재 기반 도전 분야 제안 topic(있으면 표시). 없으면 정적 CTA.
     var suggestion: String? = nil
     var onTap: () -> Void
 
-    private var label: String { suggestion ?? "공부할 자료 찾기…" }
+    private var label: String { suggestion ?? "새로 도전해볼 분야 찾기…" }
 
     var body: some View {
         Button(action: onTap) {
@@ -35,7 +35,7 @@ struct DiscoverPromptBar: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("공부할 자료 찾기")
-        .accessibilityHint("주제를 입력하면 무료 공개 학습자료를 추천합니다")
+        .accessibilityLabel("새로 도전해볼 분야 찾기")
+        .accessibilityHint("서재와 이어지는 새 분야를 추천하고, 탭하면 무료 공개 자료를 찾습니다")
     }
 }

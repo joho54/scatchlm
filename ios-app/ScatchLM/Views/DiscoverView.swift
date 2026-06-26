@@ -9,7 +9,7 @@ struct DiscoverView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var phase: Phase = .input
-    @State private var suggestions: [String] = []
+    @State private var suggestions: [DiscoverSuggestion] = []
     @FocusState private var focused: Bool
 
     enum Phase: Equatable {
@@ -52,9 +52,9 @@ struct DiscoverView: View {
         }
     }
 
-    /// 검색창 placeholder — 서재 기반 첫 제안(있으면), 없으면 정적 예시.
+    /// 검색창 placeholder — 서재 기반 첫 도전 분야(있으면), 없으면 정적 예시.
     private var placeholderText: String {
-        suggestions.first ?? "예: 기초 물리학을 더 깊이 공부하고 싶어요"
+        suggestions.first?.topic ?? "예: 비교언어학"
     }
 
     private func loadSuggestions() {
@@ -128,7 +128,7 @@ struct DiscoverView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "books.vertical")
                         .font(.largeTitle).foregroundStyle(.secondary)
-                    Text("공부하고 싶은 주제를 적어 주세요.\n보유한 교재 수준에 맞춰 무료 공개 자료를 찾아 드려요.")
+                    Text("지금까지 공부한 것과 이어지는, 새로 도전해볼 분야예요.\n탭하면 무료 공개 자료를 찾아 드려요.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -136,20 +136,30 @@ struct DiscoverView: View {
                 }
                 .padding(.top, 40)
 
-                // 서재 기반 "공부 시작점" 제안 칩 — 탭하면 질의를 채우고 바로 검색.
+                // 서재 기반 "새로 도전해볼 분야" 제안 칩 — topic 탭하면 질의를 채우고 바로 검색.
                 if !suggestions.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("이런 걸 찾아볼 수 있어요")
+                        Text("새로 도전해볼 분야")
                             .font(.caption).foregroundStyle(.secondary)
                             .padding(.horizontal, 16)
-                        ForEach(suggestions, id: \.self) { s in
+                        ForEach(suggestions) { s in
                             Button {
-                                query = s
+                                query = s.topic
                                 run()
                             } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "sparkles").font(.caption).foregroundStyle(.tint)
-                                    Text(s).font(.callout).multilineTextAlignment(.leading)
+                                HStack(spacing: 10) {
+                                    Image(systemName: "sparkles").font(.callout).foregroundStyle(.tint)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(s.topic)
+                                            .font(.callout).fontWeight(.medium)
+                                            .foregroundStyle(.primary)
+                                            .multilineTextAlignment(.leading)
+                                        if !s.bridge.isEmpty {
+                                            Text(s.bridge)
+                                                .font(.caption).foregroundStyle(.secondary)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                    }
                                     Spacer(minLength: 0)
                                     Image(systemName: "arrow.up.right").font(.caption2).foregroundStyle(.secondary)
                                 }

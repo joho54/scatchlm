@@ -34,10 +34,14 @@ log = logging.getLogger(__name__)
 # 코드베이스 운영 표준(pricing 테이블·feedback 경로). 품질 부족 시 opus-4-8로 승격은 한 줄.
 DISCOVER_MODEL = "claude-sonnet-4-6"
 
-# 제안 프롬프트(서재 기반 "공부 시작점" 칩) 생성 모델 — 짧고 잦은 호출이라 Haiku(저비용·저지연).
-SUGGEST_MODEL = "claude-haiku-4-5-20251001"
+# 제안 프롬프트(서재 기반 "새로 도전해볼 분야" 칩) 생성 모델 — Sonnet.
+# 단일 분야 서재에서 "흥미로운 중간거리" 도약(헬라어→아베스타어)의 품질이 이 기능의 핵심인데,
+# PoC에서 Haiku는 "더 많은 같은 분야"로 새고 Sonnet만 안정적으로 적중. 세션당 1회 캐시(로더)라
+# 호출당 ~$0.007·6–8s 비용은 placeholder 뒤에 가려져 무시 가능.
+SUGGEST_MODEL = "claude-sonnet-4-6"
 SUGGEST_COUNT = 4
-SUGGEST_MAX_TOKENS = 400
+# topic+bridge 객체 4개 — 문자열 배열보다 출력이 길어 상향.
+SUGGEST_MAX_TOKENS = 700
 # 제안어 길이 상한 — 너무 길어지지 않게 하는 완만한 가드(런어웨이 drop용). 10자 하드캡은
 # 주어를 깎아 "고급 문법 구조"처럼 맥락 없는 파편을 낳아 폐기. 자기완결적인 짧은 문장형 큐를
 # 허용하되 한 줄(칩·placeholder)에 들어갈 길이로 바운드. 초과분은 drop(자르면 단어 깨짐).
@@ -445,32 +449,62 @@ async def verify_urls(recommendations: list[dict]) -> list[dict]:
     return kept
 
 
-# ── 제안 프롬프트 (서재 기반 "공부 시작점" 칩) ──────────────────────────────
+# ── 제안 프롬프트 (서재 기반 "새로 도전해볼 분야" 칩) ──────────────────────────
 
 _SUGGEST_SYSTEM = """\
-You generate short study-goal suggestions for a learning app's discovery search, based on \
-the user's current library (textbooks + table of contents). Each becomes a tappable cue \
-that, when tapped, is sent verbatim as the search query.
+You generate "new challenge field" suggestions for a learning app's discovery search, based on \
+the user's current library (textbooks + table of contents). Each becomes a tappable cue whose \
+`topic` is sent verbatim as the search query for FREE learning resources.
 
-Produce exactly {n} suggestions. Each MUST:
-- be SELF-CONTAINED: always name the concrete subject/topic so it makes sense on its own. \
-NEVER a bare modifier with no subject (BAD: "고급 문법 구조", "심화 과정" — advanced WHAT?). \
-GOOD: "라틴어 고급 문법", "선형대수 고윳값 복습".
-- be CONCISE: one short clause, at most ~{max_chars} characters in the requested language. \
-A brief natural goal is fine ("베이즈 추론 더 익히기"); avoid long rambling sentences and \
-filler like "...하고 싶어요".
-- be grounded in the library: mostly deepen/extend topics the user already has, plus one \
-adjacent/stretch topic. Keep them varied (not near-duplicates).
+Your job: recommend WHOLE FIELDS the user has NOT studied but that sit at an INTERESTING MIDDLE \
+DISTANCE from what they have — connected by deep structure (shared genealogy, method, formalism, \
+or intellectual lineage) yet genuinely new. The delight is "I never thought to connect these, but \
+it makes sense."
 
-If the library is empty, suggest a few broadly useful starter topics instead (still \
-self-contained, e.g. "미적분학 입문").
+HARD RULES on distance (this is the whole game — violating these makes the suggestion worthless):
+1. NEVER suggest a sub-topic, dialect, sub-period, or deeper layer of a field ALREADY in the \
+library. That is "studying more of the same", NOT a new challenge. If the library has Ancient \
+Greek, REJECT "Greek dialectology"/"Greek meter"/"Attic prose" — still Greek. If it has Linear \
+Algebra + ML, REJECT "tensor algebra"/"convex optimization"/"kernel methods" — still that cluster. \
+If it has OS, REJECT "cache optimization"/"advanced paging" — still OS internals.
+2. NEVER suggest an obvious sibling everyone studying this would already know (Greek -> Latin: too close).
+3. NEVER suggest something with no real bridge (Greek -> web design: too far).
+4. AIM for a DIFFERENT NAMED DISCIPLINE that is structurally linked but non-obvious: \
+Ancient Greek -> Avestan, Sanskrit, Classical Syriac, or comparative Indo-European linguistics. \
+Linear Algebra+ML -> functional analysis, information geometry, category theory, or signal processing. \
+OS -> distributed consensus, queueing theory, database transaction theory, or computer architecture.
 
-Respond with ONLY a JSON object: {{"suggestions": ["...", "..."]}}. No prose, no code fences."""
+Self-test before emitting each one: "Is this just MORE of a field they already have?" If yes, \
+throw it out and pick a farther field.
+
+Produce exactly {n} suggestions. Each MUST have:
+- `topic`: the concrete NEW discipline, SELF-CONTAINED so it stands alone (e.g. "아베스타어", \
+"비교언어학 입문"). NEVER a bare modifier. CONCISE: at most ~{max_chars} characters in the \
+requested language. Vary the TYPE of leap (obscure-sibling / shared-method / shared-formalism / \
+historical-lineage); avoid near-duplicates.
+- `bridge`: one short line on WHY it connects to their library — the non-obvious link.
+
+If the library is empty, suggest a few broadly useful starter fields instead (still self-contained, \
+e.g. "미적분학 입문"), with a `bridge` explaining why it's a good entry point.
+
+Respond with ONLY a JSON object: {{"suggestions": [{{"topic": "...", "bridge": "..."}}]}}. \
+No prose, no code fences."""
 
 SUGGEST_OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "suggestions": {"type": "array", "items": {"type": "string"}},
+        "suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "bridge": {"type": "string"},
+                },
+                "required": ["topic", "bridge"],
+                "additionalProperties": False,
+            },
+        },
     },
     "required": ["suggestions"],
     "additionalProperties": False,
@@ -479,22 +513,26 @@ SUGGEST_OUTPUT_SCHEMA = {
 
 def _clean_suggestions(
     raw: object, limit: int = SUGGEST_COUNT, max_chars: int | None = None
-) -> list[str]:
-    """LLM이 돌려준 suggestions를 정규화: 문자열만, 공백 정리, 중복 제거, 길이 초과 drop, 상한."""
+) -> list[dict]:
+    """LLM이 돌려준 suggestions({topic, bridge})를 정규화: topic 공백/길이/중복 가드, 상한.
+
+    topic 초과는 drop(자르면 단어 깨짐). bridge는 표시 보조라 길이 가드 없이 trim만.
+    """
     if not isinstance(raw, list):
         return []
-    out: list[str] = []
+    out: list[dict] = []
     seen: set[str] = set()
     for item in raw:
-        if not isinstance(item, str):
+        if not isinstance(item, dict):
             continue
-        s = item.strip()
-        if not s or s in seen:
+        topic = (item.get("topic") or "").strip()
+        bridge = (item.get("bridge") or "").strip()
+        if not topic or topic in seen:
             continue
-        if max_chars is not None and len(s) > max_chars:
-            continue  # 장황한 제안은 버림(잘라내면 단어 중간이 깨짐)
-        seen.add(s)
-        out.append(s)
+        if max_chars is not None and len(topic) > max_chars:
+            continue  # 장황한 topic은 버림(잘라내면 단어 중간이 깨짐)
+        seen.add(topic)
+        out.append({"topic": topic, "bridge": bridge})
         if len(out) >= limit:
             break
     return out
@@ -506,8 +544,9 @@ async def suggest_queries(
     user_id: str,
     response_language: str,
     is_admin: bool = False,
-) -> list[str]:
-    """서재 디제스트 기반 "공부 시작점" 제안 프롬프트를 Haiku로 생성한다(빈 서재면 일반 주제).
+) -> list[dict]:
+    """서재 디제스트 기반 "새로 도전해볼 분야" 제안({topic, bridge})을 Sonnet으로 생성한다
+    (빈 서재면 일반 입문 주제).
 
     실패(업스트림/파싱)는 빈 리스트로 흡수한다 — 보조 UI라 호출부가 502를 띄울 가치가 없다.
     """

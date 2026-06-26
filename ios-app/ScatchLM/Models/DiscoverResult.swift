@@ -7,9 +7,18 @@ struct DiscoverResult: Decodable {
     let note: String
 }
 
-/// `/api/discover/suggestions` 응답 — 서재 기반 "공부 시작점" 제안 프롬프트.
+/// `/api/discover/suggestions` 응답 — 서재 기반 "새로 도전해볼 분야" 제안 프롬프트.
 struct DiscoverSuggestions: Decodable {
-    let suggestions: [String]
+    let suggestions: [DiscoverSuggestion]
+}
+
+/// 도전 분야 제안 한 건. `topic`은 탭 시 그대로 검색 질의가 되고, `bridge`는 "왜 이어지는지"
+/// 한 줄(칩 부제). 미래에 필드가 추가돼도 디코딩이 깨지지 않게 String으로만 받는다.
+struct DiscoverSuggestion: Decodable, Identifiable, Hashable {
+    let topic: String
+    let bridge: String
+
+    var id: String { topic }
 }
 
 /// 추천 자료 한 건. format/level은 백엔드가 enum을 보장하지만, 미래 값 추가가

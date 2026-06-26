@@ -58,7 +58,7 @@ private struct PhoneNotesTab: View {
                     .padding(.vertical, 8)
                     .task {
                         discoverSuggestion = await DiscoverSuggestionLoader.shared
-                            .load(language: Config.responseLanguage).first
+                            .load(language: Config.responseLanguage).first?.topic
                     }
                 if !folders.isEmpty {
                     folderChips

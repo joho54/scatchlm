@@ -47,8 +47,8 @@ enum PillAnchor: String, CaseIterable {
     case topLeading, top, topTrailing, bottomLeading, bottom, bottomTrailing
 
     /// 컨테이너 크기와 pill 실측 크기로 pill 중심 좌표를 계산. 하단은 홈 인디케이터를 피해 여유를 더 둔다.
-    func center(in size: CGSize, pill: CGSize) -> CGPoint {
-        let padX: CGFloat = 16, padTop: CGFloat = 16, padBottom: CGFloat = 28
+    func center(in size: CGSize, pill: CGSize, topPad: CGFloat = 16) -> CGPoint {
+        let padX: CGFloat = 16, padTop: CGFloat = topPad, padBottom: CGFloat = 28
         let left = padX + pill.width / 2
         let midX = size.width / 2
         let right = size.width - padX - pill.width / 2
@@ -260,7 +260,8 @@ struct NoteView: View {
                     // 스크롤과 무관하게 떠 있다. 닫기(✕)/다른 카드 띄우기 전까지 유지.
                     if let card = floatingCard {
                         floatingProblemWindow(card: card, containerSize: geo.size)
-                            .position(floatAnchor.center(in: geo.size, pill: floatSize))
+                            // PIP는 상단에 더 타이트하게 붙인다(pill은 기본 16 유지).
+                            .position(floatAnchor.center(in: geo.size, pill: floatSize, topPad: 4))
                             .offset(floatDragOffset)
                     }
 
@@ -975,7 +976,7 @@ struct NoteView: View {
                 DragGesture(minimumDistance: 1)
                     .onChanged { v in floatDragOffset = v.translation }
                     .onEnded { v in
-                        let current = floatAnchor.center(in: containerSize, pill: floatSize)
+                        let current = floatAnchor.center(in: containerSize, pill: floatSize, topPad: 4)
                         let projected = CGPoint(x: current.x + v.predictedEndTranslation.width,
                                                 y: current.y + v.predictedEndTranslation.height)
                         let target = nearestPillAnchor(to: projected, in: containerSize, size: floatSize)

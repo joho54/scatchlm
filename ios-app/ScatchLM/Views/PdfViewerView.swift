@@ -70,13 +70,17 @@ struct PdfViewerView: View {
 
             // Floating top bar — page indicator + close
             VStack {
-                HStack {
+                // alignment .top + 자식별 top 패딩으로 두 칩을 서로 다른 행에 둔다.
+                // 페이지칩: 노트 컨트롤 한 줄 아래(56). 전체화면칩: 노트 컨트롤 행과 같은 높이(16).
+                HStack(alignment: .top) {
                     Text("\(currentPage) / \(totalPages)")
                         .font(.caption.bold())
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
+                        // 노트 컨트롤(좌상단)과 겹치지 않게 한 줄 아래(=12 + 36 + 8).
+                        .padding(.top, 56)
 
                     Spacer()
 
@@ -93,12 +97,11 @@ struct PdfViewerView: View {
                                 .clipShape(Capsule())
                         }
                         .accessibilityLabel(isFullscreen ? "PDF 화면 축소" : "PDF 전체화면")
+                        // 좌상단 노트 컨트롤 행(36pt 원, top 12, center 30)과 수직 정렬: 28pt 칩 → top 16.
+                        .padding(.top, 16)
                     }
                 }
                 .padding(.horizontal, 10)
-                // 노트 컨트롤(나가기·DMN 등)이 전체화면 포함 항상 화면 좌상단에 떠 있어
-                // 페이지 인덱스를 그 아래로 내려 겹침을 피한다.
-                .padding(.top, 56)
 
                 if let status = pdfStatus, status.isScanned, status.ocrStatus != "complete" {
                     ocrStatusBanner(status)
@@ -1205,6 +1208,18 @@ struct NativePdfView: UIViewRepresentable {
         func setInkMode(_ on: Bool) {
             guard on != inkMode else { return }
             inkMode = on
+            // 토글 시 리사이즈 진단: 라이브 PDFView가 그리는 페이지 표시 크기(scaleFactor 반영)와
+            // 패널 bounds를 찍는다. 입력 레이어의 fit-zoom 표시 크기(아래 ink "input zoom")와 비교해
+            // 두 사이징이 어긋나면(=토글 시 페이지가 커지거나 작아지면) 그 차이가 원인.
+            if let pv = pdfView, let pg = pv.currentPage {
+                let box = pg.bounds(for: pv.displayBox).size
+                let disp = CGSize(width: box.width * pv.scaleFactor, height: box.height * pv.scaleFactor)
+                appLogDebug("ink", "live pdf at toggle", [
+                    "on": "\(on)", "scaleFactor": "\(pv.scaleFactor)",
+                    "pageDisp": "\(disp)", "bounds": "\(pv.bounds.size)",
+                    "displayBox": "\(pv.displayBox.rawValue)",
+                ])
+            }
             appLogDebug("ink", "display setInkMode", ["on": "\(on)"])
             if on {
                 // 진입: 표시 오버레이 숨김(입력 레이어가 표시·편집을 가져감).
@@ -1411,6 +1426,13 @@ struct PdfInkInputView: UIViewRepresentable {
                 host.minimumZoomScale = fit
                 host.maximumZoomScale = fit * 4
                 host.zoomScale = fit
+                // 토글 시 리사이즈 진단: 입력 레이어가 fit-zoom으로 그리는 페이지 표시 크기.
+                // 라이브 PDFView "live pdf at toggle"의 pageDisp와 비교 — 다르면 토글 점프의 원인.
+                appLogDebug("ink", "input zoom", [
+                    "page": "\(pageNum)", "fit": "\(fit)",
+                    "pageDisp": "\(CGSize(width: pb.width * fit, height: pb.height * fit))",
+                    "avail": "\(avail)",
+                ])
             }
             centerContent()
         }

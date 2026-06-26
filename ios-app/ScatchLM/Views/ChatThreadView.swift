@@ -103,38 +103,57 @@ struct ChatThreadView<Header: View>: View {
             }
             // 입력바를 safeAreaInset로 — 키보드 회피가 리스트를 재레이아웃하지 않게(App Hang 차단).
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    Divider()
-                    HStack(spacing: 8) {
-                        if let onQuickPractice {
-                            Button(action: onQuickPractice) {
-                                Label("연습문제", systemImage: "pencil.and.list.clipboard")
-                                    .font(.subheadline.weight(.medium))
-                            }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.capsule)
-                            .tint(.blue)
-                            .disabled(sending)
+                // GPT풍 입력바 — 하드 Divider 없이 .bar 머티리얼로 자연스럽게 분리하고,
+                // TextField와 전송 버튼을 하나의 둥근 pill 안에 담는다(전송 = pill 내부 우하단 원형).
+                HStack(alignment: .bottom, spacing: 8) {
+                    if let onQuickPractice {
+                        Button(action: onQuickPractice) {
+                            Label("연습문제", systemImage: "pencil.and.list.clipboard")
+                                .font(.footnote.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.blue.opacity(0.12), in: Capsule())
+                                .foregroundStyle(.blue)
                         }
+                        .buttonStyle(.plain)
+                        .disabled(sending)
+                    }
 
+                    HStack(alignment: .bottom, spacing: 6) {
                         TextField(placeholder, text: $input, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(1...4)
+                            .lineLimit(1...5)
                             .focused($focused)
+                            .padding(.leading, 14)
+                            .padding(.vertical, 9)
 
                         Button {
                             focused = false
                             onSend()
                         } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(input.isEmpty || sending ? .gray : .blue)
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 30, height: 30)
+                                .background(
+                                    input.isEmpty || sending ? Color.gray.opacity(0.4) : Color.blue,
+                                    in: Circle()
+                                )
                         }
                         .disabled(input.isEmpty || sending)
+                        .padding(.trailing, 5)
+                        .padding(.bottom, 4)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(Color(.systemGray6))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 0.5)
+                    )
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(.bar)
             }
         }

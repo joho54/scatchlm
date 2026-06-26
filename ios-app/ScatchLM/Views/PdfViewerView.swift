@@ -1115,6 +1115,7 @@ struct NativePdfView: UIViewRepresentable {
             if targetPage > 0, let page = cachedDoc.page(at: targetPage - 1) {
                 pdfView.go(to: page)
             }
+            DispatchQueue.main.async { coordinator.applyZoomLimits() }
         } else {
             let startTime = CFAbsoluteTimeGetCurrent()
             let page = initialPage
@@ -1131,6 +1132,7 @@ struct NativePdfView: UIViewRepresentable {
                         }
                         let totalTime = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
                         appLog("pdf", "ready", ["pages": "\(document.pageCount)", "ms": "\(totalTime)"])
+                        DispatchQueue.main.async { coordinator.applyZoomLimits() }
                     }
                 }
             }
@@ -1141,6 +1143,13 @@ struct NativePdfView: UIViewRepresentable {
             coordinator,
             selector: #selector(Coordinator.pageChanged),
             name: .PDFViewPageChanged,
+            object: pdfView
+        )
+        // Scale change → 줌 limit 재적용(핀치 바닥 방어 + 회전 재fit 추적).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.scaleChanged),
+            name: .PDFViewScaleChanged,
             object: pdfView
         )
 
@@ -1224,6 +1233,25 @@ struct NativePdfView: UIViewRepresentable {
             let page = document.index(for: currentPage) + 1
             lastPage = page
             onPageChanged(page)
+        }
+
+        /// 읽기 모드 줌 범위 — 줌 아웃 하한을 fit-to-screen으로 잡아 페이지가 회색 여백 속으로
+        /// 쪼그라들지 않게 한다(필기 입력 레이어의 minimumZoomScale=fit과 정합). 상한은 fit×4.
+        /// autoScales가 레이아웃/회전 시 scaleFactor를 재산정하므로 문서 로드 후 + scaleChanged마다 재적용.
+        func applyZoomLimits() {
+            guard let pv = pdfView else { return }
+            let fit = pv.scaleFactorForSizeToFit
+            guard fit > 0 else { return }
+            pv.minScaleFactor = fit
+            pv.maxScaleFactor = fit * 4
+            // 핀치로 fit 아래로 내려가면 바닥으로 되돌림(minScaleFactor만으론 새는 케이스 방어).
+            // 같은 값 재설정은 no-op이라 재진입은 한 번에 수렴.
+            if pv.scaleFactor < fit - 0.001 { pv.scaleFactor = fit }
+        }
+
+        /// 줌 변경(핀치/회전 재fit)마다 호출 — limit을 현재 뷰포트 기준으로 다시 잡는다(회전 대응).
+        @objc func scaleChanged(_ notification: Notification) {
+            applyZoomLimits()
         }
 
         private func pageNumber(for page: PDFPage) -> Int {

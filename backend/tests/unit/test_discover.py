@@ -188,27 +188,46 @@ def test_web_search_forces_direct_caller():
     assert ws["allowed_callers"] == ["direct"]
 
 
-# ── _clean_suggestions: 제안 프롬프트 정규화 ──────────────────────────────
+# ── _clean_suggestions: 도전 분야 제안({topic, bridge}) 정규화 ──────────────
 
-def test_clean_suggestions_dedup_and_strip():
-    raw = ["  공부 A  ", "공부 A", "공부 B", "", "   "]
-    assert ds._clean_suggestions(raw) == ["공부 A", "공부 B"]
+def _sugg(topic, bridge="b"):
+    return {"topic": topic, "bridge": bridge}
+
+
+def test_clean_suggestions_dedup_by_topic_and_strip():
+    """topic 기준 dedup·trim, 빈 topic drop. bridge는 trim만(가드 없음)."""
+    raw = [_sugg("  헬라어  ", "  계보  "), _sugg("헬라어"), _sugg("산스크리트어"),
+           _sugg("", "no topic"), _sugg("   ")]
+    assert ds._clean_suggestions(raw) == [
+        {"topic": "헬라어", "bridge": "계보"},
+        {"topic": "산스크리트어", "bridge": "b"},
+    ]
 
 
 def test_clean_suggestions_caps_at_limit():
-    raw = [f"주제 {i}" for i in range(ds.SUGGEST_COUNT + 3)]
+    raw = [_sugg(f"분야 {i}") for i in range(ds.SUGGEST_COUNT + 3)]
     assert len(ds._clean_suggestions(raw)) == ds.SUGGEST_COUNT
 
 
-def test_clean_suggestions_drops_non_string_and_non_list():
-    assert ds._clean_suggestions(["ok", 1, None, {"x": 1}]) == ["ok"]
+def test_clean_suggestions_drops_non_dict_and_non_list():
+    assert ds._clean_suggestions([_sugg("ok"), "str", 1, None]) == [{"topic": "ok", "bridge": "b"}]
     assert ds._clean_suggestions("not a list") == []
     assert ds._clean_suggestions(None) == []
 
 
-def test_clean_suggestions_drops_over_max_chars():
-    """장황한 제안(>10자)은 떨군다 — 칩·placeholder가 한 줄이라."""
-    raw = ["양자역학", "머신러닝 심화 과정을 공부하고 싶어요", "행렬분해"]
-    assert ds._clean_suggestions(raw, max_chars=10) == ["양자역학", "행렬분해"]
-    # max_chars 미지정이면 길이 제한 없음(하위호환)
+def test_clean_suggestions_missing_keys_tolerated():
+    """topic 없는 항목은 drop, bridge 없으면 빈 문자열."""
+    assert ds._clean_suggestions([{"bridge": "x"}, {"topic": "아베스타어"}]) == [
+        {"topic": "아베스타어", "bridge": ""},
+    ]
+
+
+def test_clean_suggestions_drops_over_max_chars_topic():
+    """topic이 max_chars 초과면 떨군다(잘라내면 단어 깨짐). bridge 길이는 무관."""
+    raw = [_sugg("양자역학"), _sugg("머신러닝 심화 과정을 공부하고 싶어요"), _sugg("행렬분해")]
+    assert ds._clean_suggestions(raw, max_chars=10) == [
+        {"topic": "양자역학", "bridge": "b"},
+        {"topic": "행렬분해", "bridge": "b"},
+    ]
+    # max_chars 미지정이면 topic 길이 제한 없음
     assert len(ds._clean_suggestions(raw)) == 3

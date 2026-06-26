@@ -78,6 +78,18 @@ struct TextbookListItem: Codable, Identifiable, Hashable {
     }
 }
 
+/// GET /api/pdf/textbooks 페이지네이션 봉투. has_more로 무한 스크롤 종료 판정.
+struct TextbookListResponse: Decodable {
+    let items: [TextbookListItem]
+    let total: Int
+    let hasMore: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case items, total
+        case hasMore = "has_more"
+    }
+}
+
 struct ChapterItem: Codable, Identifiable {
     let id: String
     let level: Int

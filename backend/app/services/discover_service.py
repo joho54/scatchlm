@@ -143,7 +143,10 @@ async def build_library_digest(db: AsyncSession, user_id: str) -> str:
     """
     src_result = await db.execute(
         select(TextbookSource.id, TextbookSource.file_name)
-        .where(TextbookSource.user_id == user_id)
+        .where(
+            TextbookSource.user_id == user_id,
+            TextbookSource.deleted_at.is_(None),  # 삭제된 교재는 서재 제안에서 제외
+        )
         .order_by(TextbookSource.created_at.asc())
     )
     sources = src_result.all()

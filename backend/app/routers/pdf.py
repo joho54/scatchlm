@@ -329,6 +329,12 @@ async def upload_pdf(
         # 방금 업로드한 중복본 삭제 (server_path는 이번 업로드의 storage key)
         storage.delete(server_path)
 
+        # 삭제된 교재를 같은 파일로 재업로드 → 복구(서재에 다시 노출).
+        if existing_source.deleted_at is not None:
+            existing_source.deleted_at = None
+            await db.commit()
+            log.info("PDF duplicate was soft-deleted, restoring: id=%s", existing_source.id)
+
         # 기존 인덱싱이 비어있으면 (이전 백그라운드 인덱싱 실패) 재트리거
         chunk_count = await db.scalar(
             select(func.count()).select_from(DocumentChunk).where(
@@ -444,31 +450,94 @@ async def upload_pdf(
     }
 
 
+def _textbook_item_dict(s: TextbookSource) -> dict:
+    return {
+        "id": s.id,
+        "fileName": s.file_name,
+        "totalPages": s.total_pages,
+        "fileSize": s.file_size,
+        "createdAt": s.created_at.isoformat() if s.created_at else None,
+        "is_scanned": s.is_scanned,
+        "ocr_status": s.ocr_status,
+        "ocr_pages_done": s.ocr_pages_done or 0,
+        "ocr_pages_total": (min(s.total_pages, s.ocr_cap) if s.ocr_cap else s.total_pages) if s.is_scanned else 0,
+    }
+
+
 @router.get("/textbooks")
 async def list_textbooks(
+    q: str | None = None,
+    limit: int = 30,
+    offset: int = 0,
+    deleted: bool = False,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    """서재 교재 목록(페이지네이션·파일명 검색·삭제함 분기).
+
+    deleted=false(기본): 미삭제만. deleted=true: soft delete된 것만(복구함).
+    파일명 LIKE 검색(q), created_at DESC, limit/offset. {items, total, has_more} 봉투로 반환.
+    """
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    conds = [TextbookSource.user_id == user_id]
+    conds.append(
+        TextbookSource.deleted_at.isnot(None) if deleted
+        else TextbookSource.deleted_at.is_(None)
+    )
+    if q and q.strip():
+        conds.append(TextbookSource.file_name.ilike(f"%{q.strip()}%"))
+
+    total = await db.scalar(
+        select(func.count()).select_from(TextbookSource).where(*conds)
+    )
+    # limit+1을 떠서 다음 페이지 존재 여부(has_more)를 별도 카운트 없이 판정.
     result = await db.execute(
         select(TextbookSource)
-        .where(TextbookSource.user_id == user_id)
+        .where(*conds)
         .order_by(TextbookSource.created_at.desc())
+        .limit(limit + 1)
+        .offset(offset)
     )
     sources = result.scalars().all()
-    return [
-        {
-            "id": s.id,
-            "fileName": s.file_name,
-            "totalPages": s.total_pages,
-            "fileSize": s.file_size,
-            "createdAt": s.created_at.isoformat() if s.created_at else None,
-            "is_scanned": s.is_scanned,
-            "ocr_status": s.ocr_status,
-            "ocr_pages_done": s.ocr_pages_done or 0,
-            "ocr_pages_total": (min(s.total_pages, s.ocr_cap) if s.ocr_cap else s.total_pages) if s.is_scanned else 0,
-        }
-        for s in sources
-    ]
+    has_more = len(sources) > limit
+    sources = sources[:limit]
+    return {
+        "items": [_textbook_item_dict(s) for s in sources],
+        "total": total or 0,
+        "has_more": has_more,
+    }
+
+
+@router.delete("/{textbook_id}")
+async def delete_textbook(
+    textbook_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """교재 soft delete — 목록에서 숨김. 연결 노트·캐시·파일은 보존(복구 가능). 멱등."""
+    source = await _get_owned_source(textbook_id, user_id, db)
+    if source.deleted_at is None:
+        source.deleted_at = _utcnow()
+        await db.commit()
+        log.info("Textbook soft-deleted: id=%s user=%s", source.id, user_id)
+    return {"id": source.id, "deleted": True}
+
+
+@router.post("/{textbook_id}/restore")
+async def restore_textbook(
+    textbook_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """soft delete된 교재를 복구(deleted_at 클리어). 멱등. 복구된 항목을 반환."""
+    source = await _get_owned_source(textbook_id, user_id, db)
+    if source.deleted_at is not None:
+        source.deleted_at = None
+        await db.commit()
+        log.info("Textbook restored: id=%s user=%s", source.id, user_id)
+    return _textbook_item_dict(source)
 
 
 @router.get("/{textbook_id}/file")

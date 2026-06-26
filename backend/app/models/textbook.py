@@ -35,3 +35,7 @@ class TextbookSource(Base):
     # 하트비트 — running 잡이 페이지마다 갱신. 오래 안 갱신되면 프로세스 사망으로 판별(스위퍼 재개).
     ocr_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    # soft delete — 서재 목록에서 숨기되 노트 연결·가이드/챕터/OCR 캐시·PDF 파일은 보존(복구 가능).
+    # 목록/제안(list_textbooks·discover) 집계만 deleted_at IS NULL로 거른다. id 직접 접근(파일 서빙·
+    # 챕터·가이드·피드백 컨텍스트·ensure)은 삭제돼도 허용 — 연결된 노트가 계속 동작해야 하므로.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

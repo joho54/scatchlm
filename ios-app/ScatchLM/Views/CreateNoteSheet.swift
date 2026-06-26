@@ -6,9 +6,8 @@ struct CreateNoteSheet: View {
     @State private var title = ""
     @State private var language = ""
     @State private var recentLanguages: [String] = []
-    @State private var textbooks: [TextbookListItem] = []
+    @State private var store = TextbookStore()
     @State private var selectedTextbookId: String?
-    @State private var loadingTextbooks = false
     @State private var showFilePicker = false
     @State private var uploading = false
     @State private var uploadError: String?   // 업로드 실패(스캔 페이지 천장 초과 등) 사용자 안내
@@ -41,61 +40,15 @@ struct CreateNoteSheet: View {
                 }
 
                 Section("교재 (선택)") {
-                    if loadingTextbooks {
-                        ProgressView()
-                    } else {
-                        ForEach(textbooks) { tb in
-                            Button {
-                                selectedTextbookId = selectedTextbookId == tb.id ? nil : tb.id
-                            } label: {
-                                HStack {
-                                    Image(systemName: "book.closed.fill")
-                                        .foregroundStyle(selectedTextbookId == tb.id ? .white : .purple)
-                                        .frame(width: 32, height: 32)
-                                        .background(selectedTextbookId == tb.id ? Color.purple : Color.purple.opacity(0.1))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                    VStack(alignment: .leading) {
-                                        Text(tb.fileName)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        HStack(spacing: 6) {
-                                            Text("\(tb.totalPages)페이지")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                            if let chip = tb.ocrChip {
-                                                Text(chip)
-                                                    .font(.caption2)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 1)
-                                                    .background(Color.purple.opacity(0.12))
-                                                    .foregroundStyle(.purple)
-                                                    .clipShape(Capsule())
-                                            }
-                                        }
-                                    }
-
-                                    Spacer()
-
-                                    if selectedTextbookId == tb.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.purple)
-                                    }
-                                }
-                            }
-                        }
-
-                        Button {
-                            showFilePicker = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "arrow.up.doc")
-                                Text(uploading ? "업로드 중…" : "새 PDF 업로드")
-                            }
-                        }
-                        .disabled(uploading)
-                    }
+                    TextbookPickerBody(
+                        store: store,
+                        selectedId: selectedTextbookId,
+                        onSelect: { tb in
+                            selectedTextbookId = selectedTextbookId == tb.id ? nil : tb.id
+                        },
+                        onUpload: { showFilePicker = true },
+                        uploading: uploading
+                    )
                 }
             }
             .navigationTitle("새 노트")
@@ -106,7 +59,7 @@ struct CreateNoteSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("만들기") {
-                        let selected = textbooks.first { $0.id == selectedTextbookId }
+                        let selected = store.items.first { $0.id == selectedTextbookId }
                         // intake(A): 기존 PDF가 새 노트에 편입 → is_scanned 1회 재평가(멱등, 평생1회).
                         if let tid = selectedTextbookId {
                             Task { try? await APIClient.shared.ensureTextbook(tid) }
@@ -122,7 +75,7 @@ struct CreateNoteSheet: View {
             }
             .onAppear {
                 loadRecentLanguages()
-                loadTextbooks()
+                store.loadInitialIfNeeded()
             }
             .sheet(isPresented: $showFilePicker) {
                 // asCopy 피커 — 클라우드(OneDrive 등) 미다운로드 파일도 시스템이 다운로드+샌드박스
@@ -150,22 +103,6 @@ struct CreateNoteSheet: View {
             let langs = Set(notes.map(\.language)).filter { !$0.isEmpty }.sorted()
             recentLanguages = langs
         } catch {}
-    }
-
-    private func loadTextbooks() {
-        loadingTextbooks = true
-        Task {
-            do {
-                let items: [TextbookListItem] = try await APIClient.shared.get("/pdf/textbooks")
-                await MainActor.run {
-                    textbooks = items
-                    loadingTextbooks = false
-                }
-            } catch {
-                print("[CreateNote] Failed to load textbooks: \(error)")
-                await MainActor.run { loadingTextbooks = false }
-            }
-        }
     }
 
     /// asCopy 피커가 넘긴 로컬 사본 URL을 업로드. 사본이라 security-scope 처리 불필요.
@@ -213,7 +150,7 @@ struct CreateNoteSheet: View {
                     ocrPagesTotal: (res.isScanned ?? false) ? res.totalPages : 0
                 )
                 await MainActor.run {
-                    textbooks.append(item)
+                    store.prepend(item)
                     selectedTextbookId = item.id
                     uploading = false
                 }

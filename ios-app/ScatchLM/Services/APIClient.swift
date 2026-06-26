@@ -402,6 +402,17 @@ extension APIClient {
     func ensureTextbook(_ textbookId: String) async throws -> PdfStatus {
         try await postJSON("/pdf/\(textbookId)/ensure", body: [:])
     }
+
+    /// 교재 soft delete — 서재 목록에서 숨김. 연결 노트·캐시·파일은 보존(복구 가능). 멱등.
+    func deleteTextbook(_ textbookId: String) async throws {
+        struct Result: Decodable { let id: String; let deleted: Bool }
+        let _: Result = try await delete("/pdf/\(textbookId)")
+    }
+
+    /// soft delete된 교재를 복구. 복구된 항목을 반환.
+    func restoreTextbook(_ textbookId: String) async throws -> TextbookListItem {
+        try await postJSON("/pdf/\(textbookId)/restore", body: [:])
+    }
 }
 
 // MARK: - Discover (학습 자료 추천, §3.2-a)

@@ -15,6 +15,7 @@
 		172603A4B7C4B82197C7D6CB /* FeedbackChatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */; };
 		17A65C3E20CFF1357426A14D /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724FDDF394FA92210D07C3A6 /* OnboardingView.swift */; };
 		18AC9BB7343336EE101ACA63 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380787FC7AF195DA35EE153 /* APIClient.swift */; };
+		18D74DFCFBA0C45B4F189AEC /* TextbookPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A03D6AD5EC685751319FE3 /* TextbookPicker.swift */; };
 		1A31D8D4B202DB0ED38E1D77 /* SafariView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9FC6028AB04CCAD4BDB5C91 /* SafariView.swift */; };
 		259BCBD3CFE6E7D673B30020 /* WidgetDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B353930F9E2F946ACE049C9 /* WidgetDeepLinkTests.swift */; };
 		278678AE22447203065ACF19 /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F2C4B8401754401FF9BF75 /* WidgetShared.swift */; };
@@ -203,6 +204,7 @@
 		E9FC6028AB04CCAD4BDB5C91 /* SafariView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariView.swift; sourceTree = "<group>"; };
 		EC5A9EE6E21694151A49CC65 /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
 		EF30A763E1963E045485DEFE /* BakedMarkdownHTMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakedMarkdownHTMLTests.swift; sourceTree = "<group>"; };
+		F2A03D6AD5EC685751319FE3 /* TextbookPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextbookPicker.swift; sourceTree = "<group>"; };
 		F3A73493001B8415ACC199C5 /* FeedbackChatSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackChatSheet.swift; sourceTree = "<group>"; };
 		F5997BF81BCD5D68E0CF767A /* FeedbackRatingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackRatingSheet.swift; sourceTree = "<group>"; };
 		F65C0173500BC2A857B2CCED /* Observability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Observability.swift; sourceTree = "<group>"; };
@@ -412,6 +414,7 @@
 				E9FC6028AB04CCAD4BDB5C91 /* SafariView.swift */,
 				1001E399EB87F199D9AD01C4 /* SettingsSheet.swift */,
 				D380E37A9F363F70DA6DA676 /* SyncStatusIndicator.swift */,
+				F2A03D6AD5EC685751319FE3 /* TextbookPicker.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -670,6 +673,7 @@
 				D4DFBB036249FB325D5D7802 /* SyncModels.swift in Sources */,
 				14C34B1E0B2CB242F8C0AF67 /* SyncService.swift in Sources */,
 				ECAD7C8D375493B40EB5F07F /* SyncStatusIndicator.swift in Sources */,
+				18D74DFCFBA0C45B4F189AEC /* TextbookPicker.swift in Sources */,
 				8FCF375DDA0B73ED0C7B5DD3 /* ViewExtensions.swift in Sources */,
 				278678AE22447203065ACF19 /* WidgetShared.swift in Sources */,
 				92459A631764A2AF54E3A327 /* WordExtractor.swift in Sources */,

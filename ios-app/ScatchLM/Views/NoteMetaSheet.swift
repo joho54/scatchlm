@@ -15,8 +15,7 @@ struct NoteMetaSheet: View {
     @State private var selectedTextbookPages: Int
 
     @State private var recentLanguages: [String] = []
-    @State private var textbooks: [TextbookListItem] = []
-    @State private var loadingTextbooks = false
+    @State private var store = TextbookStore()
     @State private var showFilePicker = false
     @State private var uploading = false
     @State private var uploadError: String?   // 업로드 실패 사용자 안내 (침묵 금지)
@@ -63,79 +62,33 @@ struct NoteMetaSheet: View {
                 }
 
                 Section("교재") {
-                    if loadingTextbooks {
-                        ProgressView()
-                    } else {
-                        if selectedTextbookId != nil {
-                            Button(role: .destructive) {
+                    if selectedTextbookId != nil {
+                        Button(role: .destructive) {
+                            selectedTextbookId = nil
+                            selectedTextbookName = nil
+                            selectedTextbookPages = 0
+                        } label: {
+                            Label("교재 연결 해제", systemImage: "xmark.circle")
+                        }
+                    }
+
+                    TextbookPickerBody(
+                        store: store,
+                        selectedId: selectedTextbookId,
+                        onSelect: { tb in
+                            if selectedTextbookId == tb.id {
                                 selectedTextbookId = nil
                                 selectedTextbookName = nil
                                 selectedTextbookPages = 0
-                            } label: {
-                                Label("교재 연결 해제", systemImage: "xmark.circle")
+                            } else {
+                                selectedTextbookId = tb.id
+                                selectedTextbookName = tb.fileName
+                                selectedTextbookPages = tb.totalPages
                             }
-                        }
-
-                        ForEach(textbooks) { tb in
-                            Button {
-                                if selectedTextbookId == tb.id {
-                                    selectedTextbookId = nil
-                                    selectedTextbookName = nil
-                                    selectedTextbookPages = 0
-                                } else {
-                                    selectedTextbookId = tb.id
-                                    selectedTextbookName = tb.fileName
-                                    selectedTextbookPages = tb.totalPages
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "book.closed.fill")
-                                        .foregroundStyle(selectedTextbookId == tb.id ? .white : .purple)
-                                        .frame(width: 32, height: 32)
-                                        .background(selectedTextbookId == tb.id ? Color.purple : Color.purple.opacity(0.1))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                    VStack(alignment: .leading) {
-                                        Text(tb.fileName)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        HStack(spacing: 6) {
-                                            Text("\(tb.totalPages)페이지")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                            if let chip = tb.ocrChip {
-                                                Text(chip)
-                                                    .font(.caption2)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 1)
-                                                    .background(Color.purple.opacity(0.12))
-                                                    .foregroundStyle(.purple)
-                                                    .clipShape(Capsule())
-                                            }
-                                        }
-                                    }
-
-                                    Spacer()
-
-                                    if selectedTextbookId == tb.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.purple)
-                                    }
-                                }
-                            }
-                        }
-
-                        Button {
-                            showFilePicker = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "arrow.up.doc")
-                                Text(uploading ? "업로드 중…" : "새 PDF 업로드")
-                            }
-                        }
-                        .disabled(uploading)
-                    }
+                        },
+                        onUpload: { showFilePicker = true },
+                        uploading: uploading
+                    )
                 }
             }
             .navigationTitle(focusTextbook ? "교재 설정" : "노트 정보")
@@ -164,7 +117,7 @@ struct NoteMetaSheet: View {
             }
             .onAppear {
                 loadRecentLanguages()
-                loadTextbooks()
+                store.loadInitialIfNeeded()
             }
             .sheet(isPresented: $showFilePicker) {
                 // asCopy 피커 — 클라우드(OneDrive 등) 미다운로드 파일도 로컬 사본으로 받아 ENOENT 방지.
@@ -197,22 +150,6 @@ struct NoteMetaSheet: View {
         } catch {}
     }
 
-    private func loadTextbooks() {
-        loadingTextbooks = true
-        Task {
-            do {
-                let items: [TextbookListItem] = try await APIClient.shared.get("/pdf/textbooks")
-                await MainActor.run {
-                    textbooks = items
-                    loadingTextbooks = false
-                }
-            } catch {
-                appLogError("note-meta", "load textbooks failed", ["error": "\(error)"])
-                await MainActor.run { loadingTextbooks = false }
-            }
-        }
-    }
-
     /// asCopy 피커가 넘긴 로컬 사본 URL을 업로드. 사본이라 security-scope 처리 불필요.
     private func handleFileImport(_ url: URL) {
         appLog("pdf-upload", "picked file", ["name": url.lastPathComponent])
@@ -242,7 +179,7 @@ struct NoteMetaSheet: View {
                     ocrPagesTotal: (res.isScanned ?? false) ? res.totalPages : 0
                 )
                 await MainActor.run {
-                    textbooks.append(item)
+                    store.prepend(item)
                     selectedTextbookId = item.id
                     selectedTextbookName = item.fileName
                     selectedTextbookPages = item.totalPages

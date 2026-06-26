@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 피드백 채팅·가이드 채팅 공용 말풍선.
 /// **통일 대상은 챗봇(assistant) 응답** — 두 화면의 응답 말풍선을 같은 모양(full-width, `MarkdownContentView`,
@@ -61,6 +62,9 @@ struct EquatableChatBubble: View, Equatable {
     var onDetail: (() -> Void)? = nil
     var onRetry: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
+    /// assistant 응답 재생성 — 직전 user 질문을 다시 보내 답변을 새로 받는다(기존 답변 교체).
+    /// 마지막 assistant 턴에만 주입한다(중간 턴 재생성은 이후 턴을 고아화하므로 호출부가 막음).
+    var onRegenerate: (() -> Void)? = nil
 
     static func == (l: EquatableChatBubble, r: EquatableChatBubble) -> Bool {
         l.role == r.role && l.content == r.content && l.serverId == r.serverId
@@ -68,6 +72,23 @@ struct EquatableChatBubble: View, Equatable {
     }
 
     var body: some View {
+        bubble.contextMenu {
+            Button { UIPasteboard.general.string = content } label: {
+                Label("복사", systemImage: "doc.on.doc")
+            }
+            // 실패 user 버블은 복사와 같은 메뉴에서 재시도/수정도 노출(롱홀드 = SwiftUI 표준).
+            if role == "user" && failed {
+                if let onRetry {
+                    Button { onRetry() } label: { Label("재시도", systemImage: "arrow.clockwise") }
+                }
+                if let onEdit {
+                    Button { onEdit() } label: { Label("수정", systemImage: "pencil") }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var bubble: some View {
         if role == "user" {
             if failed {
                 failedUserBubble
@@ -97,23 +118,21 @@ struct EquatableChatBubble: View, Equatable {
                         Text("자세히").font(.caption).foregroundStyle(.secondary)
                     }.disabled(serverId == nil)
                 }
+                if let onRegenerate {
+                    Button { onRegenerate() } label: {
+                        Label("재시도", systemImage: "arrow.clockwise")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
 
-    /// 전송 실패한 user 말풍선 — 우측 정렬 버블 + 빨간 실패 캡션. 버블을 길게 누르면(contextMenu)
-    /// 재시도/수정 메뉴가 뜬다(롱홀드 = SwiftUI 표준 long-press 메뉴).
+    /// 전송 실패한 user 말풍선 — 우측 정렬 버블 + 빨간 실패 캡션. 버블을 길게 누르면(상위 contextMenu)
+    /// 복사/재시도/수정 메뉴가 뜬다.
     private var failedUserBubble: some View {
         VStack(alignment: .trailing, spacing: 4) {
             ChatBubbleView(role: role, content: content, fontSize: fontSize)
-                .contextMenu {
-                    if let onRetry {
-                        Button { onRetry() } label: { Label("재시도", systemImage: "arrow.clockwise") }
-                    }
-                    if let onEdit {
-                        Button { onEdit() } label: { Label("수정", systemImage: "pencil") }
-                    }
-                }
             Button { onRetry?() } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.circle.fill")

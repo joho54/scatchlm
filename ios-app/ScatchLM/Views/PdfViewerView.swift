@@ -383,6 +383,7 @@ struct PdfViewerView: View {
                 },
                 onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: false) },
                 onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: false) },
+                onRegenerate: { turn in regenerateGuideChat(turnId: turn.id, isChapter: false) },
                 onQuickPractice: onPin != nil ? { requestPractice(isChapter: false) } : nil
             ) { fontSize in
                 // 헤더 — 페이지 가이드 설명 + 스크랩/평가
@@ -617,6 +618,26 @@ struct PdfViewerView: View {
         deliverGuideChat(turnId: m.id, isChapter: isChapter)
     }
 
+    /// assistant 가이드 응답 재생성 — 해당 답변을 제거(영속분 soft-delete)하고 직전 user 질문을 다시 전송.
+    /// 마지막 assistant 턴에만 노출되므로(ChatThreadView), 제거 대상 뒤에 다른 턴은 없다.
+    private func regenerateGuideChat(turnId: String, isChapter: Bool) {
+        if isChapter ? chapterChatSending : guideChatSending { return }
+        let msgs = isChapter ? chapterChatMessages : guideChatMessages
+        guard let aiIdx = msgs.firstIndex(where: { $0.id.uuidString == turnId }),
+              msgs[aiIdx].role == "assistant" else { return }
+        // 직전의 (실패하지 않은) user 메시지 — 이걸 다시 보낸다.
+        guard let userMsg = msgs[..<aiIdx].last(where: { $0.role == "user" && !$0.failed }) else { return }
+        let removed = msgs[aiIdx]
+        if isChapter {
+            chapterChatMessages.removeAll { $0.id == removed.id }
+        } else {
+            guideChatMessages.removeAll { $0.id == removed.id }
+        }
+        if let pid = removed.persistedId { try? db.softDeleteChatMessage(id: pid) }
+        appLog(isChapter ? "chapter-chat" : "guide-chat", "regenerate")
+        deliverGuideChat(turnId: userMsg.id, isChapter: isChapter)
+    }
+
     /// 실패한 가이드 채팅 메시지를 입력창으로 되돌리고 버블 제거(영속분은 soft-delete) — 수정 후 재전송.
     private func editGuideChat(turnId: String, isChapter: Bool) {
         let msgs = isChapter ? chapterChatMessages : guideChatMessages
@@ -672,6 +693,7 @@ struct PdfViewerView: View {
                 },
                 onRetry: { turn in retryGuideChat(turnId: turn.id, isChapter: true) },
                 onEdit: { turn in editGuideChat(turnId: turn.id, isChapter: true) },
+                onRegenerate: { turn in regenerateGuideChat(turnId: turn.id, isChapter: true) },
                 onQuickPractice: onPin != nil ? { requestPractice(isChapter: true) } : nil
             ) { _ in
                 // 헤더 — 챕터 가이드 요약 + 스크랩/평가

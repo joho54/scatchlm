@@ -65,6 +65,7 @@ struct SessionChatSheet: View {
                 onDetail: { turn in pushedRatingMessageId = turn.id },
                 onRetry: { turn in retryFailed(turnId: turn.id) },
                 onEdit: { turn in editFailed(turnId: turn.id) },
+                onRegenerate: { turn in regenerate(turnId: turn.id) },
                 onQuickPractice: onPin != nil ? requestPractice : nil
             ) { fontSize in
                 // 헤더 — 피드백 카드 본문(저장 안 된 원본)을 assistant 버블로.
@@ -237,6 +238,25 @@ struct SessionChatSheet: View {
             appLogError("chat", "softDeleteChatMessage failed", ["error": "\(error)"])
         }
         appLog("chat", "edit failed message", ["sessionId": session.id])
+    }
+
+    /// assistant 응답 재생성 — 해당 답변을 제거(soft-delete)하고 직전 user 질문을 다시 전송한다.
+    /// 마지막 assistant 턴에만 노출되므로(ChatThreadView), 제거 대상 뒤에 다른 턴은 없다.
+    private func regenerate(turnId: String) {
+        guard !sending else { return }
+        guard let aiIdx = messages.firstIndex(where: { $0.id == turnId }),
+              messages[aiIdx].role == "assistant" else { return }
+        // 직전의 (실패하지 않은) user 메시지 — 이걸 다시 보낸다.
+        guard let userMsg = messages[..<aiIdx].last(where: {
+            $0.role == "user" && !failedMessageIds.contains($0.id)
+        }) else { return }
+        let removedId = messages[aiIdx].id
+        messages.removeAll { $0.id == removedId }
+        do { try db.softDeleteChatMessage(id: removedId) } catch {
+            appLogError("chat", "softDeleteChatMessage(regenerate) failed", ["error": "\(error)"])
+        }
+        appLog("chat", "regenerate", ["sessionId": session.id])
+        deliver(userMessage: userMsg)
     }
 
     /// user 메시지를 서버로 전송하고 응답을 스레드에 추가한다. 첫 전송·재시도 공용 경로.

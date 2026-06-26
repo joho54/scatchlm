@@ -39,6 +39,9 @@ struct ChatThreadView<Header: View>: View {
     var onRetry: ((ChatTurn) -> Void)? = nil
     /// 실패한 user 메시지 롱홀드 → 내용을 입력창으로 되돌리고 실패 버블 제거(수정 후 재전송).
     var onEdit: ((ChatTurn) -> Void)? = nil
+    /// assistant 응답 '재시도' → 직전 user 질문을 다시 보내 답변을 새로 받는다(기존 답변 교체).
+    /// 마지막 assistant 턴에만 노출한다(중간 턴 재생성은 이후 턴을 고아화).
+    var onRegenerate: ((ChatTurn) -> Void)? = nil
     /// 입력바 '연습문제' 퀵액션 — 고정 프롬프트(`ChatQuickAction.practicePrompt`)를 전송하고
     /// 응답을 자동으로 캔버스에 스크랩한다. 스크랩 대상(캔버스)이 있는 호스트만 주입한다.
     var onQuickPractice: (() -> Void)? = nil
@@ -59,6 +62,8 @@ struct ChatThreadView<Header: View>: View {
                         .id("header")
 
                     ForEach(turns) { turn in
+                        // 재시도(재생성)는 '마지막 assistant 턴'에만 — 중간 턴 재생성 시 이후 턴이 고아가 됨.
+                        let isLastAssistant = turn.role == "assistant" && turn.id == turns.last?.id
                         EquatableChatBubble(
                             role: turn.role,
                             content: turn.content,
@@ -70,7 +75,8 @@ struct ChatThreadView<Header: View>: View {
                             onRate: turn.role == "user" ? nil : onRate.map { f in { r in f(turn, r) } },
                             onDetail: turn.role == "user" ? nil : onDetail.map { f in { f(turn) } },
                             onRetry: turn.role == "user" ? onRetry.map { f in { f(turn) } } : nil,
-                            onEdit: turn.role == "user" ? onEdit.map { f in { f(turn) } } : nil
+                            onEdit: turn.role == "user" ? onEdit.map { f in { f(turn) } } : nil,
+                            onRegenerate: isLastAssistant ? onRegenerate.map { f in { f(turn) } } : nil
                         )
                         .equatable()
                         .id(turn.id)
@@ -144,10 +150,12 @@ extension ChatThreadView where Header == EmptyView {
          onDetail: ((ChatTurn) -> Void)? = nil,
          onRetry: ((ChatTurn) -> Void)? = nil,
          onEdit: ((ChatTurn) -> Void)? = nil,
+         onRegenerate: ((ChatTurn) -> Void)? = nil,
          onQuickPractice: (() -> Void)? = nil) {
         self.init(turns: turns, input: input, sending: sending, placeholder: placeholder,
                   onSend: onSend, onScrap: onScrap, onRate: onRate, onDetail: onDetail,
-                  onRetry: onRetry, onEdit: onEdit, onQuickPractice: onQuickPractice,
+                  onRetry: onRetry, onEdit: onEdit, onRegenerate: onRegenerate,
+                  onQuickPractice: onQuickPractice,
                   header: { _ in EmptyView() })
     }
 }

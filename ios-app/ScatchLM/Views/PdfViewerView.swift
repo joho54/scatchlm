@@ -114,6 +114,12 @@ struct PdfViewerView: View {
                 // Floating bottom bar — toc + guide + 필기
                 // 라벨 폰트는 작게 유지하되 각 버튼에 44pt 히트 영역을 줘 오탭을 막는다(시각 면적 ≈ 유지).
                 HStack(spacing: 4) {
+                    // 필기 모드일 때만 이전 페이지 화살표 — 첫 페이지에선 비활성.
+                    if inkMode {
+                        pdfBarButton(title: "이전 페이지", systemImage: "chevron.left", tint: .primary) { stepPage(-1) }
+                            .disabled(currentPage <= 1)
+                            .opacity(currentPage <= 1 ? 0.35 : 1)
+                    }
                     pdfBarButton(title: "목차", systemImage: "list.bullet", tint: .primary) { loadToc() }
                     pdfBarButton(title: "가이드", systemImage: "book", tint: .primary) { loadPageGuide() }
                     // 필기 모드 토글 — 노트에 연결된 PDF에서만 노출. 읽기 전용(iPhone)은 가린다.
@@ -123,6 +129,12 @@ struct PdfViewerView: View {
                             systemImage: inkMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
                             tint: inkMode ? Color.accentColor : Color.primary
                         ) { inkMode.toggle() }
+                    }
+                    // 필기 모드일 때만 다음 페이지 화살표 — 마지막 페이지에선 비활성.
+                    if inkMode {
+                        pdfBarButton(title: "다음 페이지", systemImage: "chevron.right", tint: .primary) { stepPage(1) }
+                            .disabled(currentPage >= totalPages)
+                            .opacity(currentPage >= totalPages ? 0.35 : 1)
                     }
                 }
                 .padding(.horizontal, 6)
@@ -821,6 +833,16 @@ struct PdfViewerView: View {
               page >= 1, page <= document.pageCount,
               let pdfPage = document.page(at: page - 1) else { return }
         pdfView.go(to: pdfPage)
+    }
+
+    /// 필기 모드용 명시적 페이지 이동(±1). 라이브 PDFView를 이동시키면 `.PDFViewPageChanged` →
+    /// onPageChanged → currentPage 갱신이 흐르고, currentPage 변화가 입력 레이어(PdfInkInputView)의
+    /// `update(page:)`를 태워 현재 필기 commit → 새 페이지 정적 렌더·필기 로드를 자동 처리한다.
+    /// (필기 모드에선 불투명 입력 레이어가 라이브 PDFView를 덮어 스와이프 페이징이 불가하므로 버튼으로 노출.)
+    private func stepPage(_ delta: Int) {
+        let target = currentPage + delta
+        guard target >= 1, target <= totalPages else { return }
+        goToPage(target)
     }
 
     // MARK: - Rating

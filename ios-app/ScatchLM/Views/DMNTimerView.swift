@@ -43,7 +43,9 @@ struct DMNTimerView: View {
             case .done:    doneView
             }
         }
-        .statusBarHidden(true)
+        // NOTE: 상태바를 숨기지 않는다. fullScreenCover로 .statusBarHidden(true)를 걸면
+        // 윈도우 단위로 상태바가 사라져 뒤의 NoteView top safe-area inset이 32→0으로 붕괴했다가
+        // dismiss 때 0→32로 튀어, 종료 순간 상단 UI가 위로 밀리는 글리치가 났다(원인: 로그로 확정).
         .onReceive(tick) { _ in onTick() }
         // 휴식 중 화면 잠들면 타이머가 무의미 — 켜둔다. 닫힐 때 원복.
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }

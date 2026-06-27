@@ -11,7 +11,7 @@ final class TextbookStore {
     var loading = false
     var loadingMore = false
 
-    private let pageSize = 30
+    private let pageSize = 10
     private var offset = 0
     private var hasMore = false
     private var loadedOnce = false

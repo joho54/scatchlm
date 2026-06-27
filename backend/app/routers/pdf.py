@@ -467,7 +467,7 @@ def _textbook_item_dict(s: TextbookSource) -> dict:
 @router.get("/textbooks")
 async def list_textbooks(
     q: str | None = None,
-    limit: int = 30,
+    limit: int = 10,
     offset: int = 0,
     deleted: bool = False,
     user_id: str = Depends(get_current_user_id),

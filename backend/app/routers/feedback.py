@@ -281,6 +281,7 @@ class ChatRequest(BaseModel):
     note_id: str | None = None
     parent_feedback_id: str | None = None  # 부모 피드백/응답 id (rating 분석용 컨텍스트)
     annotation_image: str | None = None  # 현재 PDF 페이지+필기 합성 JPEG의 base64. 있으면 사용자 턴에 image 블록으로 첨부 — 주석을 주의/혼란 지도로 활용(길 B). 잉크 없는 페이지는 iOS가 nil로 보냄.
+    selected_text: str | None = None  # 라이브(읽기) 모드에서 사용자가 PDF 본문에서 드래그로 선택한 구절. 있으면 "이 부분"의 실체로 system에 주입 — 챕터 전체 컨텍스트(위) 안에서 초점을 좁힌다.
 
 class ChatResponse(BaseModel):
     content: str
@@ -397,6 +398,16 @@ async def feedback_chat(
             "subject of the conversation; when they say \"이 문장\"/\"피드백 요청한 문장\"/\"this sentence\" "
             "they mean something in here, NOT the textbook):\n"
             + handwriting
+        )
+
+    if req.selected_text:
+        system_parts.append(
+            "\nTHE USER HIGHLIGHTED THIS PASSAGE on the page they're reading and is asking about "
+            "it — treat it as the PRIMARY SUBJECT of the conversation. When they say \"이 부분\"/"
+            "\"여기\"/\"this\"/\"선택한 부분\" (or ask elliptically), they mean THIS text. Answer about "
+            "it specifically; use the broader textbook references below only as supporting context.\n"
+            "SELECTED PASSAGE:\n"
+            f"\"\"\"\n{req.selected_text[:2000]}\n\"\"\""
         )
 
     if textbook_context:

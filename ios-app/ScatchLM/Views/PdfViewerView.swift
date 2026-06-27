@@ -24,6 +24,10 @@ struct PdfViewerView: View {
     @State private var pdfView: PDFView?
     @State private var showToc = false
     @State private var showGuide = false
+    /// 라이브(읽기) 모드에서 현재 본문 선택 — 있으면 하단 바에 '선택 질문' 버튼을 띄운다(채팅용 일시 선택).
+    @State private var selectedText: String? = nil
+    /// '선택 질문'으로 시작한 가이드 채팅에 selected_text로 실어 보낼 구절. 시트가 닫히면 비운다(다른 가이드 채팅에 누출 방지).
+    @State private var selectedTextForChat: String? = nil
     @State private var showChapterGuide = false
     @State private var chapters: [ChapterItem] = []
     @State private var pageGuide: PageGuide?
@@ -70,21 +74,22 @@ struct PdfViewerView: View {
 
             // Floating top bar — page indicator + close
             VStack {
-                // alignment .top + 자식별 top 패딩으로 두 칩을 서로 다른 행에 둔다.
-                // 페이지칩: 노트 컨트롤 한 줄 아래(56). 전체화면칩: 노트 컨트롤 행과 같은 높이(16).
-                HStack(alignment: .top) {
-                    Text("\(currentPage) / \(totalPages)")
-                        .font(.caption.bold())
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                        // 노트 컨트롤(좌상단)과 겹치지 않게 한 줄 아래(=12 + 36 + 8).
-                        .padding(.top, 56)
+                // ZStack(.top): 페이지칩은 좌상단 고정, 전체화면칩은 상단 정중앙.
+                // 자식별 top 패딩으로 행 높이를 따로 둔다(페이지칩 56, 전체화면칩 16).
+                ZStack(alignment: .top) {
+                    // 페이지 인디케이터 — 좌상단(노트 컨트롤 한 줄 아래 =12 + 36 + 8).
+                    HStack {
+                        Text("\(currentPage) / \(totalPages)")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                            .padding(.top, 56)
+                        Spacer()
+                    }
 
-                    Spacer()
-
-                    // 확장/축소 — split↔전체화면을 눈에 보이는 버튼으로 노출(길게 누르기 단축키와 동일 동작).
+                    // 확장/축소 — 상단 정중앙. split↔전체화면을 눈에 보이는 버튼으로 노출(길게 누르기 단축키와 동일 동작).
                     if let onToggleFullscreen {
                         Button(action: onToggleFullscreen) {
                             Image(systemName: isFullscreen
@@ -131,8 +136,15 @@ struct PdfViewerView: View {
                         pdfBarButton(title: "필기 질문", systemImage: "questionmark.circle", tint: Color.accentColor) { askHandwriting() }
                             .transition(.scale.combined(with: .opacity))
                     }
+                    // 라이브(읽기) 모드에서 본문을 드래그 선택하면 등장 — 그 구절을 바로 AI에게 묻는 퀵 진입점.
+                    // 필기 질문 버튼의 읽기 모드 대칭. noteId 없이도 동작(가이드 채팅과 동일 — 채팅만, 영속화는 노트 있을 때).
+                    if !inkMode, let sel = selectedText, !sel.isEmpty {
+                        pdfBarButton(title: "선택 질문", systemImage: "questionmark.circle", tint: Color.accentColor) { askSelection() }
+                            .transition(.scale.combined(with: .opacity))
+                    }
                 }
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: inkController?.hasInk)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedText)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(.ultraThinMaterial)
@@ -159,6 +171,10 @@ struct PdfViewerView: View {
         }
         .task { await pollOcrStatus() }
         .onDisappear { if inkMode { inkMode = false } }   // PDF 닫히면 노트 캔버스 그리기 복구
+        // 가이드 시트가 닫히면 선택 구절을 비운다 — 다음에 '가이드' 버튼으로 연 채팅에 누출되지 않게.
+        .onChange(of: showGuide) { _, shown in if !shown { selectedTextForChat = nil } }
+        // 필기 모드 진입 시 라이브 선택을 해제 — 모드 전환 후 stale '선택 질문' 버튼이 남지 않게.
+        .onChange(of: inkMode) { _, on in if on { selectedText = nil; pdfView?.clearSelection() } }
     }
 
     /// 하단 플로팅 바 버튼 — 아이콘 전용. 최소 44pt 정사각 히트 영역 + contentShape으로
@@ -460,6 +476,18 @@ struct PdfViewerView: View {
         sendGuideChat(overrideText: ChatQuickAction.handwritingPrompt)
     }
 
+    /// '선택 질문' 퀵액션(라이브 모드) — 선택한 본문 구절을 selected_text로 실어 페이지 가이드 채팅을 연다.
+    /// 필기 질문의 읽기 모드 대칭. 합성 이미지 대신 텍스트 선택을 컨텍스트로 보내고, 채팅에 머문다(설명/확인 성격).
+    private func askSelection() {
+        let sel = (selectedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sel.isEmpty, !guideChatSending else { return }
+        loadPageGuide()                 // showGuide=true + 세션(동기)·가이드(비동기) 로드
+        selectedTextForChat = sel       // loadPageGuide 이후 세팅 — deliverGuideChat이 이 턴에 실어 보낸다
+        sendGuideChat(overrideText: ChatQuickAction.selectionPrompt)
+        pdfView?.clearSelection()        // 선택 해제 → 버튼 사라짐
+        selectedText = nil
+    }
+
     /// '연습문제' 퀵액션 — 고정 프롬프트를 전송하고 응답을 자동으로 캔버스에 스크랩한다.
     private func requestPractice(isChapter: Bool) {
         guard onPin != nil, !(isChapter ? chapterChatSending : guideChatSending) else { return }
@@ -545,6 +573,8 @@ struct PdfViewerView: View {
         let messageText = userMsg.content
         // 현재 페이지에 필기가 있으면 페이지+잉크 합성 이미지를 첨부(길 B). main에서 합성(UIKit/db 접근).
         let annotationImage = renderPageWithInkBase64()
+        // 라이브 모드 '선택 질문'으로 시작한 페이지 가이드 채팅이면 선택 구절을 함께 전달(챕터 채팅엔 미적용).
+        let selectedPassage = isChapter ? nil : selectedTextForChat
 
         Task {
             do {
@@ -557,6 +587,7 @@ struct PdfViewerView: View {
                     let note_id: String?
                     let parent_feedback_id: String?
                     let annotation_image: String?
+                    let selected_text: String?
                 }
                 struct ChatRes: Decodable {
                     let content: String
@@ -572,7 +603,8 @@ struct PdfViewerView: View {
                     current_page: pageParam,
                     note_id: noteId,
                     parent_feedback_id: parentId,
-                    annotation_image: annotationImage
+                    annotation_image: annotationImage,
+                    selected_text: selectedPassage
                 )
 
                 let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
@@ -841,6 +873,10 @@ struct PdfViewerView: View {
                 },
                 onPdfViewReady: { view in
                     pdfView = view
+                },
+                onSelectionChanged: { text in
+                    // 필기 모드에선 입력 레이어가 PDFView를 덮어 선택이 안 생기지만, 방어적으로 무시.
+                    selectedText = inkMode ? nil : text
                 }
             )
             if colorScheme == .dark { pdf.colorInvert() } else { pdf }
@@ -1062,6 +1098,8 @@ struct NativePdfView: UIViewRepresentable {
     let initialPage: Int
     let onPageChanged: (Int) -> Void
     var onPdfViewReady: ((PDFView) -> Void)?
+    /// 라이브(읽기) 모드에서 본문 텍스트 선택이 바뀔 때 호출 — 선택 문자열(없으면 nil)을 부모로 올린다.
+    var onSelectionChanged: ((String?) -> Void)?
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -1077,6 +1115,7 @@ struct NativePdfView: UIViewRepresentable {
 
         let coordinator = context.coordinator
         coordinator.pdfView = pdfView
+        coordinator.onSelectionChanged = onSelectionChanged
 
         // 표시 전용 잉크 오버레이: 저장된 필기를 페이지 좌표에 정렬해 "보여주기만" 한다.
         // 입력은 별도 PdfInkInputView(형제 레이어)가 받는다 — pageVC에서 overlay가 터치를 못 받는
@@ -1128,6 +1167,13 @@ struct NativePdfView: UIViewRepresentable {
             coordinator,
             selector: #selector(Coordinator.scaleChanged),
             name: .PDFViewScaleChanged,
+            object: pdfView
+        )
+        // 본문 텍스트 선택 변경 → '선택 질문' 어포던스 노출(라이브 모드 전용 흐름).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.selectionChanged),
+            name: .PDFViewSelectionChanged,
             object: pdfView
         )
 
@@ -1192,6 +1238,8 @@ struct NativePdfView: UIViewRepresentable {
         var lastPage: Int = 1
 
         weak var pdfView: PDFView?
+        /// 본문 선택 변경을 부모로 올리는 콜백(makeUIView에서 주입).
+        var onSelectionChanged: ((String?) -> Void)?
         private let db = DatabaseService.shared
         /// 표시 중인 페이지별 표시 캔버스(pdf_page 1-based → canvas).
         private var displayCanvases: [Int: PKCanvasView] = [:]
@@ -1230,6 +1278,12 @@ struct NativePdfView: UIViewRepresentable {
         /// 줌 변경(핀치/회전 재fit)마다 호출 — limit을 현재 뷰포트 기준으로 다시 잡는다(회전 대응).
         @objc func scaleChanged(_ notification: Notification) {
             applyZoomLimits()
+        }
+
+        /// 본문 텍스트 선택이 바뀔 때 — 선택 문자열(공백 트림, 비면 nil)을 부모로 전달.
+        @objc func selectionChanged(_ notification: Notification) {
+            let s = pdfView?.currentSelection?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+            onSelectionChanged?(s?.isEmpty == false ? s : nil)
         }
 
         private func pageNumber(for page: PDFPage) -> Int {

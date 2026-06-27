@@ -293,6 +293,68 @@ async def test_feedback_chat_success(client: AsyncClient, auth_header: dict):
 
 
 @pytest.mark.asyncio
+async def test_feedback_chat_injects_selected_text(client: AsyncClient, auth_header: dict):
+    """라이브 모드 '선택 질문'이 보낸 selected_text가 system 프롬프트에 주입되는지.
+
+    회귀: 선택 구절을 "이 부분"의 실체로 SELECTED PASSAGE 블록에 담아 보내지 않으면,
+    모델이 챕터 전체만 보고 사용자가 짚은 구절을 특정하지 못한다.
+    """
+    passage = "Gallia est omnis divisa in partes tres"
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="이 문장은 갈리아가 세 부분으로 나뉜다는 뜻입니다.")]
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={
+                "message": "선택한 부분을 설명해줘",
+                "history": [],
+                "response_language": "Korean",
+                "selected_text": passage,
+            },
+        )
+
+    assert res.status_code == 200
+    # system 블록에 SELECTED PASSAGE 라벨과 선택 구절이 그대로 실려야 한다.
+    system_blocks = mock_client.messages.create.call_args.kwargs["system"]
+    system_text = "\n".join(b["text"] for b in system_blocks)
+    assert "SELECTED PASSAGE" in system_text
+    assert passage in system_text
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_omits_selected_passage_when_absent(client: AsyncClient, auth_header: dict):
+    """selected_text가 없으면 SELECTED PASSAGE 블록도 없어야 한다(일반 채팅 경로 무회귀)."""
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text="답변")]
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={"message": "안녕", "history": [], "response_language": "Korean"},
+        )
+
+    assert res.status_code == 200
+    system_blocks = mock_client.messages.create.call_args.kwargs["system"]
+    system_text = "\n".join(b["text"] for b in system_blocks)
+    assert "SELECTED PASSAGE" not in system_text
+
+
+@pytest.mark.asyncio
 async def test_feedback_chat_splits_cue_delimiter(client: AsyncClient, auth_header: dict):
     """답변은 CUE_DELIMITER 앞 본문 전체를 담고, 뒤 한 줄은 keywords로만 파싱한다.
 

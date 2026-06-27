@@ -9,6 +9,9 @@ enum ChatQuickAction {
     /// PDF 필기 모드 하단 바 '필기 질문' 퀵액션이 보내는 고정 프롬프트.
     /// 방금 쓴 필기(페이지+잉크 합성 이미지가 자동 첨부됨)에 대해 한 탭으로 AI에게 물어본다.
     static let handwritingPrompt = String(localized: "내가 방금 필기한 내용을 봐줘")
+    /// PDF 라이브(읽기) 모드에서 본문을 드래그 선택한 뒤 '선택 질문' 버튼이 보내는 고정 프롬프트.
+    /// 선택한 구절은 selected_text로 백엔드에 함께 전달돼 "이 부분"의 실체가 된다.
+    static let selectionPrompt = String(localized: "선택한 부분을 설명해줘")
 }
 
 /// 채팅 한 턴(표시용 통일 모델). 피드백(ChatMessageRecord)·가이드(GuideChatMessage)가 각각 매핑해 쓴다.

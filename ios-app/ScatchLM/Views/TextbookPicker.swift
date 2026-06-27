@@ -192,6 +192,25 @@ struct TextbookPickerBody: View {
             }
         }
 
+        // 업로드/휴지통 토글은 리스트 위에 고정 — 긴 목록 아래로 묻히지 않게.
+        if !store.showDeleted {
+            Button(action: onUpload) {
+                HStack {
+                    Image(systemName: "arrow.up.doc")
+                    Text(uploading ? "업로드 중…" : "새 PDF 업로드")
+                }
+            }
+            .disabled(uploading)
+        }
+
+        Toggle(isOn: Binding(
+            get: { store.showDeleted },
+            set: { store.setShowDeleted($0) }
+        )) {
+            Label("삭제된 교재", systemImage: "trash")
+                .font(.subheadline)
+        }
+
         if store.loading {
             HStack { Spacer(); ProgressView(); Spacer() }
         } else if store.items.isEmpty {
@@ -206,24 +225,6 @@ struct TextbookPickerBody: View {
             if store.loadingMore {
                 HStack { Spacer(); ProgressView(); Spacer() }
             }
-        }
-
-        Toggle(isOn: Binding(
-            get: { store.showDeleted },
-            set: { store.setShowDeleted($0) }
-        )) {
-            Label("삭제된 교재", systemImage: "trash")
-                .font(.subheadline)
-        }
-
-        if !store.showDeleted {
-            Button(action: onUpload) {
-                HStack {
-                    Image(systemName: "arrow.up.doc")
-                    Text(uploading ? "업로드 중…" : "새 PDF 업로드")
-                }
-            }
-            .disabled(uploading)
         }
     }
 

@@ -1025,22 +1025,17 @@ struct NoteView: View {
         let bodyFontSize: CGFloat = MarkdownRender.shouldUseKaTeX(text) ? Config.chatFontSize : 14
         VStack(spacing: 0) {
             ZStack {
-                // 좌: 카드 액션(원위치 점프 · 상단 도킹) / 중앙: 드래그 그래버 / 우: 닫기.
+                // 좌: 닫기 · 상단 도킹 / 중앙: 드래그 그래버.
                 HStack(spacing: 2) {
-                    // 닫고 동시에 원본 피드백 카드 위치(페이지·스크롤)로 점프.
-                    floatHeaderButton("dot.viewfinder") {
+                    // 닫기 — 좌측(원래 점프 버튼 자리). iOS 표준 dismiss 글리프.
+                    floatHeaderButton("xmark.circle.fill", prominent: true) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { floatingCard = nil }
-                        jumpToPlacement(card)
                     }
                     // 상단 절반 도킹.
                     floatHeaderButton("arrow.up.to.line") { dockToTop(container: containerSize) }
                     Spacer()
-                    // 닫기 — iOS 표준 dismiss 글리프.
-                    floatHeaderButton("xmark.circle.fill", prominent: true) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { floatingCard = nil }
-                    }
                 }
-                // 드래그 그래버 — iOS 시트 그립 스타일. 좌/우 버튼과 ZStack으로 겹쳐 중앙 고정.
+                // 드래그 그래버 — iOS 시트 그립 스타일. 좌측 버튼과 ZStack으로 겹쳐 중앙 고정.
                 floatDragHandle(containerSize: containerSize)
             }
             .padding(.horizontal, 6)

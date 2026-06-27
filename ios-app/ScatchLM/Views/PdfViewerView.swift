@@ -128,7 +128,7 @@ struct PdfViewerView: View {
                     // 빈 페이지엔 숨겨 노이즈를 없애고, 펜을 떼면 등장(accent + 스케일 트랜지션)해
                     // "물어볼 수 있어요" 어포던스가 된다. 연습문제와 동일한 퀵액션 결.
                     if inkMode, noteId != nil, !readOnly, inkController?.hasInk == true {
-                        pdfBarButton(title: "필기 질문", systemImage: "sparkles", tint: Color.accentColor) { askHandwriting() }
+                        pdfBarButton(title: "필기 질문", systemImage: "questionmark.circle", tint: Color.accentColor) { askHandwriting() }
                             .transition(.scale.combined(with: .opacity))
                     }
                 }

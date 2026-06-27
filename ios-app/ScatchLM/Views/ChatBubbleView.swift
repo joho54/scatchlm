@@ -8,6 +8,8 @@ import UIKit
 struct ChatBubbleView<Actions: View>: View {
     let role: String
     let content: String
+    /// user 턴이 인용한 본문 구절(라이브 '선택 질문'). 버블 위에 작은 인용 칩으로 표시.
+    var quote: String? = nil
     var fontSize: CGFloat = 14
     @ViewBuilder var actions: () -> Actions
 
@@ -17,11 +19,14 @@ struct ChatBubbleView<Actions: View>: View {
         if isUser {
             HStack {
                 Spacer(minLength: 60)
-                Text(content)
-                    .font(.system(size: fontSize))
-                    .padding(12)
-                    .background(Color.blue.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .trailing, spacing: 4) {
+                    if let quote, !quote.isEmpty { quoteChip(quote) }
+                    Text(content)
+                        .font(.system(size: fontSize))
+                        .padding(12)
+                        .background(Color.blue.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -36,12 +41,33 @@ struct ChatBubbleView<Actions: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
+
+    /// 인용 칩 — 사용자가 PDF에서 선택해 질문한 본문 구절. 작은 텍스트 + 좌측 강조 바.
+    /// 긴 구절은 3줄까지만(꼬리 말줄임)으로 버블을 압도하지 않게 한다.
+    @ViewBuilder
+    private func quoteChip(_ quote: String) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            Image(systemName: "quote.opening").font(.system(size: 9))
+            Text(quote).lineLimit(3)
+        }
+        .font(.system(size: max(10, fontSize - 3)))
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.blue.opacity(0.06))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Color.blue.opacity(0.35)).frame(width: 2)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .frame(maxWidth: 260, alignment: .trailing)
+    }
 }
 
 extension ChatBubbleView where Actions == EmptyView {
     /// 액션 없는 말풍선(user 메시지 등). user는 actions를 쓰지 않는다.
-    init(role: String, content: String, fontSize: CGFloat = 14) {
-        self.init(role: role, content: content, fontSize: fontSize, actions: { EmptyView() })
+    init(role: String, content: String, quote: String? = nil, fontSize: CGFloat = 14) {
+        self.init(role: role, content: content, quote: quote, fontSize: fontSize, actions: { EmptyView() })
     }
 }
 
@@ -55,6 +81,8 @@ struct EquatableChatBubble: View, Equatable {
     var rating: Int? = nil
     /// 전송 실패한 user 메시지 — 실패 캡션 + 롱홀드 재시도/수정 메뉴.
     var failed: Bool = false
+    /// user 턴이 인용한 본문 구절(라이브 '선택 질문'). 있으면 버블 위에 작은 인용 텍스트.
+    var quote: String? = nil
     /// 말풍선 글자 크기. ==에 포함해 사용자가 크기를 바꾸면 버블이 재평가되도록 한다.
     var fontSize: CGFloat = 14
     var onScrap: (() -> Void)? = nil
@@ -69,6 +97,7 @@ struct EquatableChatBubble: View, Equatable {
     static func == (l: EquatableChatBubble, r: EquatableChatBubble) -> Bool {
         l.role == r.role && l.content == r.content && l.serverId == r.serverId
             && l.rating == r.rating && l.failed == r.failed && l.fontSize == r.fontSize
+            && l.quote == r.quote
     }
 
     var body: some View {
@@ -93,7 +122,7 @@ struct EquatableChatBubble: View, Equatable {
             if failed {
                 failedUserBubble
             } else {
-                ChatBubbleView(role: role, content: content, fontSize: fontSize)
+                ChatBubbleView(role: role, content: content, quote: quote, fontSize: fontSize)
             }
         } else {
             ChatBubbleView(role: role, content: content, fontSize: fontSize) {
@@ -132,7 +161,7 @@ struct EquatableChatBubble: View, Equatable {
     /// 복사/재시도/수정 메뉴가 뜬다.
     private var failedUserBubble: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            ChatBubbleView(role: role, content: content, fontSize: fontSize)
+            ChatBubbleView(role: role, content: content, quote: quote, fontSize: fontSize)
             Button { onRetry?() } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.circle.fill")

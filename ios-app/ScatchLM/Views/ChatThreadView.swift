@@ -23,6 +23,8 @@ struct ChatTurn: Identifiable {
     var rating: Int? = nil
     /// 전송 실패한 user 메시지 — 말풍선에 실패 표시 + 롱홀드 재시도/수정 메뉴를 띄운다.
     var failed: Bool = false
+    /// 이 user 턴이 인용한 본문 구절(라이브 '선택 질문'). 있으면 버블 위에 작은 인용 텍스트로 표시.
+    var quote: String? = nil
 }
 
 /// **통일 채팅 스레드** — 피드백·가이드·챕터 챗이 공유하는 단일 컴포넌트.
@@ -82,6 +84,7 @@ struct ChatThreadView<Header: View>: View {
                             serverId: turn.serverId,
                             rating: turn.rating,
                             failed: turn.failed,
+                            quote: turn.quote,
                             fontSize: fontSize,
                             onScrap: onScrap.map { f in { f(turn) } },
                             onRate: turn.role == "user" ? nil : onRate.map { f in { r in f(turn, r) } },

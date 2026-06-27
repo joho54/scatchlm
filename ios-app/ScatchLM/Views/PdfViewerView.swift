@@ -355,6 +355,8 @@ struct PdfViewerView: View {
         var failed = false
         /// feedback_chats에 영속된 row id(수정 시 soft-delete용). 미영속이면 nil.
         var persistedId: String? = nil
+        /// 라이브 '선택 질문'이 인용한 본문 구절(표시용, 세션 한정 — DB엔 영속 안 함).
+        var quote: String? = nil
     }
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
@@ -380,7 +382,7 @@ struct PdfViewerView: View {
             ChatThreadView(
                 turns: guideChatMessages.map {
                     ChatTurn(id: $0.id.uuidString, role: $0.role, content: $0.content,
-                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed)
+                             serverId: $0.serverId, rating: $0.rating, failed: $0.failed, quote: $0.quote)
                 },
                 input: $guideChatInput,
                 sending: guideChatSending,
@@ -483,7 +485,7 @@ struct PdfViewerView: View {
         guard !sel.isEmpty, !guideChatSending else { return }
         loadPageGuide()                 // showGuide=true + 세션(동기)·가이드(비동기) 로드
         selectedTextForChat = sel       // loadPageGuide 이후 세팅 — deliverGuideChat이 이 턴에 실어 보낸다
-        sendGuideChat(overrideText: ChatQuickAction.selectionPrompt)
+        sendGuideChat(overrideText: ChatQuickAction.selectionPrompt, quote: sel)
         pdfView?.clearSelection()        // 선택 해제 → 버튼 사라짐
         selectedText = nil
     }
@@ -525,13 +527,14 @@ struct PdfViewerView: View {
         return jpeg.base64EncodedString()
     }
 
-    private func sendGuideChat(overrideText: String? = nil) {
+    private func sendGuideChat(overrideText: String? = nil, quote: String? = nil) {
         let text = (overrideText ?? guideChatInput).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // 퀵액션 전송은 입력창을 비우지 않는다(유저가 치던 내용 보존).
         if overrideText == nil { guideChatInput = "" }
 
         var userMsg = GuideChatMessage(role: "user", content: text)
+        userMsg.quote = quote   // 라이브 '선택 질문'이면 인용 구절을 버블에 표시(세션 한정)
         // 세션 보장 + user 메시지 영속화 (§4.6). 가이드 본문은 세션 첫 assistant 메시지로 저장된다.
         let guideBody = pageGuide.map { $0.content ?? $0.topic }
         let sid = ensureGuideSession(kind: .pageGuide, anchorPage: currentPage,

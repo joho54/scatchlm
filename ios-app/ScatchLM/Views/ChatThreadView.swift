@@ -60,6 +60,12 @@ struct ChatThreadView<Header: View>: View {
     /// 말풍선 글자 크기. 입력바의 글자 크기 메뉴로 조절하며 `Config.chatFontSize`에 영속화한다.
     @State private var fontSize: CGFloat = Config.chatFontSize
 
+    /// 맨 아래 스크롤 타깃 — 전송 중이면 로딩 인디케이터, 아니면 마지막 턴(없으면 헤더).
+    private var scrollAnchor: String {
+        if sending { return "loading" }
+        return turns.last?.id ?? "header"
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -104,7 +110,21 @@ struct ChatThreadView<Header: View>: View {
             .simultaneousGesture(TapGesture().onEnded { focused = false })
             .onChange(of: turns.count) { _, _ in
                 withAnimation {
-                    proxy.scrollTo(turns.last?.id ?? "header", anchor: .bottom)
+                    proxy.scrollTo(scrollAnchor, anchor: .bottom)
+                }
+            }
+            // 시트가 처음 뜰 때 맨 아래로 — 퀵액션(선택/필기 질문)은 시트 표시 *전에* user 메시지를
+            // 동기로 append하므로 turns.count가 변하지 않아 위 onChange가 안 탄다. LazyVStack 레이아웃
+            // 이후 스크롤되도록 다음 런루프로 미룬다(onAppear 시점엔 셀이 아직 배치 전).
+            .onAppear {
+                DispatchQueue.main.async {
+                    proxy.scrollTo(scrollAnchor, anchor: .bottom)
+                }
+            }
+            // 로딩 인디케이터 등장/소멸 시에도 따라 내려가 응답 진행 상태가 늘 보이게.
+            .onChange(of: sending) { _, _ in
+                withAnimation {
+                    proxy.scrollTo(scrollAnchor, anchor: .bottom)
                 }
             }
             // 입력바를 safeAreaInset로 — 키보드 회피가 리스트를 재레이아웃하지 않게(App Hang 차단).

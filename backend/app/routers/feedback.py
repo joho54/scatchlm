@@ -1,4 +1,3 @@
-import json
 import logging
 
 from datetime import datetime
@@ -290,36 +289,12 @@ class ChatResponse(BaseModel):
     keywords: list[str] = []  # DMN 단서 — 구버전 클라이언트는 무시(BC)
 
 
-# 채팅 structured output 스키마. content(마크다운 답변)와 keywords(DMN 인출 단서)를 한 호출로 받는다.
-# 별도 추출 호출을 붙이지 않으려는 의도 — 한계비용(출력 토큰 몇 개)으로 단서를 얻는다.
-# 주의: 잘림(max_tokens)·비-JSON 응답이면 raw text 폴백으로 content를 채우고 keywords는 비운다(BC).
-CHAT_OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "content": {
-            "type": "string",
-            "description": (
-                "Your full tutor response to the user, in markdown, in the requested response language. "
-                "This is the ONLY thing shown to the user — put the entire answer here, following all the "
-                "formatting/citation rules in the system prompt."
-            ),
-        },
-        "keywords": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": (
-                "0-5 rest-time retrieval cues — load-bearing concepts from THIS exchange the learner should recall later. "
-                "Each MUST be a SINGLE short term: one noun or a tight compound, ideally <=6 characters in Korean. "
-                "NO phrases, NO clauses, NO descriptions, NO space-joined word lists. "
-                "Good: '역전파', '베이즈정리', '경사하강'. "
-                "Bad: '자음 어간 동사 변화', '구개음·입술음·치음 + σ 변형' (these are phrases — split into single terms or drop). "
-                "Not a summary. Empty array if the exchange is chit-chat or has no substantive concept."
-            ),
-        },
-    },
-    "required": ["content"],
-    "additionalProperties": False,
-}
+# 채팅 답변 + DMN 인출 단서를 한 호출로 받되 structured output을 쓰지 않는다.
+# 과거엔 json_schema {content, keywords}로 받았으나, 모델이 간헐적으로 답변 본문을 keywords로
+# 오배치해(스키마상 합법 — keywords:string[]는 장문도 허용, 게다가 structured outputs는 길이 제약
+# 미지원) 화면엔 짧은 stub만 뜨는 "부분 응답" 버그가 있었다. 답변을 plain text로 받고 맨 끝 한 줄
+# (CUE_DELIMITER 뒤)에만 단서를 적게 해, 본문은 항상 delimiter 앞 prefix → 구조적으로 유실 불가.
+CUE_DELIMITER = "%%CUES%%:"
 
 
 @router.post("/feedback/chat", response_model=ChatResponse)
@@ -464,6 +439,22 @@ async def feedback_chat(
             "the annotations."
         )
 
+    # DMN 휴식-시간 retrieval cue를 같은 콜에서 받되, structured output을 쓰지 않는다(§답변 유실 방지):
+    # 답변 본문을 구조화 필드에 담으면 모델이 가끔 본문을 keywords로 오배치해 화면엔 stub만 떴다.
+    # 대신 답변을 그대로 출력하게 두고 맨 끝 한 줄에만 cue를 적게 한다 — 본문은 항상 delimiter 앞의
+    # prefix라 구조적으로 유실 불가. cue 줄이 없거나 깨져도 답변은 멀쩡(graceful: keywords만 빔).
+    system_parts.append(
+        "\nAFTER your complete answer, output one final line — and NOTHING after it — in EXACTLY this format:\n"
+        f"{CUE_DELIMITER} term1, term2, term3\n"
+        "These are 0-5 rest-time retrieval cues: load-bearing concepts from THIS exchange the learner should "
+        "recall later. Each MUST be a SINGLE short term — one noun or a tight compound (ideally <=6 Korean "
+        "characters). NO phrases, NO clauses, NO descriptions. Good: 역전파, 베이즈정리, 경사하강. "
+        "Bad: '자음 어간 동사 변화' (a phrase — split into single terms or drop). "
+        "If the exchange is chit-chat or has no substantive concept, output the line with nothing after the colon. "
+        f"This {CUE_DELIMITER} line is METADATA and is NOT shown to the user — your ENTIRE answer must come "
+        "ABOVE it. Never put answer content on or after this line."
+    )
+
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=0)
 
     messages = []
@@ -496,22 +487,20 @@ async def feedback_chat(
             max_tokens=2048,  # §11 L1: chat output 상한(설명형이라 피드백보다 넉넉히)
             system=system_blocks,
             messages=messages,
-            output_config={"format": {"type": "json_schema", "schema": CHAT_OUTPUT_SCHEMA}},
         )
     except Exception as e:
         log.exception("Feedback chat API failed: user=%s kind=%s", user_id, classify_anthropic_error(e))
         raise HTTPException(status_code=502, detail=f"LLM API error: {e}")
 
+    # 답변 = CUE_DELIMITER 앞 prefix(항상 통째로 캡처 → 유실 불가), 뒤 한 줄 = DMN 단서.
+    # delimiter가 없으면 답변 전체가 content, 단서는 빈 배열(graceful — 모델이 cue 줄을 빠뜨린 경우).
     raw = response.content[0].text.strip()
-    # structured output → {content, keywords}. 잘림(max_tokens)·비-JSON이면 raw를 그대로 답변으로 쓰고
-    # keywords는 비운다(BC: 구 동작과 동일, 단서만 생략).
     keywords: list[str] = []
-    try:
-        parsed = json.loads(raw)
-        content = (parsed.get("content") or "").strip() or raw
-        keywords = _clean_keywords(parsed.get("keywords"), limit=5)
-    except (json.JSONDecodeError, AttributeError):
-        log.warning("Chat structured output parse failed (stop=%s); falling back to raw text", response.stop_reason)
+    if CUE_DELIMITER in raw:
+        body, _, cue_part = raw.rpartition(CUE_DELIMITER)
+        content = body.strip()
+        keywords = _clean_keywords([k.strip() for k in cue_part.split(",")], limit=5)
+    else:
         content = raw
 
     log.info("Chat keywords: n=%d %s", len(keywords), keywords)

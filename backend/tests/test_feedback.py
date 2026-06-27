@@ -293,6 +293,66 @@ async def test_feedback_chat_success(client: AsyncClient, auth_header: dict):
 
 
 @pytest.mark.asyncio
+async def test_feedback_chat_splits_cue_delimiter(client: AsyncClient, auth_header: dict):
+    """답변은 CUE_DELIMITER 앞 본문 전체를 담고, 뒤 한 줄은 keywords로만 파싱한다.
+
+    회귀: structured output {content, keywords}를 쓰던 시절 모델이 본문을 keywords로
+    오배치해 화면엔 stub만 떴다. delimiter 분리는 본문이 항상 prefix라 유실이 구조적으로 불가능.
+    """
+    body = "완료형은 과거의 행동이 현재까지 영향을 미침을 나타냅니다.\n\n예시도 함께 보세요."
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text=f"{body}\n\n%%CUES%%: 완료형, 시제")]
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={"message": "완료형이 뭐야?", "history": [], "response_language": "Korean"},
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    # 본문은 통째로 보존되고, cue 줄·delimiter는 사용자에게 노출되지 않는다.
+    assert data["content"] == body
+    assert "%%CUES%%" not in data["content"]
+    assert data.get("keywords") == ["완료형", "시제"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_chat_without_cue_delimiter_keeps_full_answer(
+    client: AsyncClient, auth_header: dict
+):
+    """모델이 cue 줄을 빠뜨려도(delimiter 없음) 답변 전체가 content로 보존된다(graceful)."""
+    body = "이건 단서 줄이 없는 평범한 답변입니다."
+    mock_response = AsyncMock()
+    mock_response.content = [AsyncMock(text=body)]
+    mock_response.usage = AsyncMock(input_tokens=500, output_tokens=50,
+                                    cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    with patch("app.routers.feedback.AsyncAnthropic") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_cls.return_value = mock_client
+
+        res = await client.post(
+            "/api/feedback/chat",
+            headers=auth_header,
+            json={"message": "안녕", "history": [], "response_language": "Korean"},
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["content"] == body
+    assert data.get("keywords") == []
+
+
+@pytest.mark.asyncio
 async def test_feedback_chat_returns_feedback_id_and_is_rateable(client: AsyncClient, auth_header: dict):
     """채팅 응답이 AIResponse로 적재되어 /feedback/{id}/rate 로 평가 가능해야 한다."""
     mock_response = AsyncMock()

@@ -114,12 +114,6 @@ struct PdfViewerView: View {
                 // Floating bottom bar — toc + guide + 필기
                 // 라벨 폰트는 작게 유지하되 각 버튼에 44pt 히트 영역을 줘 오탭을 막는다(시각 면적 ≈ 유지).
                 HStack(spacing: 4) {
-                    // 필기 모드일 때만 이전 페이지 화살표 — 첫 페이지에선 비활성.
-                    if inkMode {
-                        pdfBarButton(title: "이전 페이지", systemImage: "chevron.left", tint: .primary) { stepPage(-1) }
-                            .disabled(currentPage <= 1)
-                            .opacity(currentPage <= 1 ? 0.35 : 1)
-                    }
                     pdfBarButton(title: "목차", systemImage: "list.bullet", tint: .primary) { loadToc() }
                     pdfBarButton(title: "가이드", systemImage: "book", tint: .primary) { loadPageGuide() }
                     // 필기 모드 토글 — 노트에 연결된 PDF에서만 노출. 읽기 전용(iPhone)은 가린다.
@@ -129,12 +123,6 @@ struct PdfViewerView: View {
                             systemImage: inkMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
                             tint: inkMode ? Color.accentColor : Color.primary
                         ) { inkMode.toggle() }
-                    }
-                    // 필기 모드일 때만 다음 페이지 화살표 — 마지막 페이지에선 비활성.
-                    if inkMode {
-                        pdfBarButton(title: "다음 페이지", systemImage: "chevron.right", tint: .primary) { stepPage(1) }
-                            .disabled(currentPage >= totalPages)
-                            .opacity(currentPage >= totalPages ? 0.35 : 1)
                     }
                     // 현재 페이지에 필기가 있을 때만 — 방금 쓴 필기를 AI에 바로 물어보는 퀵 진입점.
                     // 빈 페이지엔 숨겨 노이즈를 없애고, 펜을 떼면 등장(accent + 스케일 트랜지션)해
@@ -875,16 +863,6 @@ struct PdfViewerView: View {
         pdfView.go(to: pdfPage)
     }
 
-    /// 필기 모드용 명시적 페이지 이동(±1). 라이브 PDFView를 이동시키면 `.PDFViewPageChanged` →
-    /// onPageChanged → currentPage 갱신이 흐르고, currentPage 변화가 입력 레이어(PdfInkInputView)의
-    /// `update(page:)`를 태워 현재 필기 commit → 새 페이지 정적 렌더·필기 로드를 자동 처리한다.
-    /// (필기 모드에선 불투명 입력 레이어가 라이브 PDFView를 덮어 스와이프 페이징이 불가하므로 버튼으로 노출.)
-    private func stepPage(_ delta: Int) {
-        let target = currentPage + delta
-        guard target >= 1, target <= totalPages else { return }
-        goToPage(target)
-    }
-
     // MARK: - Rating
 
     @ViewBuilder
@@ -1304,10 +1282,14 @@ struct NativePdfView: UIViewRepresentable {
             if let pv = pdfView, let pg = pv.currentPage {
                 let box = pg.bounds(for: pv.displayBox).size
                 let disp = CGSize(width: box.width * pv.scaleFactor, height: box.height * pv.scaleFactor)
+                // 페이지가 라이브 PDFView 좌표계에서 실제로 그려지는 rect(상단 y 포함) — 입력 레이어의
+                // 페이지 상단 y와 비교해 토글 시 위아래 이동(origin 어긋남) 원인을 짚는다.
+                let pageRect = pv.convert(pg.bounds(for: pv.displayBox), from: pg)
                 appLogDebug("ink", "live pdf at toggle", [
                     "on": "\(on)", "scaleFactor": "\(pv.scaleFactor)",
                     "pageDisp": "\(disp)", "bounds": "\(pv.bounds.size)",
                     "displayBox": "\(pv.displayBox.rawValue)",
+                    "pageRect": "\(pageRect)",
                 ])
             }
             appLogDebug("ink", "display setInkMode", ["on": "\(on)"])
@@ -1380,6 +1362,7 @@ struct PdfInkInputView: UIViewRepresentable {
         coord.noteId = noteId
         coord.pageNum = pdfPage
         coord.pdfDocument = pdfView.document
+        coord.pdfView = pdfView          // 줌 정합: 입력 레이어를 라이브 PDFView 변환에 맞춘다
         coord.controller = inkController
 
         // host: 줌/팬 주체. 펜=그리기, 2손가락=팬/핀치줌 (pan 최소 2터치).
@@ -1455,6 +1438,7 @@ struct PdfInkInputView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     static func dismantleUIView(_ host: InkHostScrollView, coordinator: Coordinator) {
+        coordinator.syncLiveFromInput(host: host)   // 토글-OFF: 라이브←입력(줌·스크롤) — 읽기 복귀 연속성
         coordinator.commit()                  // 사라질 때(잉크 모드 OFF) 즉시 저장
         coordinator.controller?.requestCommit = nil   // flush 브리지 해제 — dangling coord 참조 방지
         coordinator.controller?.attach(nil)   // undo 브리지 해제 — 잉크 OFF 후 stale canUndo 방지
@@ -1473,6 +1457,7 @@ struct PdfInkInputView: UIViewRepresentable {
         var toolPicker: PKToolPicker?
         var controller: PdfInkController?
         var pdfDocument: PDFDocument?
+        weak var pdfView: PDFView?       // 라이브 표시 레이어 — 줌(scaleFactor)·fit 하한을 끌어온다
         var noteId: String = ""
         var pageNum: Int = 0
         private let db = DatabaseService.shared
@@ -1483,6 +1468,8 @@ struct PdfInkInputView: UIViewRepresentable {
         private var saveWork: DispatchWorkItem?
 
         func update(page: Int) {
+            // 필기 모드에선 페이지 넘김 진입점이 없다(하단 바 화살표 제거 + 입력 레이어가 스와이프 차단).
+            // 따라서 page 변경은 정상 흐름에선 일어나지 않지만, 방어적으로 재초기화는 유지.
             if page != pageNum {
                 commit()
                 pageNum = page
@@ -1521,21 +1508,75 @@ struct PdfInkInputView: UIViewRepresentable {
 
             let avail = host.bounds.size
             guard avail.width > 1, avail.height > 1 else { return }
-            let fit = min(avail.width / pb.width, avail.height / pb.height)
-            if !didInitialZoom, fit > 0 {
-                didInitialZoom = true
-                host.minimumZoomScale = fit
-                host.maximumZoomScale = fit * 4
-                host.zoomScale = fit
-                // 토글 시 리사이즈 진단: 입력 레이어가 fit-zoom으로 그리는 페이지 표시 크기.
-                // 라이브 PDFView "live pdf at toggle"의 pageDisp와 비교 — 다르면 토글 점프의 원인.
-                appLogDebug("ink", "input zoom", [
-                    "page": "\(pageNum)", "fit": "\(fit)",
-                    "pageDisp": "\(CGSize(width: pb.width * fit, height: pb.height * fit))",
-                    "avail": "\(avail)",
-                ])
+            // 줌 정합(표준: 입력 레이어가 표시 레이어 변환을 복제). fit 하한과 초기 줌을 모두
+            // 라이브 PDFView의 실측값에서 끌어와 토글 시 스케일 점프를 제거한다 —
+            // 자체 계산 fit(min(avail/pb))은 라이브 autoScale의 내부 인셋을 못 반영해 ~1%씩 어긋났다.
+            // 라이브 값이 아직 없으면(레이아웃 전) 계산 fit으로 폴백.
+            let computedFit = min(avail.width / pb.width, avail.height / pb.height)
+            let liveFit = (pdfView?.scaleFactorForSizeToFit).flatMap { $0 > 0 ? $0 : nil } ?? computedFit
+            // 토글-ON 진입: 라이브 PDFView의 현재 줌을 그대로 복제(읽기뷰 연속성).
+            let liveScale = (pdfView?.scaleFactor).flatMap { $0 > 0 ? $0 : nil } ?? liveFit
+            let initial = min(max(liveScale, liveFit), liveFit * 4)  // 사용자 줌 상태 보존, [fit, fit×4] 클램프
+            if !didInitialZoom, liveFit > 0 {
+                host.minimumZoomScale = liveFit
+                host.maximumZoomScale = liveFit * 4
+                host.zoomScale = initial
+                centerContent()
+                // 줌이 실제 반영됐을 때만 latch(비정착 레이아웃 방어). 아니면 다음 layout에서 재시도.
+                let settled = abs(contentView.frame.height - pb.height * initial) < 0.5
+                if settled {
+                    didInitialZoom = true
+                    var liveRect = CGRect.null
+                    if let pv = pdfView, let lpage = pv.currentPage {
+                        // 라이브 페이지 좌상단 화면 위치를 그대로 복제 → fit(중앙)·줌인(스크롤) 양쪽 정합.
+                        liveRect = pv.convert(lpage.bounds(for: pv.displayBox), from: lpage)
+                        host.contentOffset = CGPoint(x: -liveRect.minX, y: -liveRect.minY)
+                    }
+                    appLogDebug("ink", "input zoom", [
+                        "page": "\(pageNum)", "liveFit": "\(liveFit)", "liveScale": "\(liveScale)",
+                        "zoom": "\(initial)", "liveRect": "\(liveRect)",
+                        "offset": "\(host.contentOffset)", "inset": "\(host.contentInset)",
+                    ])
+                }
             }
             centerContent()
+        }
+
+        /// 토글-OFF 시 라이브 PDFView를 입력 레이어의 줌·스크롤 상태에 맞춘다(읽기 복귀 연속성).
+        /// 입력 host의 zoomScale은 라이브 scaleFactor와 동일 척도(둘 다 페이지 point→화면). 입력 좌상단에
+        /// 보이는 페이지 point를 PDF 좌표(bottom-left origin)로 변환해 destination으로 스크롤시킨다.
+        /// pageVC 비호환은 페이지 *전환* 시점만의 문제고, 토글-OFF는 페이지가 정착돼 있어 비교적 안전.
+        func syncLiveFromInput(host: InkHostScrollView) {
+            guard let pv = pdfView, let lpage = pv.currentPage,
+                  let doc = pdfDocument, pageNum >= 1, pageNum <= doc.pageCount else { return }
+            let cb = lpage.bounds(for: pv.displayBox)
+            let z = host.zoomScale
+            guard z > 0, cb.height > 1 else { return }
+            // fit 상태(줌 안 함)면 라이브는 이미 그 페이지를 fit·중앙으로 보여주는 중 → 손대지 않는다.
+            // (pv.scaleFactor 세팅은 autoScales를 끄므로 불필요하게 읽기 모드 페이지별 재fit을 잃지 않게.)
+            let fit = pv.scaleFactorForSizeToFit
+            guard fit > 0, z > fit + 0.005 else { return }
+            pv.scaleFactor = z
+            // 입력 좌상단(화면 0,0)에 보이는 페이지 point(top-left origin) = contentOffset/zoom.
+            // 음수(콘텐츠가 뷰포트보다 작아 중앙 inset인 경우)는 0으로 클램프 → 페이지 좌상단.
+            let px = max(0, host.contentOffset.x / z)
+            let py = max(0, host.contentOffset.y / z)
+            // PDF 페이지 좌표(bottom-left origin)로 변환: x는 그대로, y는 상하 반전.
+            let destPt = CGPoint(x: cb.minX + px, y: cb.maxY - py)
+            let dest = PDFDestination(page: lpage, at: destPt)
+            // go(to:)를 즉시 호출하면 dismantle 직후 레이아웃 패스가 중앙으로 되돌려 무효화될 수 있다.
+            // 다음 런루프(레이아웃 정착 후)에 적용하고, 결과 pageRect.minY를 찍어 실제로 먹었는지 확인.
+            pv.go(to: dest)
+            let pageForLog = pageNum
+            DispatchQueue.main.async {
+                pv.go(to: dest)
+                let after = pv.convert(lpage.bounds(for: pv.displayBox), from: lpage)
+                appLogDebug("ink", "sync live after", ["page": "\(pageForLog)", "minY": "\(after.minY)", "destPt": "\(destPt)"])
+            }
+            appLogDebug("ink", "sync live", [
+                "page": "\(pageNum)", "zoom": "\(z)", "offset": "\(host.contentOffset)",
+                "destPt": "\(destPt)",
+            ])
         }
 
         /// 콘텐츠가 뷰포트보다 작으면 inset으로 가운데 정렬.
@@ -1551,6 +1592,14 @@ struct PdfInkInputView: UIViewRepresentable {
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { contentView }
         func scrollViewDidZoom(_ scrollView: UIScrollView) { centerContent() }
+
+        func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+            // 사용자 줌(step2) 후 입력 레이어 줌/스크롤 상태 — 토글 시 라이브와 비교용.
+            appLogDebug("ink", "input user zoom", [
+                "page": "\(pageNum)", "zoom": "\(scale)", "offset": "\(scrollView.contentOffset)",
+                "liveScale": "\(pdfView?.scaleFactor ?? -1)",
+            ])
+        }
 
         // MARK: 저장
 

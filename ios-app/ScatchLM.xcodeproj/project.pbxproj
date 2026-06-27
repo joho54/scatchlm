@@ -44,6 +44,7 @@
 		522127662BCFC2A83A4FE71B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9333EAD5AC4D1E256A2D6AAE /* SwiftUI.framework */; };
 		527E3460CB3B7483BB962D3E /* NoteMetaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267A5359DA46F3B9B3393963 /* NoteMetaSheet.swift */; };
 		5330569F6B2D5638B49A16C6 /* PhoneNoteReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E47ADD6BAD4AE626B504547 /* PhoneNoteReaderView.swift */; };
+		591B95606D9634B7673CEC50 /* CueService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC244529FCB8490D1A3688B8 /* CueService.swift */; };
 		596C6EE008171D393AA56B90 /* SyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E351991ED9C7D21EDD843F /* SyncServiceTests.swift */; };
 		59DD32F636A6ACF003844498 /* WordExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1048618916402D4D95669EF7 /* WordExtractorTests.swift */; };
 		5DF69251BEDB127C92E213FA /* ConfigChatFontSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D120E6EF2C458E7AEE9FF1BA /* ConfigChatFontSizeTests.swift */; };
@@ -186,6 +187,7 @@
 		A7384B143C31669BC56CBC60 /* DiscoverPromptBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverPromptBar.swift; sourceTree = "<group>"; };
 		A7F2C4B8401754401FF9BF75 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetShared.swift; sourceTree = "<group>"; };
 		AB39F4EC17A9B5F5ACCD27BF /* WordExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordExtractor.swift; sourceTree = "<group>"; };
+		AC244529FCB8490D1A3688B8 /* CueService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueService.swift; sourceTree = "<group>"; };
 		B5170ADBA90627D8A2DFE651 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
 		B9020268EE7920E07C66AEEA /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		B936690AEFE7E293F4B7E510 /* PhoneHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHomeView.swift; sourceTree = "<group>"; };
@@ -247,6 +249,7 @@
 			children = (
 				4380787FC7AF195DA35EE153 /* APIClient.swift */,
 				32AAFBA141F3D3A0D2EDE836 /* AuthService.swift */,
+				AC244529FCB8490D1A3688B8 /* CueService.swift */,
 				CA60DB6CBADE4A98AAB19A5C /* DatabaseService.swift */,
 				4F87740E0CE96FF5A6E45BA6 /* DatabaseService+Sync.swift */,
 				0F8E73F3DEE123590F3B3991 /* DiscoverSuggestionLoader.swift */,
@@ -629,6 +632,7 @@
 				7650CEA116D7F36CDFE23AD0 /* Color+Hex.swift in Sources */,
 				FB0EE0DF5E637E7CBE74B613 /* Config.swift in Sources */,
 				6B76A8FA2CF0E1BB0CACECC9 /* CreateNoteSheet.swift in Sources */,
+				591B95606D9634B7673CEC50 /* CueService.swift in Sources */,
 				B44E535A802E1ABB1FBA7462 /* DMNTimerView.swift in Sources */,
 				355605C1914429CB5EBE47E1 /* DatabaseService+Sync.swift in Sources */,
 				C597282ED2DF3F2151F0C462 /* DatabaseService.swift in Sources */,

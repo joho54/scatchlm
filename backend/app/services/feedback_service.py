@@ -260,18 +260,6 @@ FEEDBACK_OUTPUT_SCHEMA = {
             "type": "string",
             "description": "The tutor feedback itself, in markdown, written in the requested response language.",
         },
-        "keywords": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": (
-                "3-7 rest-time retrieval cues — the load-bearing concepts a learner should recall after this work. "
-                "Each MUST be a SINGLE short term: one noun or a tight compound, ideally <=6 characters in Korean. "
-                "NO phrases, NO clauses, NO descriptions, NO space-joined word lists. "
-                "Good: '역전파', '베이즈정리', '경사하강'. "
-                "Bad: '자음 어간 동사 변화', '구개음·입술음·치음 + σ 변형' (these are phrases — split into single terms or drop). "
-                "Not a summary. Omit if nothing substantive."
-            ),
-        },
     },
     "required": ["transcription", "feedback"],
     "additionalProperties": False,
@@ -296,6 +284,50 @@ def _clean_keywords(raw: object, limit: int = 7) -> list[str]:
         if len(out) >= limit:
             break
     return out
+
+
+CUE_EXTRACTION_LIMIT = 7
+
+
+async def extract_cues(
+    text: str, response_language: str = "Korean"
+) -> tuple[list[str], object | None]:
+    """학습 교환 텍스트에서 DMN 휴식-시간 인출 단서(keywords)를 추출한다. (cues, usage)를 반환한다.
+
+    답변 생성과 분리된 저비용 Haiku 콜이다 — 출력에 답변 본문이 없으므로, 과거 답변+keywords를
+    한 콜에서 받다 본문을 keywords로 오배치하던 구조적 유실이 여기선 불가능하다. cue만 콤마 구분
+    한 줄로 받아 _clean_keywords로 정규화한다. 실패하면 ([], None)로 graceful.
+    """
+    text = (text or "").strip()
+    if not text:
+        return [], None
+    try:
+        response = await create_message_with_retry(
+            client,
+            model=RECOGNITION_MODEL,  # Haiku — 단서 추출은 저비용·저지연
+            max_tokens=128,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "From the following study exchange, extract 0-7 rest-time retrieval cues: "
+                    "load-bearing concepts the learner should recall later. Each MUST be a SINGLE short "
+                    "term — one noun or a tight compound (ideally <=6 Korean characters). NO phrases, "
+                    "NO clauses, NO descriptions. Good: 역전파, 베이즈정리, 경사하강. "
+                    "Bad: '자음 어간 동사 변화' (a phrase — split into single terms or drop). "
+                    f"Prefer {response_language} for the terms, but keep domain terms in their original "
+                    "language. If there is no substantive concept (chit-chat), return nothing. "
+                    "Return ONLY a comma-separated list of terms on a single line, nothing else.\n\n"
+                    f"EXCHANGE:\n{text[:4000]}"
+                ),
+            }],
+        )
+        raw = response.content[0].text.strip()
+        cues = _clean_keywords([k.strip() for k in raw.split(",")], limit=CUE_EXTRACTION_LIMIT)
+        log.info("Cue extraction (Haiku): n=%d %s", len(cues), cues)
+        return cues, response.usage
+    except Exception as e:
+        log.exception("Cue extraction failed: error=%s", classify_anthropic_error(e))
+        return [], None
 
 
 @dataclass
@@ -442,21 +474,20 @@ async def get_feedback(
 
     # structured output → {transcription, feedback}. 잘림(max_tokens)이나 예외적 비-JSON 응답이면
     # best-effort 폴백: 원문을 그대로 피드백으로 쓰고 transcription은 비운다(채팅 주입은 단지 생략됨).
+    # DMN 인출 단서(keywords)는 이 답변 콜에서 더 이상 받지 않는다 — 응답 본문 오염을 막기 위해
+    # 별도 비동기 경로(POST /api/feedback/cues, extract_cues)로 분리했다.
     transcription = ""
-    keywords: list[str] = []
     try:
         parsed = json.loads(raw)
         content = (parsed.get("feedback") or "").strip()
         transcription = (parsed.get("transcription") or "").strip()
-        keywords = _clean_keywords(parsed.get("keywords"))
         if not content:
             content = raw
     except (json.JSONDecodeError, AttributeError):
         log.warning("Feedback structured output parse failed (stop=%s); falling back to raw text", response.stop_reason)
         content = raw
 
-    data = {"type": "feedback", "content": content, "transcription": transcription, "keywords": keywords}
-    log.info("Feedback keywords: n=%d %s", len(keywords), keywords)
+    data = {"type": "feedback", "content": content, "transcription": transcription}
 
     return FeedbackResult(
         data=data,

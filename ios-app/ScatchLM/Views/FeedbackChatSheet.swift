@@ -293,7 +293,6 @@ struct SessionChatSheet: View {
                 struct ChatRes: Decodable {
                     let content: String
                     let feedback_id: String?
-                    let keywords: [String]?   // DMN 인출 단서 (구버전 서버는 미포함 → nil)
                 }
 
                 let reqBody = ChatReq(
@@ -322,13 +321,12 @@ struct SessionChatSheet: View {
                 } catch {
                     appLogError("chat", "saveChatMessage(assistant) failed", ["error": "\(error)"])
                 }
-                // DMN 인출 단서 적재 — 노트 scope. note_id 없는 세션(교재 가이드 등)은 건너뛴다.
-                let kwCount = res.keywords?.count ?? 0
-                if let nid = noteId, let kws = res.keywords, !kws.isEmpty {
-                    try? db.insertDMNCues(noteId: nid, keywords: kws, source: "chat", sessionId: session.id)
-                    appLog("dmn", "cues inserted (chat)", ["note": nid, "n": "\(kws.count)"])
-                } else {
-                    appLog("dmn", "cues skipped (chat)", ["hasNote": "\(noteId != nil)", "kw": "\(kwCount)"])
+                // DMN 인출 단서 — 답변과 분리해 비동기로(드문드문) 추출·적재. 노트 scope.
+                // note_id 없는 세션(교재 가이드 등)은 건너뛴다.
+                if let nid = noteId {
+                    CueService.maybeExtract(noteId: nid,
+                                            exchangeText: userMessage.content + "\n" + res.content,
+                                            source: "chat", sessionId: session.id)
                 }
 
                 await MainActor.run {

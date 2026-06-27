@@ -595,7 +595,6 @@ struct PdfViewerView: View {
                 struct ChatRes: Decodable {
                     let content: String
                     let feedback_id: String?
-                    let keywords: [String]?   // DMN 인출 단서 (구버전 서버는 미포함 → nil)
                 }
 
                 let reqBody = ChatReq(
@@ -612,16 +611,13 @@ struct PdfViewerView: View {
 
                 let res: ChatRes = try await APIClient.shared.postCodable("/feedback/chat", body: reqBody)
 
-                // DMN 인출 단서 적재 — 노트 scope. 가이드 채팅(교재 읽기)은 사용자 최고 가치 경로라
-                // 캔버스 피드백 채팅과 동일하게 단서를 모은다. PDF 뷰어가 노트 밖이면 noteId=nil → 스킵.
-                let kwCount = res.keywords?.count ?? 0
-                if let nid = noteId, let kws = res.keywords, !kws.isEmpty {
-                    // 가이드 채팅 세션(sid)을 함께 링크 — 위젯 단서가 해당 세션 시트로 점프하도록.
-                    // 누락 시 note 폴백 링크가 되어 위젯 탭이 "앱만 켜지고 점프 안 됨"이 된다.
-                    try? db.insertDMNCues(noteId: nid, keywords: kws, source: "guide-chat", sessionId: sid)
-                    appLog("dmn", "cues inserted (guide-chat)", ["note": nid, "n": "\(kws.count)"])
-                } else {
-                    appLog("dmn", "cues skipped (guide-chat)", ["hasNote": "\(noteId != nil)", "kw": "\(kwCount)"])
+                // DMN 인출 단서 — 답변과 분리해 비동기로(드문드문) 추출·적재. 가이드 채팅(교재 읽기)은
+                // 사용자 최고 가치 경로라 피드백 채팅과 동일하게 단서를 모은다. 노트 밖이면 noteId=nil → 스킵.
+                // 세션(sid)을 함께 링크 — 위젯 단서가 해당 세션 시트로 점프하도록.
+                if let nid = noteId {
+                    CueService.maybeExtract(noteId: nid,
+                                            exchangeText: messageText + "\n" + res.content,
+                                            source: "guide-chat", sessionId: sid)
                 }
 
                 await MainActor.run {

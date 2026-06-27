@@ -855,6 +855,16 @@ final class DatabaseService {
     /// LLM 프롬프트로 짧은 단일 개념어를 유도하지만(1차), 안 지킬 때 표시 단에서 거른다(2차 방어).
     static let dmnCueMaxLen = 10
 
+    /// 노트 scope 단서 개수. 비동기 단서 추출 트리거(0개면 무조건 추출)에 쓴다.
+    func dmnCueCount(noteId: String) throws -> Int {
+        guard let uid = scopedUserId else { return 0 }
+        return try dbQueue.read { db in
+            try DMNCue
+                .filter(DMNCue.Columns.userId == uid && DMNCue.Columns.noteId == noteId)
+                .fetchCount(db)
+        }
+    }
+
     /// 노트 scope 최신 단서 N개(중복 제거, 최신 우선, 길이 초과 제외). DMN 타이머용.
     func recentDMNCues(noteId: String, limit: Int = 12) throws -> [String] {
         guard let uid = scopedUserId else { return [] }

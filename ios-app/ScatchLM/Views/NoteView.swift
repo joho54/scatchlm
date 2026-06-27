@@ -1216,9 +1216,9 @@ struct NoteView: View {
     /// (드로어 재스크랩 — 1 session→N cards), 없으면 이 카드용 kind=feedback 세션을 새로 만든다(세션화 통일).
     /// 반환값: 이 카드에 연결된 세션 id(없으면 nil). DMN 단서를 세션에 링크할 때 호출처에서 쓴다.
     @discardableResult
-    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false, keywords: [String]? = nil) -> String? {
+    private func appendFeedbackCard(content: String, estimatedHeight: CGFloat = 400, strokeRangeStart: Int? = nil, strokeRangeEnd: Int? = nil, serverFeedbackId: String? = nil, sessionId: String? = nil, skip: Bool = false, floatAfter: Bool = false) -> String? {
         // skip(피드백 없이 완료) 레코드는 채팅 세션을 만들지 않는다 — 대화할 내용이 없음.
-        let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId, keywords: keywords)?.id)
+        let placementSessionId = skip ? nil : (sessionId ?? createFeedbackSession(content: content, serverFeedbackId: serverFeedbackId)?.id)
         // 카드는 가이드라인(SSOT)이 가리키는 위치에 정확히 배치한다.
         // 먼저 인디케이터를 현재 스트로크/카드 기준으로 갱신해 nextCardLineY를 최신화한 뒤 그 값을 읽는다.
         let coordinator = canvasView.delegate as? PencilKitCanvasView.Coordinator
@@ -1364,21 +1364,12 @@ struct NoteView: View {
         return String(oneLine.prefix(40))
     }
 
-    /// keywords(앞 3개)를 세션 제목으로 결합한다. 비어 있으면 응답 첫 줄 스니펫으로 폴백.
-    private func sessionTitle(content: String, keywords: [String]?) -> String {
-        let cues = (keywords ?? [])
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .prefix(3)
-        if !cues.isEmpty { return cues.joined(separator: " · ") }
-        return feedbackTitleSnippet(content)
-    }
-
     /// 카드 placement용 kind=feedback 세션을 새로 만든다. 교재 연결 시 anchorPage=현재 페이지.
-    private func createFeedbackSession(content: String, serverFeedbackId: String?, keywords: [String]? = nil) -> ChatSessionRecord? {
+    /// 세션 제목은 응답 첫 줄 스니펫. (단서 추출이 비동기로 분리돼 생성 시점엔 keyword가 없다.)
+    private func createFeedbackSession(content: String, serverFeedbackId: String?) -> ChatSessionRecord? {
         var session = ChatSessionRecord(
             kind: ChatSessionRecord.Kind.feedback.rawValue,
-            title: sessionTitle(content: content, keywords: keywords),
+            title: feedbackTitleSnippet(content),
             noteId: noteId,
             textbookId: note?.textbookId,
             anchorPage: note?.textbookId != nil ? currentPage : nil,
@@ -1711,15 +1702,10 @@ struct NoteView: View {
                 let jsonData = try JSONEncoder().encode(response)
                 let jsonStr = String(data: jsonData, encoding: .utf8) ?? "{}"
                 let strokeEnd = canvasView.drawing.strokes.count
-                let placementSessionId = appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId, keywords: response.keywords)
+                let placementSessionId = appendFeedbackCard(content: jsonStr, strokeRangeStart: frozenEnd, strokeRangeEnd: strokeEnd, serverFeedbackId: response.feedbackId)
 
-                // DMN 인출 단서 적재 — 노트 scope. 위젯 점프용으로 세션 id를 함께 링크.
-                if let kws = response.keywords, !kws.isEmpty {
-                    try? db.insertDMNCues(noteId: noteId, keywords: kws, source: "feedback", sessionId: placementSessionId)
-                    appLog("dmn", "cues inserted (feedback)", ["note": noteId, "n": "\(kws.count)"])
-                } else {
-                    appLog("dmn", "cues skipped (feedback)", ["kw": "\(response.keywords?.count ?? 0)"])
-                }
+                // DMN 인출 단서 — 답변과 분리해 비동기로(드문드문) 추출·적재. 위젯 점프용 세션 링크.
+                CueService.maybeExtract(noteId: noteId, exchangeText: response.content ?? response.displayText, source: "feedback", sessionId: placementSessionId)
 
                 appLog("note", "feedback received", ["requestId": "\(requestId)", "content": String((response.content ?? response.displayText).prefix(80)), "range": "\(frozenEnd)..\(strokeEnd)"])
                 track(.feedback, .ok, ms: elapsedMs(), ["hasTextbook": note?.textbookId != nil])
@@ -2364,22 +2350,11 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 buttonBar.addArrangedSubview(revertBtn)
             }
 
-            // LLM 인출 단서 — 본문 아래 저chrome 해시태그 행(인코딩 시점에 핵심 개념 각인). 없으면 미표시.
-            let keywords = (parsed?.keywords ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            let keywordsLabel: UILabel? = keywords.isEmpty ? nil : {
-                let l = UILabel()
-                l.numberOfLines = 0
-                l.text = keywords.map { "#\($0)" }.joined(separator: "  ")
-                l.font = .systemFont(ofSize: 11)
-                l.textColor = .tertiaryLabel
-                return l
-            }()
-
             card.addSubview(label)
             card.addSubview(buttonBar)
             label.translatesAutoresizingMaskIntoConstraints = false
             buttonBar.translatesAutoresizingMaskIntoConstraints = false
-            var constraints: [NSLayoutConstraint] = [
+            let constraints: [NSLayoutConstraint] = [
                 label.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
                 label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
@@ -2387,31 +2362,14 @@ struct PencilKitCanvasView: UIViewRepresentable {
                 buttonBar.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
                 buttonBar.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
                 buttonBar.heightAnchor.constraint(equalToConstant: 28),
+                buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
             ]
-            if let kw = keywordsLabel {
-                card.addSubview(kw)
-                kw.translatesAutoresizingMaskIntoConstraints = false
-                constraints += [
-                    kw.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 6),
-                    kw.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-                    kw.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-                    buttonBar.topAnchor.constraint(equalTo: kw.bottomAnchor, constant: 8),
-                ]
-            } else {
-                constraints.append(buttonBar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8))
-            }
             NSLayoutConstraint.activate(constraints)
 
             let labelSize = textView.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
             // chrome = top inset(12) + label↔button gap(8) + buttonBar(28) + bottom inset(8) = 56.
             // 이전엔 48이라 본문 textView가 8pt 압축돼 마지막 줄이 잘렸다.
-            var extraHeight: CGFloat = 56
-            if let kw = keywordsLabel {
-                // 키워드 행 높이 + 본문↔키워드 gap(6). 측정은 표시와 동일 폭(cardWidth-24)으로.
-                let kwSize = kw.sizeThatFits(CGSize(width: cardWidth - 24, height: .greatestFiniteMagnitude))
-                extraHeight += ceil(kwSize.height) + 6
-            }
-            let cardHeight = ceil(labelSize.height) + extraHeight
+            let cardHeight = ceil(labelSize.height) + 56
 
             card.frame = CGRect(x: 16, y: fb.positionY, width: cardWidth, height: cardHeight)
             container(canvasView).addSubview(card)

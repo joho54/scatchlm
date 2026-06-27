@@ -4,14 +4,13 @@ struct AIResponse: Codable {
     let type: String
     let content: String?
     let feedbackId: String?
-    let keywords: [String]?   // DMN 인출 단서 (구버전 서버는 미포함 → nil)
     // Legacy fields
     let recognizedText: String?
     let feedback: String?
     let summary: String?
 
     enum CodingKeys: String, CodingKey {
-        case type, content, keywords
+        case type, content
         case feedbackId = "feedback_id"
         case recognizedText = "recognized_text"
         case feedback

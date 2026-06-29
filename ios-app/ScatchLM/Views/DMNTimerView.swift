@@ -13,10 +13,10 @@ struct DMNTimerView: View {
     let words: [String]
 
     /// 닫힐 때 호출. `didRest`=실제로 휴식에 들어갔는지(running/done 도달). setup에서 바로 닫으면 false.
-    /// 호스트(NoteView)가 true일 때만 복귀 연출(페이지 흐림→선명)을 트리거한다 — 페이오프는 *복귀*에 있다.
+    /// 호스트(NoteView)가 이걸 받아 오버레이를 닫고(dmnBreak=nil), true면 복귀 연출을 트리거한다.
+    /// (fullScreenCover가 아니라 인-앱 오버레이 — presentation dismiss가 NoteView 레이아웃을 붕괴시키던
+    /// 버그 클래스를 없애려고 오버레이로 전환. 그래서 @Environment(\.dismiss) 대신 onEnd로 닫는다.)
     var onEnd: (_ didRest: Bool) -> Void = { _ in }
-
-    @Environment(\.dismiss) private var dismiss
 
     private enum Phase { case setup, running, done }
     @State private var phase: Phase = .setup
@@ -83,7 +83,7 @@ struct DMNTimerView: View {
                 }
             }
 
-            Button("닫기") { onEnd(false); dismiss() }
+            Button("닫기") { onEnd(false) }
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.4))
         }
@@ -149,7 +149,7 @@ struct DMNTimerView: View {
 
     private var endButton: some View {
         // running/done에서만 노출 → 휴식에 실제로 들어간 상태. 복귀 연출 트리거(didRest=true).
-        Button { onEnd(true); dismiss() } label: {
+        Button { onEnd(true) } label: {
             Text("종료")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.white)

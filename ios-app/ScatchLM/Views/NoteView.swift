@@ -250,6 +250,14 @@ struct NoteView: View {
                         }
                     }
                     .frame(width: splitW, height: splitH, alignment: .topLeading)
+                    // 복귀 연출은 *페이지(캔버스+PDF)에만* 건다. 예전엔 body 전체(=ZStack 통째)에 걸어
+                    // scaleEffect/blur 효과 경계가 chrome(scrim·페이지네비)의 safe-area/크기 제안을
+                    // 붕괴시켰다(타이머 종료 후 scrim 0 붕괴·패널 101 갇힘 — 인과 확정). chrome을 효과
+                    // 경계 밖으로 빼서 격리한다.
+                    .returnFlood(progress: returnFloodProgress, style: returnFloodStyle)
+                    // 네비 드로어가 열리면 캔버스/PDF 입력을 끈다. PencilKit이 first-responder로
+                    // 바깥 탭을 UIKit 레벨에서 가로채 scrim까지 안 내려가던 문제(로그로 좁힘) 차단.
+                    .allowsHitTesting(!pageNavOpen)
 
                     // 노트 컨트롤(나가기·페이지·챕터챗·DMN)을 화면 상단으로 승격 — 캔버스 패널 안이
                     // 아니라 body 레벨이라 분할/세로/가로/전체화면과 무관하게 항상 화면 좌상단에 고정된다.
@@ -311,17 +319,18 @@ struct NoteView: View {
 
                     // Page navigator slide-over (좌측)
                     if pageNavOpen {
-                        // Dismiss-on-tap-outside scrim
-                        Color.black.opacity(0.001)
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
-                                    pageNavOpen = false
+                        // 사이드 드로어: scrim(전체 화면, 바깥 탭 닫기) 위에 nav만 220pt 올린다.
+                        // nav만 위에 두면 그 바깥은 scrim뿐이라 바깥 탭이 곧장 닫기로 간다.
+                        ZStack(alignment: .leading) {
+                            Color.black.opacity(0.001)
+                                .ignoresSafeArea()
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                                        pageNavOpen = false
+                                    }
                                 }
-                            }
 
-                        HStack(spacing: 0) {
                             PageNavigatorView(
                                 pages: notePages,
                                 currentIndex: currentPageIndex,
@@ -353,14 +362,26 @@ struct NoteView: View {
                                 },
                                 onSelectTemplate: { changeTemplate($0) }
                             )
-                            // 높이를 geo로 고정 — DMN fullScreenCover dismiss 직후 부모 레이아웃 제안이
-                            // 101pt로 붕괴해 List가 행을 0개 그리던 갇힘 버그(로그로 확정). geo.size.height는
-                            // 그 순간에도 1148로 신뢰 가능하므로 maxHeight:.infinity 의존을 끊는다.
-                            .frame(height: geo.size.height)
+                            // 높이를 geo로 고정 — 부모 레이아웃 제안이 붕괴해도 패널이 풀 높이를 유지하게
+                            // 하는 방어선(maxHeight:.infinity 의존 제거). 폭은 드로어 고정폭 220.
+                            .frame(width: 220, height: geo.size.height)
                             .transition(.move(edge: .leading))
-                            Spacer()
                         }
                         .ignoresSafeArea(.container, edges: .bottom)
+                    }
+
+                    // DMN 휴식 타이머 — fullScreenCover가 아니라 NoteView 안의 오버레이로 띄운다.
+                    // cover의 present/dismiss가 GeometryReader/ZStack 레이아웃을 붕괴시켜(safe-area·높이
+                    // 제안) 종료 후 페이지 네비/​scrim이 깨지던 버그 클래스를 구조적으로 제거. 검은 전체화면이라
+                    // 오버레이로 충분하고, 같은 레이아웃 패스 안에 머물러 dismiss 시 부모를 건드리지 않는다.
+                    if let ctx = dmnBreak {
+                        DMNTimerView(words: ctx.words) { didRest in
+                            withAnimation(.easeInOut(duration: 0.2)) { dmnBreak = nil }
+                            if didRest { triggerReturnFlood() }
+                        }
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .zIndex(200)
                     }
                 } else {
                     ProgressView()
@@ -380,8 +401,7 @@ struct NoteView: View {
                 }
             }
         }
-        // 복귀 연출은 라이브 페이지에 직접 — 변형→선명으로 차오르며 들어온다.
-        .returnFlood(progress: returnFloodProgress, style: returnFloodStyle)
+        // (복귀 연출 returnFlood는 body 전체가 아니라 페이지 콘텐츠에만 적용 — 위 캔버스/PDF ZStack 참고)
         // DEBUG 전용: 효과를 골라가며 비교. "⚡︎ 바로"=연출만 즉시 재현(빠른 반복),
         // "🌫️ 휴식 테스트"=실제 경로(cover 올라감→종료→내려감→복귀 연출).
         #if DEBUG
@@ -457,11 +477,6 @@ struct NoteView: View {
         } message: {
             Text("카드가 사라지고 해당 영역에 다시 필기할 수 있게 됩니다. 필기 자체는 남습니다.")
         }
-        .fullScreenCover(item: $dmnBreak) { ctx in
-            DMNTimerView(words: ctx.words) { didRest in
-                if didRest { triggerReturnFlood() }
-            }
-        }
         .task { await loadNote() }
         .onDisappear { saveDrawing() }
     }
@@ -497,7 +512,7 @@ struct NoteView: View {
             source = "bold"
         }
         appLog("dmn", "break started", ["note": noteId, "source": source, "words": "\(words.count)"])
-        dmnBreak = DMNBreakContext(words: words)
+        withAnimation(.easeInOut(duration: 0.2)) { dmnBreak = DMNBreakContext(words: words) }
     }
 
     // MARK: - Split Divider (PDF/캔버스 분할 리사이즈)

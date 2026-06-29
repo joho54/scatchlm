@@ -19,7 +19,6 @@ struct PdfViewerView: View {
     /// 전체화면 토글 콜백(부모). 길게 누르기 단축키와 동일한 동작을 눈에 보이는 버튼에도 노출.
     var onToggleFullscreen: (() -> Void)?
 
-    @Environment(\.colorScheme) private var colorScheme
     @State private var currentPage: Int
     @State private var pdfView: PDFView?
     @State private var showToc = false
@@ -897,13 +896,14 @@ struct PdfViewerView: View {
                     selectedText = inkMode ? nil : text
                 }
             )
-            if colorScheme == .dark { pdf.colorInvert() } else { pdf }
+            // 다크모드에서도 PDF는 반전하지 않는다. 반전 시 표시 오버레이(PDFKit 내부에 비동기로 꽂히는
+            // PKCanvasView)엔 .colorInvert()가 도달하지 못해 검정 필기가 그대로 검게 남아 어두운 배경에서
+            // 안 보였다. 반전을 끄면 흰 페이지 위 검정 필기로 항상 가시.
+            pdf
 
             // 잉크 모드 입력 레이어 — 노트 연결 + pdfView 준비 시에만 PDFView 위 형제로 얹는다.
-            // 다크모드에선 표시 오버레이(PDF와 함께 반전)와 색을 맞추려 입력도 동일 반전.
             if inkMode, let noteId, let pdfView {
-                let input = PdfInkInputView(pdfView: pdfView, noteId: noteId, pdfPage: currentPage, inkController: inkController)
-                if colorScheme == .dark { input.colorInvert() } else { input }
+                PdfInkInputView(pdfView: pdfView, noteId: noteId, pdfPage: currentPage, inkController: inkController)
             }
         }
     }
@@ -1199,10 +1199,8 @@ struct NativePdfView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
-        // In dark mode, colorInvert() is applied at SwiftUI level,
-        // so set white bg here → gets inverted to black visually
-        let isDark = uiView.traitCollection.userInterfaceStyle == .dark
-        uiView.backgroundColor = isDark ? .white : .systemGray6
+        // 다크모드에서도 PDF 반전을 안 하므로 배경은 항상 systemGray6.
+        uiView.backgroundColor = .systemGray6
         context.coordinator.setInkMode(inkMode)
     }
 
@@ -1434,7 +1432,6 @@ struct PdfInkInputView: UIViewRepresentable {
     let noteId: String
     let pdfPage: Int
     var inkController: PdfInkController?
-    @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> InkHostScrollView {
         let coord = context.coordinator
@@ -1447,7 +1444,7 @@ struct PdfInkInputView: UIViewRepresentable {
         // host: 줌/팬 주체. 펜=그리기, 2손가락=팬/핀치줌 (pan 최소 2터치).
         // 배경을 불투명으로 — 뒤의 라이브 PDFView(읽기 모드 줌 상태)를 완전히 덮어 겹침 방지.
         let host = InkHostScrollView()
-        host.backgroundColor = colorScheme == .dark ? .white : .systemGray6
+        host.backgroundColor = .systemGray6
         host.delegate = coord
         host.contentInsetAdjustmentBehavior = .never
         host.showsVerticalScrollIndicator = false
@@ -1510,7 +1507,7 @@ struct PdfInkInputView: UIViewRepresentable {
     }
 
     func updateUIView(_ host: InkHostScrollView, context: Context) {
-        host.backgroundColor = colorScheme == .dark ? .white : .systemGray6
+        host.backgroundColor = .systemGray6
         context.coordinator.update(page: pdfPage)
     }
 

@@ -98,7 +98,8 @@ def extract_text(key: str, page_start: int, page_end: int) -> str:
         texts.append(f"--- Page {i + 1} ---\n{page.get_text()}")
 
     doc.close()
-    result = "\n".join(texts)
+    # PyMuPDF get_text()는 NUL(0x00)을 포함할 수 있다 — Postgres text 컬럼이 거부하므로 제거.
+    result = "\n".join(texts).replace("\x00", "")
     elapsed = int((time.monotonic() - t0) * 1000)
     log.info("PDF extract: pages=%d-%d chars=%d time=%dms", page_start, page_end, len(result), elapsed)
     return result
@@ -164,7 +165,7 @@ async def extract_text_async(db: AsyncSession, source, page_start: int, page_end
     for p in range(page_start, page_end + 1):
         if p in by_page and by_page[p]:
             texts.append(f"--- Page {p} ---\n{by_page[p]}")
-    result = "\n".join(texts)
+    result = "\n".join(texts).replace("\x00", "")
     log.info(
         "OCR extract: textbook=%s pages=%d-%d cached=%d chars=%d",
         source.id, page_start, page_end, len(by_page), len(result),

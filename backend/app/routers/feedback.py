@@ -17,6 +17,7 @@ from app.core.quota import check_daily_quota
 from app.models.feedback import AIResponse, AIResponseRating
 from app.models.textbook import TextbookSource
 from app.core.log_sanitize import loglen
+from app.core.text_sanitize import pg_safe
 from app.services.feedback_service import (
     classify_anthropic_error,
     create_message_with_retry,
@@ -197,10 +198,10 @@ async def request_feedback(
         textbook_id=textbook_id,
         current_page=current_page,
         has_textbook_context=textbook_context is not None,
-        prompt_context_snippet=(textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
+        prompt_context_snippet=pg_safe((textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS]) or None,
         previous_context=(previous_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
-        response_content=response_content,
-        handwriting_transcription=handwriting_transcription,
+        response_content=pg_safe(response_content),
+        handwriting_transcription=pg_safe(handwriting_transcription),
         request_id=request_id,
     )
     db.add(record)
@@ -512,9 +513,9 @@ async def feedback_chat(
         textbook_id=req.textbook_id,
         current_page=req.current_page,
         has_textbook_context=bool(textbook_context),
-        prompt_context_snippet=(textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS] or None,
+        prompt_context_snippet=pg_safe((textbook_context or "")[:PROMPT_CONTEXT_MAX_CHARS]) or None,
         previous_context=req.parent_feedback_id,
-        response_content=content,
+        response_content=pg_safe(content),
     )
     db.add(record)
     await db.commit()

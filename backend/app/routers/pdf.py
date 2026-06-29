@@ -16,6 +16,7 @@ from app.core.auth import get_current_user_id, get_verified_payload, get_tier, g
 from app.core.config import settings
 from app.core.database import get_db, async_session
 from app.core.quota import check_daily_quota, check_ocr_quota, check_ocr_monthly_quota
+from app.core.text_sanitize import pg_safe
 from app.models.textbook import TextbookSource
 from app.models.guide import PageGuide
 from app.models.chapter import Chapter
@@ -67,7 +68,7 @@ def _save_detected_chapters(db, textbook_id: str, entries: list[dict], total_pag
             id=str(uuid.uuid4()),
             textbook_id=textbook_id,
             level=entry["level"],
-            title=entry["title"],
+            title=pg_safe(entry["title"]),
             page_start=entry["page"],
             page_end=next_page or total_pages,
         ))
@@ -881,7 +882,7 @@ async def get_page_guide(
         textbook_id=textbook_id,
         current_page=page,
         has_textbook_context=True,
-        response_content=json.dumps(data, ensure_ascii=False),
+        response_content=pg_safe(json.dumps(data, ensure_ascii=False)),
     )
     db.add(ai_resp)
     await db.flush()  # ai_resp.id 확보
@@ -892,7 +893,7 @@ async def get_page_guide(
         textbook_id=textbook_id,
         page=page,
         response_language=response_language,
-        content=json.dumps(data, ensure_ascii=False),
+        content=pg_safe(json.dumps(data, ensure_ascii=False)),
         ai_response_id=ai_resp.id,
     )
     db.add(guide)
@@ -1011,7 +1012,7 @@ async def get_chapter_guide(
         textbook_id=textbook_id,
         current_page=chapter.page_start,
         has_textbook_context=True,
-        response_content=json.dumps(data, ensure_ascii=False),
+        response_content=pg_safe(json.dumps(data, ensure_ascii=False)),
     )
     db.add(ai_resp)
     await db.flush()
@@ -1022,7 +1023,7 @@ async def get_chapter_guide(
         textbook_id=textbook_id,
         page=cache_key,
         response_language=response_language,
-        content=json.dumps(data, ensure_ascii=False),
+        content=pg_safe(json.dumps(data, ensure_ascii=False)),
         ai_response_id=ai_resp.id,
     )
     db.add(guide)

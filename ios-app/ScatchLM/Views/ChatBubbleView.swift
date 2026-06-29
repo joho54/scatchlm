@@ -87,7 +87,6 @@ struct EquatableChatBubble: View, Equatable {
     var fontSize: CGFloat = 14
     var onScrap: (() -> Void)? = nil
     var onRate: ((Int) -> Void)? = nil
-    var onDetail: (() -> Void)? = nil
     var onRetry: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     /// assistant 응답 재생성 — 직전 user 질문을 다시 보내 답변을 새로 받는다(기존 답변 교체).
@@ -101,19 +100,24 @@ struct EquatableChatBubble: View, Equatable {
     }
 
     var body: some View {
-        bubble.contextMenu {
-            Button { UIPasteboard.general.string = content } label: {
-                Label("복사", systemImage: "doc.on.doc")
-            }
-            // 실패 user 버블은 복사와 같은 메뉴에서 재시도/수정도 노출(롱홀드 = SwiftUI 표준).
-            if role == "user" && failed {
-                if let onRetry {
-                    Button { onRetry() } label: { Label("재시도", systemImage: "arrow.clockwise") }
+        // assistant(챗봇) 응답은 롱홀드 메뉴를 쓰지 않는다 — 복사는 액션바의 명시적 버튼.
+        // user 버블만 롱홀드(복사 + 실패 시 재시도/수정)를 유지한다.
+        if role == "user" {
+            bubble.contextMenu {
+                Button { UIPasteboard.general.string = content } label: {
+                    Label("복사", systemImage: "doc.on.doc")
                 }
-                if let onEdit {
-                    Button { onEdit() } label: { Label("수정", systemImage: "pencil") }
+                if failed {
+                    if let onRetry {
+                        Button { onRetry() } label: { Label("재시도", systemImage: "arrow.clockwise") }
+                    }
+                    if let onEdit {
+                        Button { onEdit() } label: { Label("수정", systemImage: "pencil") }
+                    }
                 }
             }
+        } else {
+            bubble
         }
     }
 
@@ -126,6 +130,11 @@ struct EquatableChatBubble: View, Equatable {
             }
         } else {
             ChatBubbleView(role: role, content: content, fontSize: fontSize) {
+                // 복사 — 모든 챗봇 응답에 항상 노출(롱홀드 대체). 콜백 불필요(content 직접 복사).
+                Button { UIPasteboard.general.string = content } label: {
+                    Label("복사", systemImage: "doc.on.doc")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let onScrap {
                     Button { onScrap() } label: {
                         Label("스크랩", systemImage: "pin.fill")
@@ -140,11 +149,6 @@ struct EquatableChatBubble: View, Equatable {
                     Button { onRate(-1) } label: {
                         Image(systemName: rating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                             .foregroundStyle(rating == -1 ? Color.red : Color.secondary).font(.caption)
-                    }.disabled(serverId == nil)
-                }
-                if let onDetail {
-                    Button { onDetail() } label: {
-                        Text("자세히").font(.caption).foregroundStyle(.secondary)
                     }.disabled(serverId == nil)
                 }
                 if let onRegenerate {

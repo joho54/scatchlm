@@ -42,7 +42,6 @@ struct ChatThreadView<Header: View>: View {
     var onSend: () -> Void
     var onScrap: ((ChatTurn) -> Void)? = nil
     var onRate: ((ChatTurn, Int) -> Void)? = nil
-    var onDetail: ((ChatTurn) -> Void)? = nil
     /// 실패한 user 메시지 롱홀드 → 같은 내용으로 재전송.
     var onRetry: ((ChatTurn) -> Void)? = nil
     /// 실패한 user 메시지 롱홀드 → 내용을 입력창으로 되돌리고 실패 버블 제거(수정 후 재전송).
@@ -88,7 +87,6 @@ struct ChatThreadView<Header: View>: View {
                             fontSize: fontSize,
                             onScrap: onScrap.map { f in { f(turn) } },
                             onRate: turn.role == "user" ? nil : onRate.map { f in { r in f(turn, r) } },
-                            onDetail: turn.role == "user" ? nil : onDetail.map { f in { f(turn) } },
                             onRetry: turn.role == "user" ? onRetry.map { f in { f(turn) } } : nil,
                             onEdit: turn.role == "user" ? onEdit.map { f in { f(turn) } } : nil,
                             onRegenerate: isLastAssistant ? onRegenerate.map { f in { f(turn) } } : nil
@@ -195,13 +193,12 @@ extension ChatThreadView where Header == EmptyView {
          onSend: @escaping () -> Void,
          onScrap: ((ChatTurn) -> Void)? = nil,
          onRate: ((ChatTurn, Int) -> Void)? = nil,
-         onDetail: ((ChatTurn) -> Void)? = nil,
          onRetry: ((ChatTurn) -> Void)? = nil,
          onEdit: ((ChatTurn) -> Void)? = nil,
          onRegenerate: ((ChatTurn) -> Void)? = nil,
          onQuickPractice: (() -> Void)? = nil) {
         self.init(turns: turns, input: input, sending: sending, placeholder: placeholder,
-                  onSend: onSend, onScrap: onScrap, onRate: onRate, onDetail: onDetail,
+                  onSend: onSend, onScrap: onScrap, onRate: onRate,
                   onRetry: onRetry, onEdit: onEdit, onRegenerate: onRegenerate,
                   onQuickPractice: onQuickPractice,
                   header: { _ in EmptyView() })

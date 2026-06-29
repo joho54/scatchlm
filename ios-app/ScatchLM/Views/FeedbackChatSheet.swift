@@ -22,7 +22,6 @@ struct SessionChatSheet: View {
     @State private var messages: [ChatMessageRecord] = []
     @State private var input = ""
     @State private var sending = false
-    @State private var pushedRatingMessageId: String?
     @State private var errorMessage: String?
     @State private var scrapHintDismissed = false   // 온보딩 스크랩 안내 카드 닫힘.
     /// 전송 실패한 user 메시지 id(세션 한정 in-memory). 일시적 업스트림 장애(502/500/529 등)에
@@ -62,7 +61,6 @@ struct SessionChatSheet: View {
                         submitMessageRating(message: msg, rating: r, reasonTags: [], comment: nil)
                     }
                 },
-                onDetail: { turn in pushedRatingMessageId = turn.id },
                 onRetry: { turn in retryFailed(turnId: turn.id) },
                 onEdit: { turn in editFailed(turnId: turn.id) },
                 onRegenerate: { turn in regenerate(turnId: turn.id) },
@@ -100,21 +98,6 @@ struct SessionChatSheet: View {
                 Button("확인", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
-            }
-            .navigationDestination(isPresented: Binding(
-                get: { pushedRatingMessageId != nil },
-                set: { if !$0 { pushedRatingMessageId = nil } }
-            )) {
-                if let msgId = pushedRatingMessageId,
-                   let msg = messages.first(where: { $0.id == msgId }),
-                   let serverId = msg.serverMessageId {
-                    RatingFormView(
-                        feedbackId: serverId,
-                        initialRating: msg.userRating ?? 1
-                    ) { rating, tags, comment in
-                        submitMessageRating(message: msg, rating: rating, reasonTags: tags, comment: comment)
-                    }
-                }
             }
         }
         // 채팅 모달은 명시적 '닫기' 버튼으로만 닫는다 — 스와이프/바깥 탭 제스처 비활성화.

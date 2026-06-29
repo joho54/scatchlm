@@ -353,6 +353,10 @@ struct NoteView: View {
                                 },
                                 onSelectTemplate: { changeTemplate($0) }
                             )
+                            // 높이를 geo로 고정 — DMN fullScreenCover dismiss 직후 부모 레이아웃 제안이
+                            // 101pt로 붕괴해 List가 행을 0개 그리던 갇힘 버그(로그로 확정). geo.size.height는
+                            // 그 순간에도 1148로 신뢰 가능하므로 maxHeight:.infinity 의존을 끊는다.
+                            .frame(height: geo.size.height)
                             .transition(.move(edge: .leading))
                             Spacer()
                         }

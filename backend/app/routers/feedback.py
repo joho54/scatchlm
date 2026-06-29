@@ -295,8 +295,10 @@ async def feedback_chat(
     """피드백 후속 채팅 — RAG 지원."""
     user_id = payload["sub"]
     tier = get_tier(payload)
-    log.info("Feedback chat: user=%s tier=%s history=%d msg=%s textbook=%s note=%s",
-             user_id, tier, len(req.history), len(req.message), req.textbook_id, req.note_id)
+    log.info("Feedback chat: user=%s tier=%s history=%d msg=%s sel=%s textbook=%s note=%s page=%s",
+             user_id, tier, len(req.history), len(req.message),
+             len(req.selected_text) if req.selected_text else req.selected_text,
+             req.textbook_id, req.note_id, req.current_page)
 
     # quota 체크 — 초과 시 LLM 호출 없이 429
     await check_daily_quota(user_id, tier, db, is_admin=get_role(payload) == "admin")

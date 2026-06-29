@@ -129,10 +129,10 @@ struct PdfViewerView: View {
                             tint: inkMode ? Color.accentColor : Color.primary
                         ) { inkMode.toggle() }
                     }
-                    // 현재 페이지에 필기가 있을 때만 — 방금 쓴 필기를 AI에 바로 물어보는 퀵 진입점.
-                    // 빈 페이지엔 숨겨 노이즈를 없애고, 펜을 떼면 등장(accent + 스케일 트랜지션)해
-                    // "물어볼 수 있어요" 어포던스가 된다. 연습문제와 동일한 퀵액션 결.
-                    if inkMode, noteId != nil, !readOnly, inkController?.hasInk == true {
+                    // 현재 페이지에 필기가 있고(hasInk), 그 필기가 직전 '필기 질문' 이후 바뀌었을 때만(inkChangedSinceAsk).
+                    // 빈 페이지·이미 물어본 동일 필기엔 숨겨 노이즈/중복 질문을 없애고, 펜을 떼거나 추가 필기 시 등장
+                    // (accent + 스케일 트랜지션)해 "물어볼 수 있어요" 어포던스가 된다. 연습문제와 동일한 퀵액션 결.
+                    if inkMode, noteId != nil, !readOnly, inkController?.hasInk == true, inkController?.inkChangedSinceAsk == true {
                         pdfBarButton(title: "필기 질문", systemImage: "questionmark.circle", tint: Color.accentColor) { askHandwriting() }
                             .transition(.scale.combined(with: .opacity))
                     }
@@ -144,6 +144,7 @@ struct PdfViewerView: View {
                     }
                 }
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: inkController?.hasInk)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: inkController?.inkChangedSinceAsk)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedText)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -357,6 +358,9 @@ struct PdfViewerView: View {
         var persistedId: String? = nil
         /// 라이브 '선택 질문'이 인용한 본문 구절(표시용, 세션 한정 — DB엔 영속 안 함).
         var quote: String? = nil
+        /// 이 턴에 현재 페이지+필기 합성 이미지를 비전 컨텍스트로 첨부할지. '필기 질문' 버튼 턴만 true.
+        /// 일반 채팅/선택 질문/연습엔 이미지가 안 붙는다(헛 토큰·중복 전송 차단). 재시도에도 보존되도록 메시지에 둔다.
+        var attachInk = false
     }
     @State private var guideChatMessages: [GuideChatMessage] = []
     @State private var guideChatInput = ""
@@ -472,10 +476,16 @@ struct PdfViewerView: View {
     /// 연습문제와 달리 자동 스크랩하지 않고 채팅에 머문다(설명/확인 성격 → 대화를 이어갈 여지).
     /// 합성 이미지는 DB에서 읽으므로, 디바운스 저장을 기다리지 않게 먼저 commit으로 최신 잉크를 flush한다.
     private func askHandwriting() {
-        guard noteId != nil, inkController?.hasInk == true, !guideChatSending else { return }
+        guard let nid = noteId, inkController?.hasInk == true, !guideChatSending else { return }
         inkController?.commitNow()
+        // 이 필기를 현재 페이지의 '마지막 질문'으로 기록 → 변경 없이는 버튼이 다시 뜨지 않게(중복 질문/헛 비전 차단).
+        // commitNow가 방금 쓴 스트로크를 DB로 flush한 직후라, DB가 단일 진실. 해시는 sync blob과 동일 정의(sha256).
+        if let ann = try? db.pdfAnnotation(noteId: nid, page: currentPage), let data = ann.drawingData {
+            inkController?.lastAskedInkHash[currentPage] = DrawingHash.hash(for: data)
+            inkController?.inkChangedSinceAsk = false
+        }
         loadPageGuide()   // showGuide=true + 세션(동기)·가이드(비동기) 로드
-        sendGuideChat(overrideText: ChatQuickAction.handwritingPrompt)
+        sendGuideChat(overrideText: ChatQuickAction.handwritingPrompt, attachInk: true)
     }
 
     /// '선택 질문' 퀵액션(라이브 모드) — 선택한 본문 구절을 selected_text로 실어 페이지 가이드 채팅을 연다.
@@ -527,7 +537,7 @@ struct PdfViewerView: View {
         return jpeg.base64EncodedString()
     }
 
-    private func sendGuideChat(overrideText: String? = nil, quote: String? = nil) {
+    private func sendGuideChat(overrideText: String? = nil, quote: String? = nil, attachInk: Bool = false) {
         let text = (overrideText ?? guideChatInput).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // 퀵액션 전송은 입력창을 비우지 않는다(유저가 치던 내용 보존).
@@ -535,6 +545,7 @@ struct PdfViewerView: View {
 
         var userMsg = GuideChatMessage(role: "user", content: text)
         userMsg.quote = quote   // 라이브 '선택 질문'이면 인용 구절을 버블에 표시(세션 한정)
+        userMsg.attachInk = attachInk   // '필기 질문' 턴만 true → deliverGuideChat이 이 턴에만 합성 이미지 첨부
         // 세션 보장 + user 메시지 영속화 (§4.6). 가이드 본문은 세션 첫 assistant 메시지로 저장된다.
         let guideBody = pageGuide.map { $0.content ?? $0.topic }
         let sid = ensureGuideSession(kind: .pageGuide, anchorPage: currentPage,
@@ -574,10 +585,18 @@ struct PdfViewerView: View {
         let parentId = isChapter ? chapterGuide?.feedbackId : pageGuide?.feedbackId
         let tag = isChapter ? "chapter-chat" : "guide-chat"
         let messageText = userMsg.content
-        // 현재 페이지에 필기가 있으면 페이지+잉크 합성 이미지를 첨부(길 B). main에서 합성(UIKit/db 접근).
-        let annotationImage = renderPageWithInkBase64()
+        // '필기 질문' 버튼으로 시작한 턴만 페이지+잉크 합성 이미지를 첨부(길 B). 일반 채팅·선택 질문·연습·챕터 채팅은
+        // 이미지 없이 텍스트만 — history가 텍스트 전용이라, 모델이 필기를 봐야 하는 턴(=명시적 필기 질문)에만 이미지를 싣는다.
+        let annotationImage = userMsg.attachInk ? renderPageWithInkBase64() : nil
         // 라이브 모드 '선택 질문'으로 시작한 페이지 가이드 채팅이면 선택 구절을 함께 전달(챕터 채팅엔 미적용).
         let selectedPassage = isChapter ? nil : selectedTextForChat
+        // 진단 계측: '선택 질문'인데 selectedPassage가 nil/빈값이면 LLM이 "선택한 부분 확인 불가"로 답한다.
+        // BE의 `Feedback chat: … sel=…` 로그와 대조해 누락 지점(FE 미전송 vs BE/LLM 드롭)을 가른다.
+        appLog(tag, "deliver", [
+            "hasQuote": "\(userMsg.quote != nil)",
+            "selLen": "\(selectedPassage?.count ?? -1)",
+            "attachInk": "\(userMsg.attachInk)",
+        ])
 
         Task {
             do {
@@ -1374,8 +1393,15 @@ final class PdfInkController {
     weak var canvas: PKCanvasView?
     var canUndo = false
     var canRedo = false
-    /// 현재 페이지 캔버스에 스트로크가 있는지 — PDF 하단 바 '필기 질문' 버튼 노출 조건(dirty 어포던스).
+    /// 현재 페이지 캔버스에 스트로크가 있는지 — PDF 하단 바 '필기 질문' 버튼 노출의 1차 조건(dirty 어포던스).
     var hasInk = false
+    /// 페이지별 '필기 질문'으로 마지막에 보낸 필기의 content hash(sha256, sync blob과 동일 정의).
+    /// 현재 페이지 필기 해시가 이 값과 같으면 버튼을 숨긴다 — 안 바뀐 필기를 또 묻지 않게.
+    var lastAskedInkHash: [Int: String] = [:]
+    /// 현재 페이지 필기가 마지막 '필기 질문' 대비 바뀌었는지 — 버튼 노출의 2차 조건. hasInk와 같은 경로(refresh/페이지 로드/
+    /// drawingDidChange)로 갱신돼 동일하게 반응한다. drawing 변경 콜백에선 해시 없이 true만 세팅(직렬화 비용 회피),
+    /// 정밀 비교(=직전과 동일 필기)는 페이지 로드 때 1회만.
+    var inkChangedSinceAsk = true
     /// 입력 레이어(Coordinator)의 즉시 저장(commit)을 강제 호출 — '필기 질문' 시 합성 이미지 직전,
     /// 0.6s 디바운스 저장을 기다리지 않고 방금 쓴 스트로크를 DB로 flush하기 위한 브리지.
     var requestCommit: (() -> Void)?
@@ -1548,14 +1574,20 @@ struct PdfInkInputView: UIViewRepresentable {
                 host.contentSize = pb.size
                 // 페이지 정적 렌더(2x). PencilKit 잉크는 벡터라 줌해도 선명.
                 imageView.image = page.thumbnail(of: CGSize(width: pb.width * 2, height: pb.height * 2), for: .cropBox)
+                var loadedInkHash: String? = nil
                 if let ann = try? db.pdfAnnotation(noteId: noteId, page: pageNum),
                    let data = ann.drawingData, let drawing = try? PKDrawing(data: data) {
                     canvas.drawing = drawing
+                    loadedInkHash = DrawingHash.hash(for: data)   // 페이지당 1회만 해시(직렬화 비용 회피)
                 } else {
                     canvas.drawing = PKDrawing()
                 }
                 loaded = true
                 controller?.refresh()   // 페이지 로드 시 drawing 재할당 → undo 스택 비워짐. 버튼 disabled 동기화.
+                // 이 페이지 필기가 직전 '필기 질문' 때와 동일하면 버튼 숨김(중복 질문 차단). 다른 페이지로 갔다 와도 정확.
+                if let c = controller {
+                    c.inkChangedSinceAsk = loadedInkHash != nil && loadedInkHash != c.lastAskedInkHash[pageNum]
+                }
                 appLogDebug("ink", "input render", ["page": "\(pageNum)", "pageSize": "\(pb.size)", "loaded": "\(canvas.drawing.strokes.count)"])
             }
 
@@ -1634,6 +1666,7 @@ struct PdfInkInputView: UIViewRepresentable {
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard loaded else { return }   // 초기 drawing 주입에 의한 콜백 무시
             controller?.refresh()          // 스트로크/undo/redo 후 버튼 상태 갱신
+            controller?.inkChangedSinceAsk = true   // 필기 변경 → '필기 질문' 버튼 재등장(해시는 안 침 — 직렬화 비용 회피)
             scheduleSave()
         }
 

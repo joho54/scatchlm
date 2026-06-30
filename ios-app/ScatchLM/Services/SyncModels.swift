@@ -77,6 +77,7 @@ struct SyncChatDTO: Codable {
     var content: String
     var server_message_id: String?
     var user_rating: Int?
+    var quote: String?          // 라이브 '선택 질문' 인용 구절 (페이지 가이드 채팅)
     var created_at: String
 }
 

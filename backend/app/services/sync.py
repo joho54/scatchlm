@@ -63,7 +63,7 @@ ENTITY_FIELDS: dict[str, list[str]] = {
     ],
     "chat_messages": [
         "session_id", "feedback_id", "role", "content",
-        "server_message_id", "user_rating", "created_at",
+        "server_message_id", "user_rating", "quote", "created_at",
     ],
 }
 

@@ -407,6 +407,14 @@ final class DatabaseService {
             }
         }
 
+        // v16: feedback_chats.quote — 라이브 '선택 질문'이 인용한 본문 구절을 영속화.
+        // 기존엔 @State 세션 한정이라 시트 닫았다 재진입하면 인용 칩이 사라졌다.
+        migrator.registerMigration("v16_chat_message_quote") { db in
+            try db.alter(table: "feedback_chats") { t in
+                t.add(column: "quote", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

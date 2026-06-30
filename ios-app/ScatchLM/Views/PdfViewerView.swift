@@ -552,7 +552,7 @@ struct PdfViewerView: View {
                                      bodyServerId: pageGuide?.feedbackId)
         if let sid {
             try? db.setSessionTitleIfEmpty(sessionId: sid, title: text)
-            userMsg.persistedId = persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil)
+            userMsg.persistedId = persistGuideMessage(sessionId: sid, role: "user", content: text, serverId: nil, quote: quote)
         }
         guideChatMessages.append(userMsg)
         deliverGuideChat(turnId: userMsg.id, isChapter: false)
@@ -979,8 +979,10 @@ struct PdfViewerView: View {
             return
         }
         let msgs = (try? db.messages(sessionId: session.id)) ?? []
-        let turns = msgs.dropFirst().map {
-            GuideChatMessage(role: $0.role, content: $0.content, serverId: $0.serverMessageId, rating: $0.userRating)
+        let turns = msgs.dropFirst().map { rec -> GuideChatMessage in
+            var m = GuideChatMessage(role: rec.role, content: rec.content, serverId: rec.serverMessageId, rating: rec.userRating)
+            m.quote = rec.quote
+            return m
         }
         if kind == .pageGuide { guideSessionId = session.id; guideChatMessages = turns }
         else { chapterSessionId = session.id; chapterChatMessages = turns }
@@ -1008,10 +1010,10 @@ struct PdfViewerView: View {
     }
 
     @discardableResult
-    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?) -> String? {
+    private func persistGuideMessage(sessionId: String, role: String, content: String, serverId: String?, quote: String? = nil) -> String? {
         var msg = ChatMessageRecord(
             id: UUID().uuidString, sessionId: sessionId, role: role, content: content,
-            createdAt: Date(), serverMessageId: serverId
+            createdAt: Date(), serverMessageId: serverId, quote: quote
         )
         do { try db.saveChatMessage(&msg); return msg.id }
         catch { appLogError("guide-chat", "persist message failed", ["error": "\(error)"]); return nil }

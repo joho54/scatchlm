@@ -468,6 +468,7 @@ final class SyncService: @unchecked Sendable {
             id: c.id, updated_at: SyncDate.string(from: c.updatedAt), deleted: c.deleted,
             session_id: c.sessionId, feedback_id: c.feedbackId, role: c.role, content: c.content,
             server_message_id: c.serverMessageId, user_rating: c.userRating,
+            quote: c.quote,
             created_at: SyncDate.string(from: c.createdAt)
         )
     }
@@ -477,6 +478,7 @@ final class SyncService: @unchecked Sendable {
             id: d.id, sessionId: d.session_id, feedbackId: d.feedback_id, role: d.role, content: d.content,
             createdAt: SyncDate.date(from: d.created_at) ?? Date(),
             serverMessageId: d.server_message_id, userRating: d.user_rating, userRatingSyncedAt: nil,
+            quote: d.quote,
             userId: userId, updatedAt: SyncDate.date(from: d.updated_at) ?? Date(),
             deleted: d.deleted, dirty: false
         )

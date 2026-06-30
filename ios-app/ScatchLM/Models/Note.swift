@@ -523,6 +523,8 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     var serverMessageId: String?
     var userRating: Int?
     var userRatingSyncedAt: Date?
+    /// 라이브 '선택 질문'이 인용한 본문 구절(버블 상단 인용 칩). user 메시지에만 존재.
+    var quote: String?
     // sync 메타
     var userId: String
     var updatedAt: Date
@@ -537,6 +539,7 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         case serverMessageId = "server_message_id"
         case userRating = "user_rating"
         case userRatingSyncedAt = "user_rating_synced_at"
+        case quote
         case userId = "user_id"
         case updatedAt = "updated_at"
         case deleted, dirty
@@ -550,6 +553,7 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         case serverMessageId = "server_message_id"
         case userRating = "user_rating"
         case userRatingSyncedAt = "user_rating_synced_at"
+        case quote
         case userId = "user_id"
         case updatedAt = "updated_at"
         case deleted, dirty
@@ -565,6 +569,7 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         serverMessageId: String? = nil,
         userRating: Int? = nil,
         userRatingSyncedAt: Date? = nil,
+        quote: String? = nil,
         userId: String = "",
         updatedAt: Date = Date(),
         deleted: Bool = false,
@@ -579,6 +584,7 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
         self.serverMessageId = serverMessageId
         self.userRating = userRating
         self.userRatingSyncedAt = userRatingSyncedAt
+        self.quote = quote
         self.userId = userId
         self.updatedAt = updatedAt
         self.deleted = deleted

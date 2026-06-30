@@ -172,6 +172,8 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     server_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
     user_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 라이브 '선택 질문'이 인용한 본문 구절(버블 인용 칩). 표시용, user 메시지에만 존재.
+    quote: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
